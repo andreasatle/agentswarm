@@ -1,27 +1,101 @@
 # AgentSwarm
 
-Independent teams (executors, testers, reviewers, …) watch a shared per-project blackboard and move
-work products — git branches — up maturity levels through gates. LLMs produce, Jev decides,
-deterministic code controls. See [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md) for the design.
+Independent teams of agents (an executor, an integration tester, a red team, a planner, ...) move work up a
+ladder of maturity levels, from a branch per task to production, through gates. Teams never call each other:
+each watches one level of a shared, append-only blackboard and reacts to its state, so there is nothing to
+deadlock. **Language models produce, Jev decides, plain code controls**, and every one of Jev's decisions is
+logged and scored against what turned out to be true.
+
+- [docs/TUTORIAL.md](docs/TUTORIAL.md): the system one layer at a time, with commands to run.
+- [docs/REFERENCE.md](docs/REFERENCE.md): every config key, event, team, judge, report and command.
+- [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md) and [docs/design/](docs/design/): the design and every
+  decision made while building it; [docs/BACKLOG.md](docs/BACKLOG.md): what was postponed, and why.
+
+Status: build-plan Phases 0–3 done, Phase 4 (Jev acting) finishing, Phases 5 (documents) and 6 (several
+projects at once) designed.
+
+## Quick tutorial
+
+**1. Install.**
+
+```bash
+uv sync --all-extras
+```
+
+**2. A first run, with nothing else needed.** A fake executor writes each task to a note; the gate checks the
+notes and merges them into `experimental`:
+
+```bash
+uv run agentswarm run examples/quickstart/project.yaml --root ~/agentswarm-runs/quickstart --task "Write a note"
+```
+
+```bash
+git -C ~/agentswarm-runs/quickstart/repo log --oneline --graph --all
+```
+
+Every change is an event on the board (`blackboard.sqlite`), and every artifact is a branch merged with its
+own merge commit.
+
+**3. A real model, in a sandbox.** Pull a model that makes real tool calls, and build the sandbox image (code
+a model wrote always runs in Docker, without network):
+
+```bash
+ollama pull gemma4:e4b
+```
+
+```bash
+docker build -t agentswarm/sandbox-python:3.13 -f docker/sandbox-python.Dockerfile docker
+```
+
+```bash
+uv run agentswarm run examples/greeter/evaluation/project.yaml --root ~/agentswarm-runs/greeter-1 --task "Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!', with tests."
+```
+
+Any LangChain provider works: change `model:` in the project config (`openai:...`, `anthropic:...`).
+
+**4. Teams, a judge and a release train.** Put `TYPESAFE_API_KEY=...` in `.env` (git-ignored). The greeter
+project uses the software preset: an executor, a gate judged by Jev (in shadow mode, logged but never
+blocking), an integration tester and a red team, a release train to `candidate`, and a production gate that
+asks a person:
+
+```bash
+uv run agentswarm run examples/greeter/project.yaml --root ~/agentswarm-runs/greeter-2 --task "Add two functions to greeter.py: farewell(name) and shout(name), with tests."
+```
+
+```bash
+uv run agentswarm escalations examples/greeter/project.yaml --root ~/agentswarm-runs/greeter-2
+```
+
+**5. Measure the judge.** Run a task suite whose ground truth is automatic (hidden tests, mutation testing,
+planted faults), then read the calibration, tune thresholds, and audit the gate with Jev acting:
+
+```bash
+uv run agentswarm evaluate examples/greeter/evaluation/suite.yaml --workdir ~/agentswarm-runs/eval-1
+```
+
+```bash
+uv run agentswarm tune ~/agentswarm-runs/eval-1/decisions.sqlite
+```
+
+```bash
+uv run agentswarm evaluate examples/greeter/evaluation/hard/suite.yaml --workdir ~/agentswarm-runs/eval-2 --active "gate:*"
+```
+
+```bash
+uv run agentswarm audit ~/agentswarm-runs/eval-2/decisions.sqlite
+```
+
+Project roots must be under your home folder, so Docker (Colima, Docker Desktop) can mount them.
 
 ## Development
 
 ```bash
-uv sync
 uv run pytest
-uv run ruff check . && uv run ruff format --check .
-uv run pyright
 ```
-
-## Measuring the judge (Phase 2)
 
 ```bash
-# Run the greeter task suite: every task through the model executor and three scripted variants,
-# judged by Jev in shadow mode, with automatic ground truth. Needs TYPESAFE_API_KEY in this project's
-# .env (git-ignored; the CLI and the tests load it; the Jev model version is set in the project config),
-# Docker with the sandbox image, and the model in examples/greeter/project.yaml.
-uv run agentswarm evaluate examples/greeter/evaluation/suite.yaml --workdir ~/agentswarm-runs/eval-1
-
-uv run agentswarm calibrate ~/agentswarm-runs/eval-1/decisions.sqlite   # the report again
-uv run agentswarm label ~/agentswarm-runs/eval-1/decisions.sqlite        # spot-check ~20 by hand
+uv run ruff format . && uv run ruff check . && uv run pyright
 ```
+
+Opt-in live tests: `-m docker`, `-m live` (with `AGENTSWARM_LIVE_MODEL=ollama:gemma4:e4b`), `-m jev` (with
+`AGENTSWARM_JEV_MODEL=jev-latest`). Conventions for contributors and coding agents: [AGENTS.md](AGENTS.md).
