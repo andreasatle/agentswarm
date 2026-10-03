@@ -154,6 +154,17 @@ to define `models.coder`; a preset never picks a provider) and the first gate wi
 Gates above `experimental` join the preset in step 6, once release-train promotion exists. Verified
 that the preset YAML ships in the built wheel.
 
+**Step 2 (findings and sign-offs).**
+- Finding ids are random (`f-` + 12 hex), assigned when a finding is created, so teams never coordinate
+  to number them (G1). Sequential ids like artifacts' would need the board's head at creation time.
+- `Finding.resolved_by` is gone: findings are immutable and resolution is the `FindingResolved` event.
+- A promotion now closes only the findings recorded at the level it leaves (Phase 2's rule was "all",
+  which is the same thing while findings only existed at the lowest level).
+- `BoardViews.version` now counts only changes to the artifact itself (created, commit, promoted,
+  rejected, escalated). Sign-offs and analyzer findings don't count: otherwise one analyzer signing off
+  would make every other analyzer re-examine an unchanged artifact. `SignedOff` records the version it
+  saw, and `signed_off(artifact, team)` is true only for the current version.
+
 ## Steps (one commit each)
 
 **3a**

@@ -19,9 +19,11 @@ from agentswarm.core.domain import (
     Escalated,
     Event,
     FindingAdded,
+    FindingResolved,
     Promoted,
     Rejected,
     Released,
+    SignedOff,
 )
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -49,7 +51,12 @@ class Report:
             case CommitPushed():
                 return f"commit {event.commit[:10]}"
             case FindingAdded():
-                return f"finding ({event.finding.kind}): {event.finding.detail}"
+                return f"finding {event.finding.id} ({event.finding.kind}): {event.finding.detail}"
+            case FindingResolved():
+                by = f" by {event.resolved_by}" if event.resolved_by else ""
+                return f"finding {event.finding} resolved{by}: {event.reason}"
+            case SignedOff():
+                return f"signed off by {event.team}"
             case Promoted():
                 return f"promoted {event.from_level} -> {event.to_level}"
             case Rejected():

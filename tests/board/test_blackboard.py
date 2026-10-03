@@ -9,10 +9,13 @@ from agentswarm.core.domain import (
     Claimed,
     DecisionId,
     Escalated,
+    Finding,
     FindingAdded,
+    FindingResolved,
     Promoted,
     Rejected,
     Released,
+    SignedOff,
 )
 from tests.support.samples import Samples
 
@@ -71,9 +74,40 @@ class TestBlackboardViews:
 
     def test_resolved_findings_are_not_open(self) -> None:
         b = Board()
-        resolved = Samples.finding().model_copy(update={"resolved_by": Samples.B})
-        views = b.board.append([Samples.created(), FindingAdded(finding=resolved)])
-        assert views.open_findings(Samples.A) == []
+        kept, fixed = Samples.finding(finding="f-kept"), Samples.finding(finding="f-fixed")
+        b.board.append([Samples.created(), FindingAdded(finding=kept), FindingAdded(finding=fixed)])
+        views = b.board.append(
+            [
+                FindingResolved(
+                    artifact=Samples.A, finding=fixed.id, resolved_by=Samples.B, reason="fixed in a-0002"
+                )
+            ]
+        )
+        assert views.open_findings(Samples.A) == [kept]
+
+    def test_promotion_closes_only_the_findings_of_the_level_it_leaves(self) -> None:
+        b = Board()
+        at_raw = Samples.finding(finding="f-raw")
+        at_experimental = Samples.finding(level=Samples.EXPERIMENTAL, finding="f-exp")
+        b.board.append(
+            [Samples.created(), FindingAdded(finding=at_raw), FindingAdded(finding=at_experimental)]
+        )
+        views = b.board.append([b.promoted()])
+        assert views.open_findings(Samples.A) == [at_experimental]
+
+    def test_findings_get_unique_ids_without_coordination(self) -> None:
+        a = Finding.model_validate(Samples.finding().model_dump(exclude={"id"}))
+        b = Finding.model_validate(Samples.finding().model_dump(exclude={"id"}))
+        assert a.id != b.id and a.id.startswith("f-")
+
+    def test_a_sign_off_counts_for_the_version_it_saw(self) -> None:
+        b = Board()
+        views = b.board.append([Samples.created()])
+        b.board.append([SignedOff(artifact=Samples.A, team=Samples.TESTER, version=views.version(Samples.A))])
+        assert views.signed_off(Samples.A, Samples.TESTER)
+        assert not views.signed_off(Samples.A, Samples.EXECUTOR)
+        b.board.append([Samples.commit()])  # the artifact changed: the sign-off is for an old version
+        assert not views.signed_off(Samples.A, Samples.TESTER)
 
     def test_a_commit_is_unjudged_until_a_gate_rules(self) -> None:
         b = Board()
@@ -106,11 +140,18 @@ class TestBlackboardViews:
         assert views.history(Samples.A) == [Samples.created(), Samples.commit()]
         assert views.history(Samples.B) == [Samples.created(Samples.B)]
 
-    def test_version_ignores_claims_and_releases(self) -> None:
+    def test_version_changes_only_when_the_artifact_does(self) -> None:
         b = Board()
         views = b.board.append([Samples.created(), Samples.commit()])
         assert views.version(Samples.A) == 2
-        views = b.board.append([b.claim(), Released(artifact=Samples.A, team=Samples.EXECUTOR)])
+        views = b.board.append(
+            [
+                b.claim(),
+                Released(artifact=Samples.A, team=Samples.EXECUTOR),
+                SignedOff(artifact=Samples.A, team=Samples.TESTER, version=2),
+                FindingAdded(finding=Samples.finding()),
+            ]
+        )
         assert views.version(Samples.A) == 2
 
 

@@ -1,5 +1,6 @@
 """Domain model (proposal §7): artifacts, findings, claims and the events that change the blackboard."""
 
+import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal, NewType
@@ -10,6 +11,7 @@ ArtifactId = NewType("ArtifactId", str)  # e.g. "a-0042"
 TeamName = NewType("TeamName", str)
 ProjectId = NewType("ProjectId", str)
 DecisionId = NewType("DecisionId", str)
+FindingId = NewType("FindingId", str)  # "f-" + 12 hex digits: unique without coordination between teams
 
 # Levels are per-domain configuration (software: raw → … → production, document: draft → … → published),
 # so they are names validated against the project's level ladder, not a fixed enum.
@@ -50,16 +52,22 @@ class Severity(StrEnum):
     BLOCKER = "blocker"
 
 
-class Finding(Frozen):
-    """Typed feedback. A rejected gate always produces at least one."""
+class FindingIds:
+    @staticmethod
+    def new() -> FindingId:
+        return FindingId(f"f-{uuid.uuid4().hex[:12]}")
 
+
+class Finding(Frozen):
+    """Typed feedback. A rejected gate always produces at least one. Resolved by a FindingResolved event."""
+
+    id: FindingId = Field(default_factory=FindingIds.new)
     artifact: ArtifactId
     level: Level
     team: TeamName
     kind: FindingKind
     severity: Severity
     detail: str  # where and why; see proposal §11.6 for where it comes from
-    resolved_by: ArtifactId | None = None
 
 
 class Claim(Frozen):
@@ -121,6 +129,31 @@ class FindingAdded(Frozen):
         return self.finding.artifact
 
 
+class FindingResolved(Frozen):
+    kind: Literal["finding_resolved"] = "finding_resolved"
+    artifact: ArtifactId  # the artifact the finding is about
+    finding: FindingId
+    resolved_by: ArtifactId | None  # the fix artifact, if one did it
+    reason: str
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
+class SignedOff(Frozen):
+    """An analyzer team has examined this version of the artifact, with or without findings."""
+
+    kind: Literal["signed_off"] = "signed_off"
+    artifact: ArtifactId
+    team: TeamName
+    version: int  # the artifact's version (BoardViews.version) when examined
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class Promoted(Frozen):
     kind: Literal["promoted"] = "promoted"
     artifact: ArtifactId
@@ -156,7 +189,16 @@ class Escalated(Frozen):
 
 
 type Event = Annotated[
-    ArtifactCreated | Claimed | Released | CommitPushed | FindingAdded | Promoted | Rejected | Escalated,
+    ArtifactCreated
+    | Claimed
+    | Released
+    | CommitPushed
+    | FindingAdded
+    | FindingResolved
+    | SignedOff
+    | Promoted
+    | Rejected
+    | Escalated,
     Field(discriminator="kind"),
 ]
 

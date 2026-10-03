@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import assert_never
+from typing import ClassVar, assert_never
 
 from agentswarm.board.eventlog import EventLog
 from agentswarm.core.domain import (
@@ -18,10 +18,14 @@ from agentswarm.core.domain import (
     Event,
     Finding,
     FindingAdded,
+    FindingId,
+    FindingResolved,
     Level,
     Promoted,
     Rejected,
     Released,
+    SignedOff,
+    TeamName,
 )
 
 
@@ -30,7 +34,7 @@ class BoardViews:
     """Every view of the board, as a fold over the log. Two folds over the same log compare equal.
 
     Rules that the fold encodes:
-    - A promotion moves the artifact to its new level and closes its open findings.
+    - A promotion moves the artifact to its new level and closes the findings recorded at the level it left.
     - A rejection replaces the open findings with the gate's findings: the gate's verdict is current.
     - A commit is "unjudged" until a gate promotes, rejects or escalates the artifact.
     - A release only removes the releasing team's own claim.
@@ -43,6 +47,10 @@ class BoardViews:
     _histories: dict[ArtifactId, list[Envelope]] = field(default_factory=dict[ArtifactId, list[Envelope]])
     _last_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _unjudged: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
+    _resolved: set[FindingId] = field(default_factory=set[FindingId])
+    _sign_offs: dict[ArtifactId, dict[TeamName, int]] = field(
+        default_factory=dict[ArtifactId, dict[TeamName, int]]
+    )
 
     def apply(self, envelope: Envelope) -> None:
         if envelope.seq != self.seq + 1:
@@ -65,11 +73,17 @@ class BoardViews:
                 self._unjudged[event.artifact] = event.commit
             case FindingAdded():
                 self._findings.setdefault(event.finding.artifact, []).append(event.finding)
+            case FindingResolved():
+                self._resolved.add(event.finding)
+            case SignedOff():
+                self._sign_offs.setdefault(event.artifact, {})[event.team] = event.version
             case Promoted():
                 self._artifacts[event.artifact] = self._artifacts[event.artifact].model_copy(
                     update={"level": event.to_level}
                 )
-                self._findings.pop(event.artifact, None)
+                self._findings[event.artifact] = [
+                    f for f in self._findings.get(event.artifact, []) if f.level != event.from_level
+                ]
                 self._unjudged.pop(event.artifact, None)
             case Rejected():
                 self._findings[event.artifact] = list(event.findings)
@@ -90,7 +104,11 @@ class BoardViews:
         return [a for a in self._artifacts.values() if a.level == level]
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
-        return [f for f in self._findings.get(id, []) if f.resolved_by is None]
+        return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
+
+    def signed_off(self, id: ArtifactId, team: TeamName) -> bool:
+        """Whether `team` has signed off the artifact's current version."""
+        return self._sign_offs.get(id, {}).get(team) == self.version(id)
 
     def claim_on(self, id: ArtifactId, now: datetime) -> Claim | None:
         claim = self._claims.get(id)
@@ -109,13 +127,14 @@ class BoardViews:
         """The latest commit no gate has ruled on yet, if any."""
         return self._unjudged.get(id)
 
-    def version(self, id: ArtifactId) -> int:
-        """The seq of the artifact's last event other than claims and releases.
+    # Events that change the artifact itself. Claims, releases, sign-offs and findings from analyzers don't:
+    # if they did, one analyzer signing off would make every other analyzer look at the artifact again.
+    CHANGES: ClassVar[tuple[type, ...]] = (ArtifactCreated, CommitPushed, Promoted, Rejected, Escalated)
 
-        It changes exactly when there is something new to react to, so teams key on it to stay idempotent.
-        """
+    def version(self, id: ArtifactId) -> int:
+        """The seq of the artifact's last change (see CHANGES); teams key on it to act once per change."""
         for envelope in reversed(self._histories.get(id, [])):
-            if not isinstance(envelope.event, Claimed | Released):
+            if isinstance(envelope.event, self.CHANGES):
                 return envelope.seq
         return 0
 

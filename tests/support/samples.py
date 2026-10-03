@@ -8,6 +8,7 @@ from agentswarm.core.domain import (
     ArtifactId,
     CommitPushed,
     Finding,
+    FindingId,
     FindingKind,
     Level,
     ProjectId,
@@ -41,8 +42,9 @@ class Samples:
         return CommitPushed(artifact=id, commit=sha)
 
     @classmethod
-    def finding(cls, id: ArtifactId = A, level: Level = RAW) -> Finding:
+    def finding(cls, id: ArtifactId = A, level: Level = RAW, finding: str = "f-sample") -> Finding:
         return Finding(
+            id=FindingId(finding),
             artifact=id,
             level=level,
             team=cls.EXECUTOR,
