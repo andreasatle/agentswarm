@@ -146,3 +146,9 @@ those points active and prints the audit after the calibration report.
 executor's tier is the number of rejections in the artifact's history, capped at the strongest tier;
 `CommitPushed.model` records the tier's model name (`None` for single-model teams built directly). Other
 teams take one model, as before; routing by a Jev Choice question waits for Choice policies.
+
+**Step 7 (harder suite).** `examples/greeter/evaluation/hard/suite.yaml`: ten tasks with exact rules and
+edge cases (Roman numerals, ordinals, a centred banner, strict parsing, list joining, time-of-day
+boundaries, counting with a pattern, careful name capitalisation, formal initials with particles, a
+template registry class). Same project, layout and safeguard as the first suite: all 24 reference
+solutions pass their hidden tests and the seed fails them.

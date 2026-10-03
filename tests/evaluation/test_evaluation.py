@@ -17,16 +17,17 @@ from tests.support.suites import EXAMPLES, EXECUTOR_ONLY, FarewellSuite, Greeter
 class TestGreeterSuite:
     """Hidden tests are ground truth, so they are checked: right answers pass, the untouched seed fails."""
 
-    @pytest.mark.parametrize("task_id", GreeterSuite.ids())
+    @pytest.mark.parametrize("task_id", [t.id for t in GreeterSuite.all_tasks()])
     def test_reference_solution_passes_and_seed_fails(self, tmp_path: Path, task_id: str) -> None:
         task = GreeterSuite.task(task_id)
-        reference = (EXAMPLES / "evaluation" / "reference" / f"{task_id}.py").read_text()
+        reference = task.reference["greeter.py"].read_text()
         seed = (EXAMPLES / "seed" / "greeter.py").read_text()
         assert GreeterSuite.hidden_tests_pass(tmp_path / "ref", task, reference)
         assert not GreeterSuite.hidden_tests_pass(tmp_path / "seed", task, seed)
 
     def test_has_enough_tasks_including_multi_part_ones(self) -> None:
-        assert len(GreeterSuite.SUITE.tasks) >= 10
+        assert len(GreeterSuite.SUITE.tasks) >= 10 and len(GreeterSuite.HARD.tasks) >= 10
+        assert len({t.id for t in GreeterSuite.all_tasks()}) == len(GreeterSuite.all_tasks())  # ids unique
         assert {"farewell-and-shout", "robust-hello"} <= set(GreeterSuite.ids())
 
 

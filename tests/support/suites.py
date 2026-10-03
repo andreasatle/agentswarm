@@ -27,6 +27,7 @@ class GreeterSuite:
     """Runs one task's hidden tests against a given greeter.py, on the host."""
 
     SUITE = TaskSuite.load(GREETER_SUITE)
+    HARD = TaskSuite.load(GREETER_SUITE.parent / "hard" / "suite.yaml")
 
     @classmethod
     def hidden_tests_pass(cls, tmp_path: Path, task: EvalTask, greeter: str) -> bool:
@@ -43,8 +44,13 @@ class GreeterSuite:
         return [t.id for t in cls.SUITE.tasks]
 
     @classmethod
+    def all_tasks(cls) -> list[EvalTask]:
+        """Every task of both greeter suites."""
+        return [*cls.SUITE.tasks, *cls.HARD.tasks]
+
+    @classmethod
     def task(cls, id: str) -> EvalTask:
-        return next(t for t in cls.SUITE.tasks if t.id == id)
+        return next(t for t in cls.all_tasks() if t.id == id)
 
 
 class TinySuite:

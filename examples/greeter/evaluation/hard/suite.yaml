@@ -1,0 +1,98 @@
+# The harder greeter suite (Phase 4): rules and edge cases a small model gets wrong some of the time,
+# so model runs give negative examples too. Same project and layout as ../suite.yaml.
+project: ../project.yaml
+judge: ChangeReadiness
+test_command:
+- python
+- -m
+- pytest
+- -q
+- -p
+- no:cacheprovider
+tasks:
+- id: roman-age
+  task: Add a function greet_with_age(name, age) to greeter.py that returns 'Hello, <name>! You are <age>.' with
+    the age written in Roman numerals (greet_with_age('Ada', 42) returns 'Hello, Ada! You are XLII.'). Ages must
+    be whole numbers from 1 to 3999; anything else raises ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_roman_age.py
+  reference:
+    greeter.py: reference/roman-age.py
+- id: banner
+  task: 'Add a function banner(name, width) to greeter.py that returns the hello greeting in a box of ''*'' characters:
+    three lines joined by a newline, the first and last being width stars, the middle being a star, the greeting
+    centred in width - 2 characters with str.center, and a star. If width is less than the greeting''s length plus
+    4, raise ValueError. Add tests.'
+  hidden_tests:
+  - hidden/test_banner.py
+  reference:
+    greeter.py: reference/banner.py
+- id: parse-greeting
+  task: Add a function parse_greeting(text) to greeter.py that takes a greeting in exactly the form 'Hello, <name>!'
+    and returns the name. The name must be non-empty and contain no '!'. Anything else, including extra spaces or
+    a missing comma, raises ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_parse_greeting.py
+  reference:
+    greeter.py: reference/parse-greeting.py
+- id: ordinal
+  task: 'Add a function greet_nth(name, n) to greeter.py that returns ''Hello, <name>, you are <n><suffix>!'' with
+    the English ordinal suffix: 1st, 2nd, 3rd, 4th, but 11th, 12th and 13th, then 21st, 22nd, 23rd, 101st, 111th
+    and so on (greet_nth(''Ada'', 22) returns ''Hello, Ada, you are 22nd!''). n is a positive whole number; otherwise
+    raise ValueError. Add tests.'
+  hidden_tests:
+  - hidden/test_ordinal.py
+  reference:
+    greeter.py: reference/ordinal.py
+- id: formal-initials
+  task: Add a function formal_initials(full_name) to greeter.py that returns the first letter of each word followed
+    by a dot, separated by single spaces. The particles van, von, de, da and der keep a lower-case letter; every
+    other word gets an upper-case letter (formal_initials('Ludwig van Beethoven') returns 'L. v. B.', formal_initials('ada
+    lovelace') returns 'A. L.'). Add tests.
+  hidden_tests:
+  - hidden/test_formal_initials.py
+  reference:
+    greeter.py: reference/formal-initials.py
+- id: greet-many
+  task: 'Add a function greet_many(names) to greeter.py: one name gives ''Hello, Ada!'', two give ''Hello, Ada and
+    Grace!'', three or more give ''Hello, Ada, Grace and Alan!'' (commas between all but the last two, no comma
+    before ''and''). An empty list raises ValueError. Add tests.'
+  hidden_tests:
+  - hidden/test_greet_many.py
+  reference:
+    greeter.py: reference/greet-many.py
+- id: time-of-day
+  task: Add a function timed_greeting(name, hour) to greeter.py. For hours 5 to 11 it returns 'Good morning, <name>!',
+    12 to 17 'Good afternoon, <name>!', 18 to 21 'Good evening, <name>!', and 22 to 4 (wrapping past midnight) 'Good
+    night, <name>!'. Hours outside 0 to 23 raise ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_time_of_day.py
+  reference:
+    greeter.py: reference/time-of-day.py
+- id: count-greetings
+  task: Add a function count_greetings(text) to greeter.py that counts how many times text contains a greeting of
+    the form 'Hello, <name>!' where the name is one or more letters only (count_greetings('Hello, Ada! hi Hello,
+    Bob!') returns 2; 'Hello, !' and 'Hello, R2D2!' do not count). Add tests.
+  hidden_tests:
+  - hidden/test_count_greetings.py
+  reference:
+    greeter.py: reference/count-greetings.py
+- id: smart-names
+  task: 'Change hello so it capitalises names carefully: each word starts with an upper-case letter and continues
+    in lower case, except that a name starting with ''mc'' becomes ''Mc'' followed by an upper-case letter (mcdonald
+    -> McDonald), a name starting with "o''" becomes "O''" followed by an upper-case letter (o''neil -> O''Neil),
+    and each part of a hyphenated name is capitalised (jean-luc -> Jean-Luc). hello(''ada lovelace'') returns ''Hello,
+    Ada Lovelace!''. Add tests.'
+  hidden_tests:
+  - hidden/test_smart_names.py
+  reference:
+    greeter.py: reference/smart-names.py
+- id: greeting-book
+  task: 'Add a class GreetingBook to greeter.py. A new book knows one template, ''en'': ''Hello, {name}!''. book.add(language,
+    template) adds or replaces a template and raises ValueError if the template doesn''t contain ''{name}''. book.greet(name,
+    language=''en'') returns the template with the name filled in, and raises KeyError for an unknown language.
+    Add tests.'
+  hidden_tests:
+  - hidden/test_greeting_book.py
+  reference:
+    greeter.py: reference/greeting-book.py
