@@ -63,8 +63,20 @@ class TestProjectConfig:
             {"gates": [{"from": "raw", "to": "experimental", "hard_checks": ["missing"]}]},
             {"levels": ["raw", "experimental"], "gates": [{"from": "experimental", "to": "raw"}]},
             {"unexpected": 1},
+            {"teams": [{"use": "executor", "watches": "raw", "model": "missing"}]},
+            {"teams": [{"use": "executor", "watches": "raw", "checks": ["missing"]}]},
+            {"models": {"m": {"model": "no-provider-prefix"}}},
         ],
-        ids=["unknown-team-level", "unknown-gate-level", "undefined-check", "non-adjacent-gate", "extra-key"],
+        ids=[
+            "unknown-team-level",
+            "unknown-gate-level",
+            "undefined-check",
+            "non-adjacent-gate",
+            "extra-key",
+            "undefined-team-model",
+            "undefined-team-check",
+            "model-without-provider",
+        ],
     )
     def test_rejects_inconsistent_configs(self, overrides: dict[str, Any]) -> None:
         with pytest.raises(ValidationError):

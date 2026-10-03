@@ -15,6 +15,11 @@ The design is in [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md). Section numbers
 - **Typed end to end.** Pydantic models for data, `StrEnum` for closed sets. No string parsing,
   no dict indexing with hand-written keys.
 - **Tests are grouped in classes**, one `Test<Subject>` per class under test.
+- **LangChain and LangGraph stay in adapter modules** (`models.py`, `workers.py`, the executor's toolbox).
+  The rest of the code sees only our own interfaces and Pydantic models. Those adapters may relax
+  pyright's `reportUnknown*` rules with a file-level comment; nowhere else.
+- **Provider agnostic.** Never hard-code a model provider. Models are chosen in the project config as
+  `"<provider>:<model>"` and built with `init_chat_model`; provider packages are optional extras.
 
 ## Commands
 

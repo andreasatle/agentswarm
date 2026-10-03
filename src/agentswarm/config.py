@@ -103,9 +103,29 @@ class GateConfig(Strict):
     requires_human: bool = False
 
 
+class ModelConfig(Strict):
+    """A chat model from any provider LangChain supports, chosen by the user, e.g. "ollama:qwen2.5-coder:7b",
+    "openai:gpt-5" or "anthropic:claude-sonnet-4-6". The provider's package must be installed as an extra.
+    API keys come from the provider's usual environment variables, never from this file."""
+
+    model: str = Field(pattern=r"^[A-Za-z0-9_\-]+:.+$")  # "<provider>:<model name>"
+    temperature: float | None = None
+    max_tokens: int | None = None
+    base_url: str | None = None  # e.g. a remote Ollama server
+    timeout_s: float | None = None
+
+    @property
+    def provider(self) -> str:
+        return self.model.split(":", 1)[0]
+
+
 class TeamConfig(Strict):
     use: str  # name in the team catalog
     watches: Level
+    model: str | None = None  # name of an entry in ProjectConfig.models
+    checks: tuple[str, ...] = ()  # checks the team may run while working, by name
+    max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
+    constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
 
 
 class Budgets(Strict):
@@ -119,6 +139,7 @@ class ProjectConfig(Strict):
     north_star: str
     levels: LevelLadder
     sandbox: SandboxConfig = SandboxConfig()
+    models: dict[str, ModelConfig] = Field(default_factory=dict[str, ModelConfig])
     checks: dict[str, CheckConfig] = Field(default_factory=dict[str, CheckConfig])
     teams: tuple[TeamConfig, ...] = ()
     gates: tuple[GateConfig, ...] = ()
@@ -137,6 +158,11 @@ class ProjectConfig(Strict):
         for team in self.teams:
             if not self.levels.contains(team.watches):
                 raise ValueError(f"team {team.use!r} watches unknown level {team.watches!r}")
+            if team.model is not None and team.model not in self.models:
+                raise ValueError(f"team {team.use!r} uses undefined model {team.model!r}")
+            for name in team.checks:
+                if name not in self.checks:
+                    raise ValueError(f"team {team.use!r} uses undefined check {name!r}")
         for gate in self.gates:
             for level in (gate.from_level, gate.to_level):
                 if not self.levels.contains(level):
