@@ -5,7 +5,6 @@ policy replace FakeDecider in phase 2 behind the same Decider interface.
 """
 
 from collections.abc import Sequence
-from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, Self
 
@@ -22,6 +21,7 @@ from agentswarm.domain import (
     TeamName,
 )
 from agentswarm.git import Worktree
+from agentswarm.policy import Verdict
 from agentswarm.sandbox import Sandbox
 
 
@@ -79,12 +79,6 @@ class CheckSet:
 
     def build(self, names: Sequence[str]) -> list[HardCheck]:
         return [CommandCheck(name, self._configs[name], self._sandbox) for name in names]
-
-
-class Verdict(StrEnum):
-    PROMOTE = "promote"
-    REJECT = "reject"
-    ESCALATE = "escalate"
 
 
 class Judgement(Frozen):

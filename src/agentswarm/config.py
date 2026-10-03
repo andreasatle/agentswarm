@@ -88,8 +88,18 @@ class CheckConfig(Strict):
 
 
 class Threshold(Strict):
-    pass_at: float = Field(alias="pass", ge=0.0, le=1.0)
-    fail_at: float = Field(alias="fail", ge=0.0, le=1.0)
+    """Per question: p(yes) ≥ pass passes, p(yes) ≤ fail fails, anything between is unsure."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", populate_by_name=True)
+
+    pass_at: float = Field(validation_alias="pass", ge=0.0, le=1.0)
+    fail_at: float = Field(validation_alias="fail", ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _fail_below_pass(self) -> Self:
+        if self.fail_at >= self.pass_at:
+            raise ValueError(f"fail ({self.fail_at}) must be below pass ({self.pass_at})")
+        return self
 
 
 class GateConfig(Strict):
