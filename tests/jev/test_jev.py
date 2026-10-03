@@ -159,3 +159,60 @@ class TestJevLive:
         with JevClient.from_env(os.environ["AGENTSWARM_JEV_MODEL"]) as jev:
             response = jev.decide(Task(text="Hello there, nice to meet you!"), Check)
         assert response.answers.is_greeting.noul > 0.5
+
+
+class Flaky:
+    """A fake Jev that fails with the given statuses first, then answers."""
+
+    def __init__(self, *statuses: int) -> None:
+        self._statuses = list(statuses)
+        self.sleeps: list[float] = []
+        self.calls = 0
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        if self._statuses:
+            return httpx.Response(self._statuses.pop(0), text="busy")
+        return Replies().handle(request)
+
+    def client(self, attempts: int = 3) -> JevClient:
+        return JevClient(
+            "jev-latest",
+            "k",
+            transport=httpx.MockTransport(self.handle),
+            attempts=attempts,
+            sleep=self.sleeps.append,
+        )
+
+
+class TestJevRetries:
+    def test_retries_busy_answers_with_growing_waits(self) -> None:
+        flaky = Flaky(503, 429)
+        response = flaky.client().decide(Task(text="x"), Routing)
+        assert response.model == "jev-1.13.0"
+        assert (flaky.calls, flaky.sleeps) == (3, [0.5, 1.0])
+
+    def test_gives_up_after_the_last_attempt(self) -> None:
+        flaky = Flaky(503, 503, 503)
+        with pytest.raises(JevError, match="HTTP 503"):
+            flaky.client().decide(Task(text="x"), Routing)
+        assert flaky.calls == 3
+
+    def test_does_not_retry_requests_that_cannot_succeed(self) -> None:
+        flaky = Flaky(400)
+        with pytest.raises(JevError, match="HTTP 400"):
+            flaky.client().decide(Task(text="x"), Routing)
+        assert (flaky.calls, flaky.sleeps) == (1, [])
+
+    def test_retries_connection_failures(self) -> None:
+        calls: list[int] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            calls.append(1)
+            if len(calls) == 1:
+                raise httpx.ConnectError("refused")
+            return Replies().handle(request)
+
+        client = JevClient("jev-latest", "k", transport=httpx.MockTransport(handle), sleep=lambda _: None)
+        assert client.decide(Task(text="x"), Routing).model == "jev-1.13.0"
+        assert len(calls) == 2

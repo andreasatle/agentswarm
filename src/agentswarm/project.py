@@ -21,7 +21,7 @@ from agentswarm.gating.join import JoinPromoter
 from agentswarm.gating.promotion import Promoter, PromotionLoop
 from agentswarm.gating.train import TrainPromoter
 from agentswarm.jev.client import JevClient
-from agentswarm.judging.deciders import Decider, JevDecider
+from agentswarm.judging.deciders import Decider, FallbackDecider, JevDecider, LLMDecider
 from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
 from agentswarm.judging.judgement import Judgements, ModeTable
 from agentswarm.judging.judges import JudgeCatalog
@@ -101,13 +101,18 @@ class Project:
         needs_judges = (
             any(g.judge for g in config.gates) or any(t.relevance for t in config.teams) or decomposes
         )
+        workers = services.workers or LangChainWorkers(ChatModels(config.models))
         if decider is None and needs_judges:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
             decider = JevDecider(jev)
+            if config.jev.fallback is not None:
+                llm = LLMDecider(
+                    workers.worker(config.jev.fallback, 3), config.models[config.jev.fallback].model
+                )
+                decider = FallbackDecider(decider, llm)
         judgements = Judgements(services.judges, decider, decisions, ModeTable.of(config.jev), clock)
 
-        workers = services.workers or LangChainWorkers(ChatModels(config.models))
         artifacts = ArtifactFactory(board, config.levels)
         resources = TeamResources(
             workers, checks, judgements, artifacts, config.levels, [t.use for t in config.teams]

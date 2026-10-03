@@ -109,3 +109,12 @@ names; `ModeTable` resolves a point's mode, and `Judgement.mode_for(point)` repl
 `Judgement.mode`. Places that decide what to do without an answer (the gate and the join when Jev is
 unreachable) ask the table for their own point. Existing configs are unchanged: no patterns means every
 point uses `jev.mode`.
+
+**Step 2 (retries, fallback).** `JevClient` retries transport errors (timeouts, refused or dropped
+connections) and 429/500/502/503/504 with doubling waits (3 attempts, 0.5 s first); anything else fails
+at once. The HTTPS check is not an HTTP error and is never retried. `LLMDecider` sends the questions and
+the state to a worker that answers yes/no/unsure per question (a fixed output model, so any spec of
+Noul questions works); its decisions are marked `llm:<model>`, and the calibration report skips them.
+Gates are synchronous inside the project's event loop, so the decider runs the async worker on a
+helper thread. `FallbackDecider` logs and falls back when the primary raises `DeciderError`;
+`jev.fallback` names the model.

@@ -81,5 +81,19 @@ class TestCalibrationReport:
         assert relevant.bins[0].fraction_yes == 0.0
         assert report.unlabelled == 1  # in_scope has no outcome
 
+    def test_llm_fallback_decisions_are_left_out(self) -> None:
+        store = InMemoryDecisions()
+        decision = store.record(Drafts.make(Judged.passing()).model_copy(update={"model": "llm:ollama:m"}))
+        store.add_outcome(
+            Outcome(
+                decision=decision.id,
+                field="complete",
+                truth=True,
+                source=OutcomeSource.HIDDEN_TESTS,
+                at=Samples.AT,
+            )
+        )
+        assert CalibrationReport.of(store).questions == ()
+
     def test_an_empty_log_says_so(self) -> None:
         assert CalibrationReport.of(InMemoryDecisions()).render().startswith("No labelled answers yet")

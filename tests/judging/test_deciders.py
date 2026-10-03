@@ -1,12 +1,23 @@
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import pytest
 
 from agentswarm.core.config import ProjectConfig
 from agentswarm.jev.client import JevClient, JevError
-from agentswarm.judging.deciders import DeciderError, FakeDecider, JevDecider
+from agentswarm.judging.deciders import (
+    DeciderError,
+    FakeDecider,
+    FallbackDecider,
+    JevDecider,
+    LLMAnswers,
+    LLMDecider,
+    LLMQuestions,
+    QuestionAnswer,
+)
 from agentswarm.judging.judges import ChangeReadiness, JudgeState
+from agentswarm.llm.workers import FakeWorker, Toolbox
 from agentswarm.project import Project
 from tests.support.projects import Projects
 from tests.support.samples import Judged
@@ -44,7 +55,7 @@ class TestJevDecider:
 
     def test_jev_failures_become_decider_errors(self) -> None:
         transport = httpx.MockTransport(lambda request: httpx.Response(503, text="busy"))
-        decider = JevDecider(JevClient("jev-latest", "key", transport=transport))
+        decider = JevDecider(JevClient("jev-latest", "key", transport=transport, sleep=lambda _: None))
         with pytest.raises(DeciderError, match="HTTP 503"):
             decider.decide(STATE, ChangeReadiness)
 
@@ -62,3 +73,54 @@ class TestProjectJudgeWiring:
         config = Projects.CONFIG | {"gates": [Projects.CONFIG["gates"][0] | {"judge": "NoSuchJudge"}]}
         with pytest.raises(ValueError, match="unknown judge"):
             Projects.open_config(ProjectConfig.model_validate(config), tmp_path)
+
+
+class LLMReplies:
+    @staticmethod
+    def worker(**answers: Literal["yes", "no", "unsure"]) -> FakeWorker:
+        def step(toolbox: Toolbox | None) -> LLMAnswers:
+            return LLMAnswers(answers=tuple(QuestionAnswer(question=q, answer=a) for q, a in answers.items()))
+
+        return FakeWorker([step])
+
+
+class TestLLMDecider:
+    def test_maps_yes_no_unsure_to_fixed_probabilities_and_marks_itself(self) -> None:
+        worker = LLMReplies.worker(in_scope="yes", tests_relevant="unsure", complete="no")
+        answered = LLMDecider(worker, "ollama:m").decide(STATE, ChangeReadiness)
+        assert (
+            answered.answers.in_scope.noul,
+            answered.answers.tests_relevant.noul,
+            answered.answers.complete.noul,
+        ) == (
+            0.95,
+            0.5,
+            0.05,
+        )
+        assert answered.model == "llm:ollama:m" and LLMDecider.is_llm(answered.model)
+        ((_, payload),) = worker.calls
+        assert isinstance(payload, LLMQuestions) and set(payload.questions) == {
+            "in_scope",
+            "tests_relevant",
+            "complete",
+        }
+
+    def test_unanswered_questions_are_an_error(self) -> None:
+        with pytest.raises(DeciderError, match="unanswered"):
+            LLMDecider(LLMReplies.worker(in_scope="yes"), "m").decide(STATE, ChangeReadiness)
+
+    async def test_works_inside_a_running_event_loop(self) -> None:
+        worker = LLMReplies.worker(in_scope="yes", tests_relevant="yes", complete="yes")
+        assert LLMDecider(worker, "m").decide(STATE, ChangeReadiness).answers.complete.noul == 0.95
+
+
+class TestFallbackDecider:
+    def test_uses_the_fallback_only_when_the_primary_fails(self) -> None:
+        fallback = FakeDecider([Judged.incomplete()])
+        assert (
+            FallbackDecider(FakeDecider([Judged.passing()]), fallback).decide(STATE, ChangeReadiness).answers
+            == Judged.passing()
+        )
+        assert fallback.calls == []
+        answered = FallbackDecider(FakeDecider(), fallback).decide(STATE, ChangeReadiness)
+        assert answered.answers == Judged.incomplete()

@@ -90,6 +90,7 @@ class JevConfig(Strict):
     # Decision points that act on Jev's ruling, as glob patterns over point names, e.g.
     # "gate:raw->experimental", "relevance:*", "size:raw". Promote a point once it is calibrated (§12.3).
     active: tuple[str, ...] = ()
+    fallback: str | None = None  # a model in `models` that answers when Jev can't (uncalibrated, marked)
     timeout_s: float = Field(default=30.0, gt=0)
 
 
@@ -231,6 +232,8 @@ class ProjectConfig(Strict):
         for team in self.teams:
             if not self.levels.contains(team.watches):
                 raise ValueError(f"team {team.use!r} watches unknown level {team.watches!r}")
+            if self.jev.fallback is not None and self.jev.fallback not in self.models:
+                raise ValueError(f"jev.fallback names undefined model {self.jev.fallback!r}")
             if team.model is not None and team.model not in self.models:
                 raise ValueError(f"team {team.use!r} uses undefined model {team.model!r}")
             for name in team.checks:

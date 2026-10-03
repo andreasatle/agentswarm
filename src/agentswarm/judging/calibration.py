@@ -17,6 +17,7 @@ from typing import ClassVar, Self
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import Threshold
+from agentswarm.judging.deciders import LLMDecider
 from agentswarm.judging.decisions import DecisionStore, Outcomes, OutcomeSource
 from agentswarm.judging.policy import Policy, QuestionVerdict
 
@@ -128,6 +129,8 @@ class CalibrationReport(Frozen):
         rows: list[Labelled] = []
         unlabelled = 0
         for decision in store.all():
+            if LLMDecider.is_llm(decision.model):
+                continue  # uncalibrated answers would only blur the picture
             outcomes = store.outcomes(decision.id)
             for question in decision.ruling.questions:
                 best = Outcomes.strongest(outcomes, question.field)
