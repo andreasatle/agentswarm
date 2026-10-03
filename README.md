@@ -17,7 +17,8 @@ uv run pyright
 
 ```bash
 # Run the greeter task suite: every task through the model executor and three scripted variants,
-# judged by Jev in shadow mode, with automatic ground truth. Needs TYPESAFE_API_KEY (e.g. in .env),
+# judged by Jev in shadow mode, with automatic ground truth. Needs TYPESAFE_API_KEY in this project's
+# .env (git-ignored; the CLI and the tests load it; the Jev model version is set in the project config),
 # Docker with the sandbox image, and the model in examples/greeter/project.yaml.
 uv run agentswarm evaluate examples/greeter/evaluation/suite.yaml --workdir ~/agentswarm-runs/eval-1
 

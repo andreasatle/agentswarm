@@ -5,8 +5,13 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from dotenv import load_dotenv
 
 from agentswarm.workspace.sandbox import DockerSandbox
+from tests.support.paths import RepoPaths
+
+# The project's own .env (e.g. TYPESAFE_API_KEY) for the opt-in live tests. Never overrides the shell.
+load_dotenv(RepoPaths.ROOT / ".env")
 
 
 class DockerGate:
