@@ -1,51 +1,19 @@
-from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
 from agentswarm.domain import (
-    Artifact,
     ArtifactCreated,
-    ArtifactId,
     Claim,
     Claimed,
     DecisionId,
     Envelope,
     EventAdapter,
     Finding,
-    FindingKind,
-    Level,
     ProjectId,
     Rejected,
-    Severity,
-    TeamName,
 )
-
-
-class Samples:
-    """Shared sample values for the domain tests."""
-
-    A = ArtifactId("a-0001")
-    RAW = Level("raw")
-    EXECUTOR = TeamName("executor")
-    AT = datetime(2026, 10, 3, tzinfo=UTC)
-
-    @classmethod
-    def artifact(cls) -> Artifact:
-        return Artifact(
-            id=cls.A, task="add retry", branch="raw/a-0001-retry", level=cls.RAW, created_by=cls.EXECUTOR
-        )
-
-    @classmethod
-    def finding(cls) -> Finding:
-        return Finding(
-            artifact=cls.A,
-            level=cls.RAW,
-            team=cls.EXECUTOR,
-            kind=FindingKind.INCOMPLETE,
-            severity=Severity.MAJOR,
-            detail="Does not address every part of the task",
-        )
+from tests.samples import Samples
 
 
 class TestEvents:

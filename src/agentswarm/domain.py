@@ -71,16 +71,25 @@ class Claim(Frozen):
 
 
 # Events: nothing changes the blackboard except appending one of these.
+# Each event's `subject` is the artifact it belongs to, which is how per-artifact history is built.
 
 
 class ArtifactCreated(Frozen):
     kind: Literal["artifact_created"] = "artifact_created"
     artifact: Artifact
 
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact.id
+
 
 class Claimed(Frozen):
     kind: Literal["claimed"] = "claimed"
     claim: Claim
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.claim.artifact
 
 
 class Released(Frozen):
@@ -88,16 +97,28 @@ class Released(Frozen):
     artifact: ArtifactId
     team: TeamName
 
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
 
 class CommitPushed(Frozen):
     kind: Literal["commit_pushed"] = "commit_pushed"
     artifact: ArtifactId
     commit: str
 
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
 
 class FindingAdded(Frozen):
     kind: Literal["finding_added"] = "finding_added"
     finding: Finding
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.finding.artifact
 
 
 class Promoted(Frozen):
@@ -107,19 +128,31 @@ class Promoted(Frozen):
     to_level: Level
     gate_decision: DecisionId  # link to the decision log
 
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
 
 class Rejected(Frozen):
     kind: Literal["rejected"] = "rejected"
     artifact: ArtifactId
     level: Level
     findings: tuple[Finding, ...] = Field(min_length=1)
-    gate_decision: DecisionId
+    gate_decision: DecisionId | None  # None when hard checks rejected it before any judgement
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
 
 
 class Escalated(Frozen):
     kind: Literal["escalated"] = "escalated"
     artifact: ArtifactId | None
     reason: str
+
+    @property
+    def subject(self) -> ArtifactId | None:
+        return self.artifact
 
 
 type Event = Annotated[
@@ -137,3 +170,13 @@ class Envelope(Frozen):
     at: datetime
     project: ProjectId
     event: Event
+
+
+class ArtifactContext(Frozen):
+    """What a team, a gate or a model sees about one artifact (proposal §8.3)."""
+
+    north_star: str
+    artifact: Artifact
+    history: tuple[Event, ...]  # this artifact's events, oldest first
+    open_findings: tuple[Finding, ...]
+    diff_summary: str  # e.g. git diff --stat against the level the artifact was forked from
