@@ -162,3 +162,10 @@ three questions now separate cleanly (`complete`: every "no" ≤ 0.32, every "ye
 nearest answer of their own kind, which never lowers precision or the coverage of correct answers, and
 leaves unobserved values to escalate. Tuned: complete 0.63 / 0.33, in_scope 0.37 / 0.20, tests_relevant
 0.84 / 0.03, all ready; written into `examples/greeter/evaluation/project.yaml`.
+
+**eval-3 (gate active; in-sample, since the thresholds were tuned on these tasks).** 108 active decisions,
+20 not settled by outcomes. False promotions 1/25 = 4% (upper bound 20%, so not within 5%); false rejections
+0/62 (upper bound 6%, within 10%); escalations 1/108 (upper bound 5%, within 30%). The false-promotion
+bound fails on sample size and is in-sample. Phase 4 stays open until a cohort-separated re-audit and a
+held-out task set, after Phase 7 (see CODEX_AUDIT.md F10, F11).
+

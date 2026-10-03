@@ -21,13 +21,17 @@ and when it is due. When an item is done, delete it here in the same commit.
 | **Spend budgets** (`budgets.usd_per_day`, §14.1) | Needs per-call cost tracking from the model layer. | Phase 6 (scheduler) | Phase 3 step 8 |
 | **Explicit revert of a merged artifact** (§9) | `resolve --drop` retires an artifact but its merged code stays on the level branches. Reverting it is an explicit, logged action the proposal reserves for a person or the supervisor. | Phase 4 or later | Phase 3 step 9 |
 
-## Next session: remaining Phase 4–6 work (paused 2026-10-03)
+## Next session: remaining work (revised 2026-10-03 after CODEX_AUDIT.md)
 
-- Phase 4: when eval-3 finishes (`~/agentswarm-runs/eval-3.log` ends with `exit 0`), run
-  `agentswarm audit ~/agentswarm-runs/eval-3/decisions.sqlite`. Record the result in the phase-4 doc,
-  disclosing that it is in-sample (tuned on the same tasks), then mark Phase 4 complete.
-- Out-of-sample check: run the tuned thresholds against a third task set they weren't tuned on.
-- Phase 5 step 6: live run of the handbook project, then mark Phase 5 complete.
-- Phase 6 step 5: live swarm run of greeter + handbook (needs a swarm YAML), then mark Phase 6 complete.
+- **Phase 7 (hardening) first:** see docs/design/phase-7-hardening.md. The live runs and the held-out
+  evaluation wait for it, because F01/F05/F13 make them unsafe or their results unreliable.
+- Phase 4: eval-3 (gate active, in-sample) is audited. False promotion was 1/25 with an upper bound of
+  20%, failing the 5% bound; false rejection and escalation are within bounds. Next, a cohort-separated
+  re-audit (F10) and a held-out task set, after Phase 7 step 7.
+- Phase 5 step 6: live run of the handbook project, after Phase 7.
+- Phase 6 step 5: live swarm run of greeter + handbook (needs a swarm YAML), after Phase 7.
 - Docs: update TUTORIAL, REFERENCE and README for the document domain, swarm, spend/budgets, scheduler,
-  `model_tiers`, `usd_per_million` and test counts; remove the spend-budgets backlog item.
+  `model_tiers`, `usd_per_million` and test counts. Reconcile stale "deferred" entries (audit §6,
+  optional cleanup) and remove the spend-budgets backlog item.
+- From the audit, deferred past Phase 7: F08 conflict refresh, the rest of F14, fencing for several
+  owners, event schema versioning, indexed queries, CI.
