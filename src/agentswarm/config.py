@@ -138,6 +138,7 @@ class ProjectConfig(Strict):
     domain: Domain
     north_star: str
     levels: LevelLadder
+    seed: Path | None = None  # a directory whose files form the repository's first commit
     sandbox: SandboxConfig = SandboxConfig()
     models: dict[str, ModelConfig] = Field(default_factory=dict[str, ModelConfig])
     checks: dict[str, CheckConfig] = Field(default_factory=dict[str, CheckConfig])
@@ -181,4 +182,8 @@ class ProjectConfig(Strict):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        return cls.model_validate(yaml.safe_load(path.read_text()))
+        """Load a config file. A relative `seed` is resolved against the file's directory."""
+        config = cls.model_validate(yaml.safe_load(path.read_text()))
+        if config.seed is not None and not config.seed.is_absolute():
+            config = config.model_copy(update={"seed": (path.parent / config.seed).resolve()})
+        return config

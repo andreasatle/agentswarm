@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -25,12 +26,13 @@ class DockerGate:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if DockerGate.available:
-        return
-    skip = pytest.mark.skip(reason="no Docker daemon")
+    no_docker = pytest.mark.skip(reason="no Docker daemon")
+    no_model = pytest.mark.skip(reason="set AGENTSWARM_LIVE_MODEL to run tests against a real model")
     for item in items:
-        if "docker" in item.keywords:
-            item.add_marker(skip)
+        if "docker" in item.keywords and not DockerGate.available:
+            item.add_marker(no_docker)
+        if "live" in item.keywords and not os.environ.get("AGENTSWARM_LIVE_MODEL"):
+            item.add_marker(no_model)
 
 
 @pytest.fixture

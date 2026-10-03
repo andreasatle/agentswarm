@@ -123,10 +123,15 @@ class Repository:
         self._ladder = ladder
 
     @classmethod
-    def create(cls, path: Path, worktrees: Path, ladder: LevelLadder, git: Git) -> Self:
-        """Initialise a repository whose level branches all start at one empty commit."""
+    def create(
+        cls, path: Path, worktrees: Path, ladder: LevelLadder, git: Git, seed: Path | None = None
+    ) -> Self:
+        """Initialise a repository whose level branches start at one commit: empty, or the seed's files."""
         path.mkdir(parents=True, exist_ok=True)
         git.run(path, "init", "--quiet", "--initial-branch", ladder.base)
+        if seed is not None:
+            shutil.copytree(seed, path, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
+            git.run(path, "add", "--all")
         git.run(path, "commit", "--quiet", "--allow-empty", "-m", "Initial commit")
         for level in ladder.branch_levels[1:]:
             git.run(path, "branch", level)
@@ -134,10 +139,12 @@ class Repository:
         return cls(path, worktrees, ladder, git)
 
     @classmethod
-    def open_or_create(cls, path: Path, worktrees: Path, ladder: LevelLadder, git: Git) -> Self:
+    def open_or_create(
+        cls, path: Path, worktrees: Path, ladder: LevelLadder, git: Git, seed: Path | None = None
+    ) -> Self:
         if (path / ".git").exists():
             return cls(path, worktrees, ladder, git)
-        return cls.create(path, worktrees, ladder, git)
+        return cls.create(path, worktrees, ladder, git, seed)
 
     def has_branch(self, branch: str) -> bool:
         return (

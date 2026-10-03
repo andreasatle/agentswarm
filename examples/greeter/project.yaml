@@ -1,0 +1,33 @@
+# A small real task for the Phase 1 exit criterion. Run it with:
+#   uv run agentswarm run examples/greeter/project.yaml --root ~/agentswarm-runs/greeter \
+#       --task "Add a function farewell(name) that returns 'Goodbye, <name>!', with tests"
+project: greeter
+domain: software
+north_star: A small, well-tested Python greeting library.
+
+levels: [raw, experimental]
+seed: seed
+
+# Checks run in Docker, isolated: build the image once with
+#   docker build -t agentswarm/sandbox-python:3.13 -f docker/sandbox-python.Dockerfile docker
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+
+models:
+  # Any LangChain provider works; install its extra (uv sync --extra ollama|openai|anthropic).
+  coder: {model: "ollama:qwen2.5-coder:7b", temperature: 0}
+
+checks:
+  unit_tests: {command: [python, -m, pytest, -q, -p, no:cacheprovider], kind: test_failure, timeout_s: 120}
+
+teams:
+  - use: executor
+    watches: raw
+    model: coder
+    checks: [unit_tests]
+    max_model_calls: 30
+    constraints:
+      - Use only the Python standard library.
+      - Put tests in tests/ and run them with run_checks.
+
+gates:
+  - {from: raw, to: experimental, hard_checks: [unit_tests]}

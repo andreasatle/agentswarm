@@ -62,7 +62,9 @@ class Project:
         log = SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), clock)
         board = Blackboard(log)
         claims = ClaimRegistry(board, clock)
-        repository = Repository.open_or_create(root / "repo", root / "worktrees", config.levels, Git())
+        repository = Repository.open_or_create(
+            root / "repo", root / "worktrees", config.levels, Git(), config.seed
+        )
         contexts = ContextBuilder(board, repository, config.north_star)
         checks = CheckSet(config.checks, Sandboxes.build(config.sandbox))
         resources = TeamResources(workers, checks)

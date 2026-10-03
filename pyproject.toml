@@ -26,6 +26,9 @@ anthropic = [
     "langchain-anthropic>=1.7.5",
 ]
 
+[project.scripts]
+agentswarm = "agentswarm.cli:Cli.main"
+
 [build-system]
 requires = ["uv_build>=0.8.5,<0.9.0"]
 build-backend = "uv_build"
