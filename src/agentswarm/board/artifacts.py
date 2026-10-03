@@ -40,6 +40,18 @@ class ArtifactFactory:
                 continue  # someone else appended; the id may be taken
             return artifact
 
+    def child(self, parent: Artifact, index: int, task: str, created_by: TeamName) -> Artifact:
+        """A part of `parent`, with an id derived from it (a-0003.1): unique without asking the board."""
+        id = ArtifactId(f"{parent.id}.{index}")
+        return Artifact(
+            id=id,
+            task=task,
+            branch=f"{self._ladder.lowest}/{id}-{self.slug(task)}",
+            level=self._ladder.lowest,
+            parent=parent.id,
+            created_by=created_by,
+        )
+
     @staticmethod
     def slug(task: str, max_length: int = 40) -> str:
         """A branch-safe slug from a task description."""

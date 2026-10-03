@@ -1,14 +1,16 @@
 """The team catalog: team definitions by name, instantiated per project from its configuration (§10.3)."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Self
 
-from agentswarm.core.config import TeamConfig
+from agentswarm.board.artifacts import ArtifactFactory
+from agentswarm.core.config import LevelLadder, TeamConfig
 from agentswarm.core.domain import TeamName
 from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
-from agentswarm.judging.judgement import Judgements
+from agentswarm.judging.judgement import Judgement, Judgements
 from agentswarm.llm.workers import Worker, WorkerProvider
 from agentswarm.teams.analyzer import IntegrationTester, RedTeam
+from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor
 from agentswarm.teams.relevance import RelevanceFilter
 from agentswarm.teams.runner import Team
@@ -17,10 +19,27 @@ from agentswarm.teams.runner import Team
 class TeamResources:
     """What a team definition may draw on when it is instantiated: models, checks and judgements."""
 
-    def __init__(self, workers: WorkerProvider, checks: CheckSet, judgements: Judgements) -> None:
+    def __init__(
+        self,
+        workers: WorkerProvider,
+        checks: CheckSet,
+        judgements: Judgements,
+        artifacts: ArtifactFactory,
+        ladder: LevelLadder,
+        team_uses: Sequence[str],
+    ) -> None:
         self._workers = workers
         self._checks = checks
         self._judgements = judgements
+        self.artifacts = artifacts
+        self.ladder = ladder
+        self._team_uses = frozenset(team_uses)
+
+    def has_team(self, use: str) -> bool:
+        return use in self._team_uses
+
+    def judgement(self, judge: str) -> Judgement:
+        return self._judgements.build(judge)
 
     def worker_for(self, team: TeamConfig) -> Worker:
         if team.model is None:
@@ -59,10 +78,20 @@ class TeamCatalog:
         catalog.register(
             "executor",
             lambda team, resources: ExecutorTeam(
-                resources.worker_for(team), resources.checks_for(team), team.watches, team.constraints
+                resources.worker_for(team),
+                resources.checks_for(team),
+                team.watches,
+                team.constraints,
+                requires_sizing=resources.has_team("decomposer"),
             ),
         )
-        catalog.register("fake_executor", lambda team, resources: FakeExecutor(team.watches))
+        catalog.register(
+            "fake_executor",
+            lambda team, resources: FakeExecutor(
+                team.watches, requires_sizing=resources.has_team("decomposer")
+            ),
+        )
+        catalog.register("decomposer", cls._decomposer)
         for use, analyzer in (("integration_tester", IntegrationTester), ("red_team", RedTeam)):
             catalog.register(
                 use,
@@ -75,6 +104,19 @@ class TeamCatalog:
                 ),
             )
         return catalog
+
+    @staticmethod
+    def _decomposer(team: TeamConfig, resources: TeamResources) -> Team:
+        if team.watches != resources.ladder.lowest:
+            raise ValueError(f"the decomposer must watch the lowest level, {resources.ladder.lowest!r}")
+        return Decomposer(
+            team.watches,
+            resources.worker_for(team),
+            resources.judgement("SizeCheck"),
+            resources.judgement("SplitCheck"),
+            resources.artifacts,
+            team.max_depth,
+        )
 
     def register(self, name: str, factory: TeamFactory) -> None:
         if name in self._factories:

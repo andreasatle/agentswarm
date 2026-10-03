@@ -156,6 +156,20 @@ class SignedOff(Frozen):
         return self.artifact
 
 
+class Sized(Frozen):
+    """The decomposition team's verdict: the artifact fits one branch, or was split into children."""
+
+    kind: Literal["sized"] = "sized"
+    artifact: ArtifactId
+    fits: bool  # False: the artifact is now an umbrella over its children and does no work itself
+    children: tuple[ArtifactId, ...] = ()
+    decision: DecisionId | None = None
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class Promoted(Frozen):
     kind: Literal["promoted"] = "promoted"
     artifact: ArtifactId
@@ -201,6 +215,7 @@ type Event = Annotated[
     | FindingAdded
     | FindingResolved
     | SignedOff
+    | Sized
     | Promoted
     | Rejected
     | Escalated,
@@ -230,6 +245,7 @@ class ArtifactContext(Frozen):
     version: int  # BoardViews.version: changes exactly when the artifact does
     signed_off_by: tuple[TeamName, ...]  # analyzer teams that signed off this version
     merge_commit: str | None  # where it joined the first shared level; None while it is on its own branch
+    depth: int  # how many decompositions above it: 0 for a task a person created
 
 
 class Instruction(Frozen):

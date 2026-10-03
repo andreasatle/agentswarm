@@ -36,19 +36,28 @@ class JevDecider:
 
 
 class FakeDecider:
-    """Returns scripted answers in order, then repeats the last one. Records every call."""
+    """Returns scripted answers. Records every call.
+
+    Answers are kept per spec, in the order given: asking a spec takes its next answer, and its last
+    answer repeats. So one decider can serve several judges (size, split, gate, join) in one run.
+    """
 
     MODEL = "fake"
 
     def __init__(self, answers: Sequence[BaseModel] = ()) -> None:
-        self._answers = list(answers)
+        self._answers: dict[type[BaseModel], list[BaseModel]] = {}
+        for answer in answers:
+            self._answers.setdefault(type(answer), []).append(answer)
         self.calls: list[tuple[BaseModel, type[BaseModel]]] = []
 
     def decide[M: BaseModel](self, state: BaseModel, spec: type[M]) -> Answered[M]:
         self.calls.append((state, spec))
         if not self._answers:
             raise DeciderError("FakeDecider has no scripted answers")
-        answers = self._answers.pop(0) if len(self._answers) > 1 else self._answers[0]
-        if not isinstance(answers, spec):
-            raise DeciderError(f"FakeDecider holds {type(answers).__name__}, asked for {spec.__name__}")
-        return Answered[spec](answers=answers, model=self.MODEL)
+        queue = self._answers.get(spec)
+        if not queue:
+            held = ", ".join(t.__name__ for t in self._answers)
+            raise DeciderError(f"FakeDecider holds answers for {held}, asked for {spec.__name__}")
+        answer = queue.pop(0) if len(queue) > 1 else queue[0]
+        assert isinstance(answer, spec)
+        return Answered[spec](answers=answer, model=self.MODEL)

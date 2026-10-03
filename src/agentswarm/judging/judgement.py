@@ -1,6 +1,6 @@
 """One judgement: ask a judge, rule on its answers, record the decision (proposal §11.2 steps 2-3, §15.1)."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from agentswarm.core.clock import Clock
 from agentswarm.core.config import JevMode, Threshold
@@ -33,9 +33,17 @@ class Judgement:
         self.mode = mode
         self._clock = clock
 
-    def ask(self, point: str, ctx: ArtifactContext, commit: str, base: str, diff: str) -> Decision:
+    def ask(
+        self,
+        point: str,
+        ctx: ArtifactContext,
+        commit: str,
+        base: str,
+        diff: str,
+        proposal: Sequence[str] = (),
+    ) -> Decision:
         """Ask, rule and record. Raises DeciderError if the decider gives no answers."""
-        state = JudgeState.of(ctx, diff)
+        state = JudgeState.of(ctx, diff, proposal)
         answered = self._decider.decide(state, self.judge.spec)
         return self._decisions.record(
             DecisionDraft(

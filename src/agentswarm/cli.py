@@ -24,6 +24,7 @@ from agentswarm.core.domain import (
     Rejected,
     Released,
     SignedOff,
+    Sized,
 )
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -57,6 +58,8 @@ class Report:
                 return f"finding {event.finding} resolved{by}: {event.reason}"
             case SignedOff():
                 return f"signed off by {event.team}"
+            case Sized():
+                return "fits one branch" if event.fits else f"split into {', '.join(event.children)}"
             case Promoted():
                 return f"promoted {event.from_level} -> {event.to_level}"
             case Rejected():

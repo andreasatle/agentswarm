@@ -151,6 +151,7 @@ class TeamConfig(Strict):
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
     constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
     relevance: str | None = None  # a Jev relevance judge asked before working (analyzer teams)
+    max_depth: int = Field(default=3, ge=1)  # decomposition: how deep tasks may be split
 
 
 class Budgets(Strict):

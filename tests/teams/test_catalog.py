@@ -1,7 +1,10 @@
 import pytest
 
+from agentswarm.board.artifacts import ArtifactFactory
+from agentswarm.board.blackboard import Blackboard
+from agentswarm.board.eventlog import InMemoryEventLog
 from agentswarm.core.clock import FakeClock
-from agentswarm.core.config import CheckConfig, JevMode, TeamConfig
+from agentswarm.core.config import CheckConfig, JevMode, LevelLadder, TeamConfig
 from agentswarm.gating.checks import CheckSet
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
@@ -22,7 +25,16 @@ class Resources:
         judgements = Judgements(
             JudgeCatalog.standard(), FakeDecider(), InMemoryDecisions(), JevMode.SHADOW, FakeClock()
         )
-        return TeamResources(FakeWorkers({"fake": FakeWorker([])}), checks, judgements)
+        board = Blackboard(InMemoryEventLog(Samples.PROJECT, FakeClock()))
+        ladder = LevelLadder(levels=(Samples.RAW, Samples.EXPERIMENTAL))
+        return TeamResources(
+            FakeWorkers({"fake": FakeWorker([])}),
+            checks,
+            judgements,
+            ArtifactFactory(board, ladder),
+            ladder,
+            (),
+        )
 
 
 class TestTeamCatalog:

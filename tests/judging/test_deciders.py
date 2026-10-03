@@ -24,7 +24,7 @@ class TestFakeDecider:
     def test_no_answers_or_the_wrong_spec_is_a_decider_error(self) -> None:
         with pytest.raises(DeciderError, match="no scripted answers"):
             FakeDecider().decide(STATE, ChangeReadiness)
-        with pytest.raises(DeciderError, match="asked for JudgeState"):
+        with pytest.raises(DeciderError, match="holds answers for ChangeReadiness, asked for JudgeState"):
             FakeDecider([Judged.passing()]).decide(STATE, JudgeState)
 
 

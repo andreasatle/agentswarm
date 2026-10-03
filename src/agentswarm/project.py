@@ -13,9 +13,10 @@ from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.router import FindingRouter
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig
-from agentswarm.core.domain import Artifact, ProjectId, TeamName
+from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName
 from agentswarm.gating.checks import CheckSet
 from agentswarm.gating.gate import Gate
+from agentswarm.gating.join import JoinPromoter
 from agentswarm.gating.promotion import Promoter, PromotionLoop
 from agentswarm.gating.train import TrainPromoter
 from agentswarm.jev.client import JevClient
@@ -59,6 +60,7 @@ class Project:
         runners: list[TeamRunner],
         promoters: list[PromotionLoop],
         decisions: DecisionStore,
+        artifacts: ArtifactFactory,
         owned: list[Closeable],
     ) -> None:
         self.config = config
@@ -68,7 +70,7 @@ class Project:
         self._promoters = promoters
         self.decisions = decisions
         self._owned = owned  # resources this project opened, closed with it
-        self._artifacts = ArtifactFactory(board, config.levels)
+        self._artifacts = artifacts
         self._router = FindingRouter(board, self._artifacts, config.levels)
 
     @classmethod
@@ -92,14 +94,21 @@ class Project:
             decisions = SqliteDecisions(root / "decisions.sqlite")
             owned.append(decisions)
         decider = services.decider
-        if decider is None and (any(g.judge for g in config.gates) or any(t.relevance for t in config.teams)):
+        decomposes = any(t.use == "decomposer" for t in config.teams)
+        needs_judges = (
+            any(g.judge for g in config.gates) or any(t.relevance for t in config.teams) or decomposes
+        )
+        if decider is None and needs_judges:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
             decider = JevDecider(jev)
         judgements = Judgements(services.judges, decider, decisions, config.jev.mode, clock)
 
         workers = services.workers or LangChainWorkers(ChatModels(config.models))
-        resources = TeamResources(workers, checks, judgements)
+        artifacts = ArtifactFactory(board, config.levels)
+        resources = TeamResources(
+            workers, checks, judgements, artifacts, config.levels, [t.use for t in config.teams]
+        )
         runners = [
             TeamRunner(
                 services.teams.build(team, resources), board, claims, repository, contexts, clock, lease
@@ -107,11 +116,13 @@ class Project:
             for team in config.teams
         ]
         promoters: list[PromotionLoop] = []
+        gates: dict[Level, Gate] = {}
         for gate_config in config.gates:
             judgement = (
                 judgements.build(gate_config.judge, gate_config.thresholds) if gate_config.judge else None
             )
             gate = Gate.from_config(gate_config, checks, judgement)
+            gates[gate.from_level] = gate
             if gate_config.from_level == config.levels.lowest:
                 promoters.append(Promoter(gate, board, claims, repository, contexts, clock, lease))
             else:
@@ -119,7 +130,12 @@ class Project:
                 promoters.append(
                     TrainPromoter(gate, requires, board, claims, repository, contexts, clock, lease)
                 )
-        return cls(config, board, repository, runners, promoters, decisions, owned)
+        if decomposes:
+            join = judgements.build("JoinCheck")
+            promoters.append(
+                JoinPromoter(config.levels, gates, join, board, claims, repository, contexts, clock, lease)
+            )
+        return cls(config, board, repository, runners, promoters, decisions, artifacts, owned)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
         """Put a new artifact on the board at the lowest level, with the next free id."""

@@ -15,6 +15,7 @@ from agentswarm.core.domain import (
     Level,
     Promoted,
     Rejected,
+    Sized,
     TeamName,
 )
 from agentswarm.gating.checks import CheckResult, HardCheck
@@ -133,11 +134,16 @@ class ExecutorReport(Frozen):
 
 
 class Executor(ABC):
-    """Shared by all executors: acts when an artifact has no commit yet, or its latest commit was rejected."""
+    """Shared by all executors: acts when an artifact has no commit yet, or its latest commit was rejected.
 
-    def __init__(self, watches: Level, name: TeamName) -> None:
+    In a project with a decomposition team (`requires_sizing`), it also waits until the artifact has been
+    sized as fitting one branch; fix artifacts are small by construction and need no sizing.
+    """
+
+    def __init__(self, watches: Level, name: TeamName, requires_sizing: bool = False) -> None:
         self._watches = watches
         self._name = name
+        self._requires_sizing = requires_sizing
 
     @property
     def name(self) -> TeamName:
@@ -148,6 +154,11 @@ class Executor(ABC):
         return self._watches
 
     def relevant(self, ctx: ArtifactContext) -> Relevance:
+        sized = [e for e in ctx.history if isinstance(e, Sized)]
+        if any(not s.fits for s in sized):
+            return Relevance.NO  # an umbrella: its children do the work
+        if self._requires_sizing and ctx.artifact.fixes is None and not sized:
+            return Relevance.NO  # wait for the decomposition team
         milestones = [e for e in ctx.history if isinstance(e, CommitPushed | Rejected | Promoted | Escalated)]
         if not milestones or isinstance(milestones[-1], Rejected):
             return Relevance.YES
@@ -160,8 +171,10 @@ class Executor(ABC):
 class FakeExecutor(Executor):
     """An executor without a model: writes the task (and the findings it was asked to fix) to a file."""
 
-    def __init__(self, watches: Level, name: TeamName = TeamName("executor")) -> None:
-        super().__init__(watches, name)
+    def __init__(
+        self, watches: Level, name: TeamName = TeamName("executor"), requires_sizing: bool = False
+    ) -> None:
+        super().__init__(watches, name, requires_sizing)
 
     async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
         artifact = ctx.artifact
@@ -198,8 +211,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
         watches: Level,
         constraints: Sequence[str] = (),
         name: TeamName = TeamName("executor"),
+        requires_sizing: bool = False,
     ) -> None:
-        super().__init__(watches, name)
+        super().__init__(watches, name, requires_sizing)
         self._worker = worker
         self._checks = tuple(checks)
         self._constraints = tuple(constraints)

@@ -219,6 +219,23 @@ that the preset YAML ships in the built wheel.
 - The software preset now has the full ladder: integration tester and red team (with relevance
   filters) at `experimental`, a `candidate` gate requiring both sign-offs, a human `production` gate.
 
+**Step 7 (decomposition, join gate).**
+- Children get hierarchical ids (`a-0003.1`), so the decomposer returns `ArtifactCreated` events like any
+  team instead of writing the board; no id coordination is needed.
+- New event `Sized(fits, children)`; it counts as a change to the artifact, so an executor that saw an
+  unsized artifact looks again once it is sized. Executors wait for sizing only in projects that have a
+  decomposer (the catalog tells them), never for fix artifacts, and never work on umbrellas.
+- Three judges: `SizeCheck` (§10.4), `SplitCheck` (the progress guard, which sees the proposed child
+  tasks through a new `JudgeState.proposal` field) and `JoinCheck` (§11.4). Unsure sizing lets the
+  executor try (the gate catches oversized changes); an unclear split or the depth limit escalates.
+- `gating/join.py:JoinPromoter` promotes an umbrella one level once all its children have reached it:
+  that level's gate hard checks on the tip, then `JoinCheck` over the concatenated diffs of the merged
+  parts (nested umbrellas contribute theirs). Failing or unsure escalates once per join.
+- Shadow mode logs size, split and join decisions but never splits and always joins.
+- `FakeDecider` keeps answers per spec, so one decider can serve every judge in a run.
+- **The exit criterion's first half holds in tests:** a goal split into two children reaches
+  `candidate`, children by train, umbrella by join.
+
 ## Steps (one commit each)
 
 **3a**

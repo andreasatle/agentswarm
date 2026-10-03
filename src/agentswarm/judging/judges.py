@@ -7,6 +7,7 @@ annotated with the finding a failure produces:
                         Fails(FindingKind.OUT_OF_SCOPE, "Changes things the task did not ask for")]
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated, ClassVar, Self
 
@@ -111,6 +112,34 @@ class AdversarialRelevance(BaseModel):
     ]
 
 
+class SizeCheck(BaseModel):
+    """Can one team do this in one branch? (§10.4)"""
+
+    fits: Annotated[
+        NoulAnswer,
+        Ask("Can this task be done in one branch by one team, without further design decisions?"),
+    ]
+
+
+class SplitCheck(BaseModel):
+    """Is a proposed split real progress? (§10.4, progress guard)"""
+
+    smaller: Annotated[
+        NoulAnswer,
+        Ask("Is each proposed child task clearly smaller than the parent task, rather than restating it?"),
+    ]
+
+
+class JoinCheck(BaseModel):
+    """Do the parts add up to the whole? (§11.4)"""
+
+    accomplished: Annotated[
+        NoulAnswer,
+        Ask("Together, do these changes accomplish the parent task?"),
+        Fails(FindingKind.INCOMPLETE, "The parts don't add up to the whole task"),
+    ]
+
+
 class JudgeState(BaseModel):
     """What a judge is shown about an artifact (§8.3): small, typed, and the diff instead of file names."""
 
@@ -122,14 +151,16 @@ class JudgeState(BaseModel):
     task: str
     must_fix: tuple[str, ...]  # open findings the change was supposed to address
     diff: str  # unified diff against the level the change goes into, truncated to DIFF_LIMIT
+    proposal: tuple[str, ...] = ()  # child tasks proposed by decomposition, for the split check
 
     @classmethod
-    def of(cls, ctx: ArtifactContext, diff: str) -> Self:
+    def of(cls, ctx: ArtifactContext, diff: str, proposal: Sequence[str] = ()) -> Self:
         return cls(
             north_star=ctx.north_star,
             task=ctx.artifact.task,
             must_fix=tuple(f.detail for f in ctx.open_findings),
             diff=cls.truncate(diff),
+            proposal=tuple(proposal),
         )
 
     @classmethod
@@ -151,6 +182,9 @@ class JudgeCatalog:
         catalog.register(ChangeReadiness)
         catalog.register(IntegrationRelevance)
         catalog.register(AdversarialRelevance)
+        catalog.register(SizeCheck)
+        catalog.register(SplitCheck)
+        catalog.register(JoinCheck)
         catalog.alias(
             "RawToExperimental", "ChangeReadiness"
         )  # its Phase 2 name, still in older decision logs

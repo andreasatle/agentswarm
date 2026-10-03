@@ -25,6 +25,7 @@ from agentswarm.core.domain import (
     Rejected,
     Released,
     SignedOff,
+    Sized,
     TeamName,
 )
 
@@ -49,6 +50,7 @@ class BoardViews:
     _unjudged: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _fixes: dict[FindingId, ArtifactId] = field(default_factory=dict[FindingId, ArtifactId])
     _merge_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
+    _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
     _sign_offs: dict[ArtifactId, dict[TeamName, int]] = field(
         default_factory=dict[ArtifactId, dict[TeamName, int]]
@@ -81,6 +83,9 @@ class BoardViews:
                 self._resolved.add(event.finding)
             case SignedOff():
                 self._sign_offs.setdefault(event.artifact, {})[event.team] = event.version
+            case Sized():
+                if not event.fits:
+                    self._umbrellas.add(event.artifact)
             case Promoted():
                 self._artifacts[event.artifact] = self._artifacts[event.artifact].model_copy(
                     update={"level": event.to_level}
@@ -111,6 +116,21 @@ class BoardViews:
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
+
+    def is_umbrella(self, id: ArtifactId) -> bool:
+        """Split into children by decomposition: it does no work itself and joins when they are done."""
+        return id in self._umbrellas
+
+    def children(self, id: ArtifactId) -> list[Artifact]:
+        """The parts an artifact was split into (fix artifacts are not parts)."""
+        return [a for a in self._artifacts.values() if a.parent == id and a.fixes is None]
+
+    def depth(self, id: ArtifactId) -> int:
+        """How many decompositions above this artifact: 0 for a task a person created."""
+        depth, artifact = 0, self._artifacts[id]
+        while artifact.parent is not None and artifact.fixes is None:
+            depth, artifact = depth + 1, self._artifacts[artifact.parent]
+        return depth
 
     def fix_for(self, finding: FindingId) -> ArtifactId | None:
         """The artifact created to fix a finding, if there is one."""
@@ -149,7 +169,7 @@ class BoardViews:
     # Events that change the artifact itself. Claims, releases, sign-offs, analyzer findings and escalations
     # don't: if they did, one analyzer signing off would make every other analyzer look again, and an
     # escalation would void the sign-offs it was raised about.
-    CHANGES: ClassVar[tuple[type, ...]] = (ArtifactCreated, CommitPushed, Promoted, Rejected)
+    CHANGES: ClassVar[tuple[type, ...]] = (ArtifactCreated, CommitPushed, Promoted, Rejected, Sized)
 
     def version(self, id: ArtifactId) -> int:
         """The seq of the artifact's last change (see CHANGES); teams key on it to act once per change."""

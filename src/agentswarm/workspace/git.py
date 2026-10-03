@@ -190,6 +190,9 @@ class Repository:
             return ""
         return self.git.run(self.path, "diff", "--stat", f"{self._ladder.base}...{artifact.branch}")
 
+    def diff(self, base: str, head: str) -> str:
+        return self.git.run(self.path, "diff", base, head)
+
     @staticmethod
     def merged_change(merge_commit: str) -> tuple[str, str]:
         """The (base, head) of the change a merge commit brought in: its first and second parents."""
