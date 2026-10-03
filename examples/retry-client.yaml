@@ -1,0 +1,34 @@
+# The example from proposal §17, with the hard checks it names defined as commands.
+project: retry-client
+domain: software
+north_star: >
+  An Ollama client that survives transient server failures without
+  string-based control flow, with full test coverage of retry behaviour.
+
+levels: [raw, experimental, candidate, production]
+
+checks:
+  build: {command: [uv, build], kind: build_failure}
+  unit_tests: {command: [uv, run, pytest, -q], kind: test_failure}
+  all_tests: {command: [uv, run, pytest], kind: test_failure}
+
+teams:
+  - {use: executor, watches: raw}
+
+gates:
+  - from: raw
+    to: experimental
+    hard_checks: [build, unit_tests]
+    judge: RawToExperimental
+    thresholds:
+      in_scope: {pass: 0.9, fail: 0.2}
+      tests_relevant: {pass: 0.9, fail: 0.2}
+      complete: {pass: 0.9, fail: 0.2}
+  - from: candidate
+    to: production
+    hard_checks: [build, all_tests]
+    judge: CandidateToProduction
+    requires_human: true
+
+budgets: {usd_per_day: 20, max_rounds_per_artifact: 8}
+jev_mode: shadow
