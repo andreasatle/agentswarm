@@ -180,3 +180,11 @@ class ArtifactContext(Frozen):
     history: tuple[Event, ...]  # this artifact's events, oldest first
     open_findings: tuple[Finding, ...]
     diff_summary: str  # e.g. git diff --stat against the level the artifact was forked from
+
+
+class Instruction(Frozen):
+    """What a producer is asked to do: the task, and the findings it must fix (proposal §13.2)."""
+
+    goal: str  # the artifact's task
+    must_fix: tuple[Finding, ...]  # open findings, e.g. from the last rejection
+    constraints: tuple[str, ...]  # from the project configuration

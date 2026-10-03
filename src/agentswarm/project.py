@@ -6,17 +6,20 @@ from pathlib import Path
 from typing import Self
 
 from agentswarm.blackboard import Blackboard, BoardViews
+from agentswarm.catalog import TeamCatalog, TeamResources
 from agentswarm.claims import ClaimRegistry
 from agentswarm.clock import Clock, SystemClock
 from agentswarm.config import ProjectConfig
 from agentswarm.context import ContextBuilder
 from agentswarm.domain import Artifact, ArtifactCreated, ArtifactId, ProjectId, TeamName
 from agentswarm.eventlog import ConcurrencyConflict, SqliteEventLog
-from agentswarm.gates import Decider, Gate
+from agentswarm.gates import CheckSet, Decider, Gate
 from agentswarm.git import Git, Repository
+from agentswarm.models import ChatModels
 from agentswarm.promotion import Promoter
 from agentswarm.sandbox import Sandboxes
-from agentswarm.teams import TeamCatalog, TeamRunner
+from agentswarm.teams import TeamRunner
+from agentswarm.workers import LangChainWorkers, WorkerProvider
 
 
 class Project:
@@ -45,25 +48,31 @@ class Project:
         root: Path,
         catalog: TeamCatalog,
         decider: Decider,
+        workers: WorkerProvider | None = None,
         clock: Clock | None = None,
         lease: timedelta = timedelta(minutes=10),
     ) -> Self:
-        """Open the project at `root`, creating its log and repository on first use."""
+        """Open the project at `root`, creating its log and repository on first use.
+
+        Teams get their models from `workers`; by default, the models in the configuration via LangChain.
+        """
         clock = clock or SystemClock()
+        workers = workers or LangChainWorkers(ChatModels(config.models))
         root.mkdir(parents=True, exist_ok=True)
         log = SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), clock)
         board = Blackboard(log)
         claims = ClaimRegistry(board, clock)
         repository = Repository.open_or_create(root / "repo", root / "worktrees", config.levels, Git())
         contexts = ContextBuilder(board, repository, config.north_star)
-        sandbox = Sandboxes.build(config.sandbox)
+        checks = CheckSet(config.checks, Sandboxes.build(config.sandbox))
+        resources = TeamResources(workers, checks)
         runners = [
-            TeamRunner(catalog.build(team), board, claims, repository, contexts, clock, lease)
+            TeamRunner(catalog.build(team, resources), board, claims, repository, contexts, clock, lease)
             for team in config.teams
         ]
         promoters = [
             Promoter(
-                Gate.from_config(gate, config.checks, decider, sandbox),
+                Gate.from_config(gate, checks, decider),
                 board,
                 claims,
                 repository,

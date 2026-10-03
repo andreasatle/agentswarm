@@ -74,6 +74,17 @@ class Worktree:
     def read(self, relative: str) -> str:
         return (self.path / relative).read_text()
 
+    def delete(self, relative: str) -> None:
+        (self.path / relative).unlink()
+
+    def files(self) -> list[str]:
+        """Tracked files plus new files not ignored by .gitignore, sorted."""
+        out = self._git.run(self.path, "ls-files", "--cached", "--others", "--exclude-standard")
+        return sorted({line for line in out.splitlines() if (self.path / line).is_file()})
+
+    def has_changes(self) -> bool:
+        return self._git.run(self.path, "status", "--porcelain") != ""
+
     def commit(self, message: str) -> str:
         """Commit every change in the worktree and return the new commit's sha."""
         self._git.run(self.path, "add", "--all")

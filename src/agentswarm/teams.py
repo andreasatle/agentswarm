@@ -1,25 +1,19 @@
 """Teams and the loop every team runs (proposal §10)."""
 
-from collections.abc import Callable
 from datetime import timedelta
 from enum import StrEnum
-from typing import Protocol, Self
+from typing import Protocol
 
 from agentswarm.blackboard import Blackboard
 from agentswarm.claims import ClaimRegistry
 from agentswarm.clock import Clock
-from agentswarm.config import TeamConfig
 from agentswarm.context import ContextBuilder
 from agentswarm.domain import (
     Artifact,
     ArtifactContext,
     ArtifactId,
-    CommitPushed,
-    Escalated,
     Event,
     Level,
-    Promoted,
-    Rejected,
     TeamName,
 )
 from agentswarm.git import Repository, Worktree
@@ -117,62 +111,3 @@ class TeamRunner:
             self._claims.release(claim)
         self._handled.add((artifact.id, views.version(artifact.id)))
         return True
-
-
-class FakeExecutor:
-    """An executor without a model: writes the task (and the findings it was asked to fix) to a file.
-
-    It acts when the artifact has no commit yet, or when a gate has rejected its latest commit.
-    """
-
-    def __init__(self, watches: Level, name: TeamName = TeamName("executor")) -> None:
-        self._watches = watches
-        self._name = name
-
-    @property
-    def name(self) -> TeamName:
-        return self._name
-
-    @property
-    def watches(self) -> Level:
-        return self._watches
-
-    def relevant(self, ctx: ArtifactContext) -> Relevance:
-        milestones = [e for e in ctx.history if isinstance(e, CommitPushed | Rejected | Promoted | Escalated)]
-        if not milestones or isinstance(milestones[-1], Rejected):
-            return Relevance.YES
-        return Relevance.NO
-
-    async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
-        artifact = ctx.artifact
-        lines = [f"# {artifact.task}", ""] + [f"- fixed: {f.detail}" for f in ctx.open_findings]
-        worktree.write(f"{artifact.id}.md", "\n".join(lines) + "\n")
-        sha = worktree.commit(f"{artifact.id}: {artifact.task}")
-        return [CommitPushed(artifact=artifact.id, commit=sha)]
-
-
-type TeamFactory = Callable[[TeamConfig], Team]
-
-
-class TeamCatalog:
-    """Team definitions by name, instantiated per project from its configuration (proposal §10.3)."""
-
-    def __init__(self) -> None:
-        self._factories: dict[str, TeamFactory] = {}
-
-    @classmethod
-    def with_fakes(cls) -> Self:
-        catalog = cls()
-        catalog.register("fake_executor", lambda config: FakeExecutor(config.watches))
-        return catalog
-
-    def register(self, name: str, factory: TeamFactory) -> None:
-        if name in self._factories:
-            raise ValueError(f"team {name!r} is already registered")
-        self._factories[name] = factory
-
-    def build(self, config: TeamConfig) -> Team:
-        factory = self._factories.get(config.use)
-        if factory is None:
-            raise ValueError(f"unknown team {config.use!r}; known: {sorted(self._factories)}")
-        return factory(config)

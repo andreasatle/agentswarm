@@ -70,6 +70,17 @@ class CommandCheck:
         return CheckResult(name=self._name, passed=result.passed, output=result.output[-self.OUTPUT_LIMIT :])
 
 
+class CheckSet:
+    """Builds the configured hard checks by name, all running in the project's sandbox."""
+
+    def __init__(self, configs: dict[str, CheckConfig], sandbox: Sandbox) -> None:
+        self._configs = configs
+        self._sandbox = sandbox
+
+    def build(self, names: Sequence[str]) -> list[HardCheck]:
+        return [CommandCheck(name, self._configs[name], self._sandbox) for name in names]
+
+
 class Verdict(StrEnum):
     PROMOTE = "promote"
     REJECT = "reject"
@@ -139,13 +150,11 @@ class Gate:
         self._requires_human = requires_human
 
     @classmethod
-    def from_config(
-        cls, gate: GateConfig, checks: dict[str, CheckConfig], decider: Decider, sandbox: Sandbox
-    ) -> Self:
+    def from_config(cls, gate: GateConfig, checks: CheckSet, decider: Decider) -> Self:
         return cls(
             gate.from_level,
             gate.to_level,
-            [CommandCheck(name, checks[name], sandbox) for name in gate.hard_checks],
+            checks.build(gate.hard_checks),
             decider,
             gate.requires_human,
         )

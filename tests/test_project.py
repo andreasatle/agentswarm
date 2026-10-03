@@ -7,13 +7,15 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from agentswarm.blackboard import Blackboard
+from agentswarm.catalog import TeamCatalog
 from agentswarm.clock import FakeClock
 from agentswarm.config import ProjectConfig
 from agentswarm.domain import ArtifactCreated, Claimed, CommitPushed, ProjectId, Promoted, Rejected, Released
 from agentswarm.eventlog import SqliteEventLog
+from agentswarm.executor import ExecutorReport, WorktreeToolbox
 from agentswarm.gates import FakeDecider, Verdict
 from agentswarm.project import Project
-from agentswarm.teams import TeamCatalog
+from agentswarm.workers import FakeWorker, FakeWorkers, Toolbox
 from tests.samples import Samples
 
 
@@ -47,9 +49,9 @@ class Projects:
         return Project.open(
             ProjectConfig.model_validate(cls.CONFIG),
             root,
-            TeamCatalog.with_fakes(),
+            TeamCatalog.standard(),
             FakeDecider(verdicts),
-            FakeClock(Samples.AT),
+            clock=FakeClock(Samples.AT),
         )
 
 
@@ -119,6 +121,34 @@ class TestProject:
     async def test_an_idle_project_takes_no_action(self, tmp_path: Path) -> None:
         project = Projects.open(tmp_path)
         assert await project.run_until_idle() == 0
+        project.close()
+
+
+class TestProjectWithExecutorTeam:
+    async def test_model_driven_executor_takes_a_task_to_the_next_level(self, tmp_path: Path) -> None:
+        config = Projects.CONFIG | {
+            "models": {"coder": {"model": "ollama:any-model"}},
+            "teams": [{"use": "executor", "watches": "raw", "model": "coder", "checks": ["non_empty"]}],
+        }
+
+        def work(toolbox: Toolbox | None) -> ExecutorReport:
+            assert isinstance(toolbox, WorktreeToolbox)
+            toolbox.write_file("greeting.md", "Hello!\n")
+            assert toolbox.run_checks() == "non_empty: passed"
+            return ExecutorReport(summary="add greeting", complete=True)
+
+        project = Project.open(
+            ProjectConfig.model_validate(config),
+            tmp_path,
+            TeamCatalog.standard(),
+            FakeDecider(),
+            workers=FakeWorkers({"coder": FakeWorker([work])}),
+            clock=FakeClock(Samples.AT),
+        )
+        artifact = project.create_artifact("Write a greeting")
+        await project.run_until_idle()
+        assert project.views().artifact(artifact.id).level == Samples.EXPERIMENTAL
+        assert project.repository.files_at("experimental") == ["greeting.md"]
         project.close()
 
 
