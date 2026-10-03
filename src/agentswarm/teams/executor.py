@@ -10,11 +10,13 @@ from agentswarm.core.domain import (
     ArtifactContext,
     CommitPushed,
     Escalated,
+    EscalationResolved,
     Event,
     Instruction,
     Level,
     Promoted,
     Rejected,
+    Resolution,
     Sized,
     TeamName,
 )
@@ -163,8 +165,15 @@ class Executor(ABC):
             return Relevance.NO  # an umbrella: its children do the work
         if self._requires_sizing and ctx.artifact.fixes is None and not sized:
             return Relevance.NO  # wait for the decomposition team
-        milestones = [e for e in ctx.history if isinstance(e, CommitPushed | Rejected | Promoted | Escalated)]
+        milestones = [
+            e
+            for e in ctx.history
+            if isinstance(e, CommitPushed | Rejected | Promoted | Escalated | EscalationResolved)
+        ]
         if not milestones or isinstance(milestones[-1], Rejected):
+            return Relevance.YES
+        last = milestones[-1]
+        if isinstance(last, EscalationResolved) and last.resolution is Resolution.RETRY:
             return Relevance.YES
         return Relevance.NO
 

@@ -26,14 +26,13 @@ from agentswarm.core.domain import (
 from agentswarm.jev.api import NoulAnswer
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
-from agentswarm.judging.judges import AdversarialRelevance, JoinCheck, SizeCheck, SplitCheck
+from agentswarm.judging.judges import AdversarialRelevance
 from agentswarm.judging.policy import Verdict
 from agentswarm.llm.workers import FakeWorker, FakeWorkers, Toolbox
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.analyzer import AnalysisReport, AnalysisToolbox, ReportedProblem
-from agentswarm.teams.decomposer import ChildTask, Split
 from agentswarm.teams.executor import ExecutorReport, WorktreeToolbox
-from tests.support.projects import Projects
+from tests.support.projects import Decomposing, Projects
 from tests.support.samples import Judged, Samples
 
 
@@ -214,46 +213,6 @@ class TestProjectWithAnalyzers:
         ]
         assert project.decisions.outcomes(relevance.id)[0].truth is True
         project.close()
-
-
-class Decomposing:
-    """A project that decomposes: decomposer and fake executor at raw, a judged gate, a train to candidate."""
-
-    CONFIG = Projects.CONFIG | {
-        "levels": ["raw", "experimental", "candidate"],
-        "models": {"coder": {"model": "ollama:any"}},
-        "teams": [
-            {"use": "decomposer", "watches": "raw", "model": "coder"},
-            {"use": "fake_executor", "watches": "raw"},
-        ],
-        "gates": [
-            Projects.CONFIG["gates"][0] | {"judge": "ChangeReadiness"},
-            {"from": "experimental", "to": "candidate", "hard_checks": ["non_empty"]},
-        ],
-        "jev": {"mode": "active"},
-    }
-
-    @classmethod
-    def open(cls, root: Path, join: float) -> Project:
-        def split(toolbox: Toolbox | None) -> Split:
-            return Split(
-                children=(ChildTask(task="Write the hello part"), ChildTask(task="Write the goodbye part"))
-            )
-
-        answers = [
-            SizeCheck(fits=NoulAnswer(noul=0.05)),  # the goal is too large...
-            SizeCheck(fits=NoulAnswer(noul=0.95)),  # ...its parts fit (repeats)
-            SplitCheck(smaller=NoulAnswer(noul=0.95)),
-            Judged.passing(),
-            JoinCheck(accomplished=NoulAnswer(noul=join)),
-        ]
-        services = ProjectServices(
-            workers=FakeWorkers({"coder": FakeWorker([split])}),
-            decider=FakeDecider(answers),
-            decisions=InMemoryDecisions(),
-            clock=FakeClock(Samples.AT),
-        )
-        return Project.open(ProjectConfig.model_validate(cls.CONFIG), root, services)
 
 
 class TestProjectWithDecomposition:

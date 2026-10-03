@@ -252,6 +252,21 @@ that the preset YAML ships in the built wheel.
 - Spend budgets (`budgets.usd_per_day`) need cost tracking, which belongs to the Phase 6 scheduler.
 - **The exit criterion holds in tests:** stall and drift escalations are triggered and checked.
 
+**Step 9 (escalation queue).**
+- `EscalationResolved(resolution: retry | accept | drop)`. **Retry** is a change to the artifact (teams
+  look again; the executor treats it like a rejection; the supervisor's counters restart). **Accept**
+  approves the current state at its gate: it replaces judgement (Jev's ruling, `requires_human`, a failed
+  join) but never the hard checks, and it lasts until the next commit or promotion, so it covers exactly
+  one gate. **Drop** retires the artifact: views leave it out of every level, and the train passes over
+  it (its merged code stays; an explicit revert goes to the backlog).
+- **Bug found by the tests:** a resolution counted as a change, so accepting voided the sign-offs the
+  train needed. Only a retry changes the version now.
+- `control/escalations.py:Escalations` lists open escalations with the decisions about each artifact,
+  resolves them and resumes paused projects. It needs only the board and the decision log, so
+  `agentswarm escalations / resolve / resume` work without models or a Jev key.
+- Gates escalate once while an escalation is open (`open_escalation`), instead of matching reason
+  strings.
+
 ## Steps (one commit each)
 
 **3a**

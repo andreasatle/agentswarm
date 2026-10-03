@@ -9,21 +9,27 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from agentswarm.board.blackboard import BoardViews
+from agentswarm.board.blackboard import Blackboard, BoardViews
+from agentswarm.board.eventlog import SqliteEventLog
+from agentswarm.control.escalations import Escalations
 from agentswarm.core.clock import SystemClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import (
     ArtifactCreated,
+    ArtifactId,
     Claimed,
     CommitPushed,
     Escalated,
+    EscalationResolved,
     Event,
     FindingAdded,
     FindingResolved,
     Paused,
+    ProjectId,
     Promoted,
     Rejected,
     Released,
+    Resolution,
     Resumed,
     SignedOff,
     Sized,
@@ -72,6 +78,9 @@ class Report:
                 return "rejected: " + "; ".join(f"{f.kind}: {f.detail}" for f in event.findings)
             case Escalated():
                 return f"ESCALATED: {event.reason}"
+            case EscalationResolved():
+                note = f": {event.note}" if event.note else ""
+                return f"escalation resolved ({event.resolution}){note}"
 
     @classmethod
     def render(cls, views: BoardViews) -> str:
@@ -96,6 +105,9 @@ class Cli:
         evaluate SUITE --workdir DIR               run a task suite; record outcomes; print calibration
         calibrate DECISIONS                        the calibration report for a decision log
         label DECISIONS [--limit N]                spot-check automatic outcomes by hand
+        escalations CONFIG --root DIR              open escalations, with the decisions behind them
+        resolve CONFIG --root DIR ARTIFACT --retry|--accept|--drop [--note TEXT]
+        resume CONFIG --root DIR [--note TEXT]     lift a drift pause
 
     A `.env` file in the working directory is loaded first (e.g. TYPESAFE_API_KEY for Jev).
     """
@@ -130,6 +142,8 @@ class Cli:
                 return self.calibrate(args)
             case "label":
                 return self.label(args)
+            case "escalations" | "resolve" | "resume":
+                return self.escalations(args)
             case _:
                 raise ValueError(f"unknown command {args.command!r}")
 
@@ -176,6 +190,35 @@ class Cli:
             self._show(check.run(args.limit).render())
         return 0
 
+    def escalations(self, args: argparse.Namespace) -> int:
+        """Reads and writes only the board and the decision log: no models or Jev key needed."""
+        config = ProjectConfig.load(Path(args.config))
+        root = Path(args.root).expanduser()
+        if not (root / "blackboard.sqlite").is_file():
+            raise SystemExit(f"no project at {root}")
+        decisions = (
+            SqliteDecisions(root / "decisions.sqlite") if (root / "decisions.sqlite").is_file() else None
+        )
+        with SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), SystemClock()) as log:
+            board = Blackboard(log)
+            queue = Escalations(board, decisions)
+            try:
+                match args.command:
+                    case "resolve":
+                        queue.resolve(ArtifactId(args.artifact), Resolution(args.resolution), args.note)
+                        self._show(f"{args.artifact}: {args.resolution}")
+                    case "resume":
+                        queue.resume(args.note)
+                        self._show("resumed")
+                    case _:
+                        self._show(Escalations.render(queue.open(), board.current().paused))
+            except ValueError as error:
+                raise SystemExit(str(error)) from error
+            finally:
+                if decisions is not None:
+                    decisions.close()
+        return 0
+
     @staticmethod
     def _existing(path: str) -> Path:
         decisions = Path(path).expanduser()
@@ -215,6 +258,21 @@ class Cli:
         label = commands.add_parser("label", help="spot-check automatic outcomes by hand")
         label.add_argument("decisions", help="a decisions.sqlite file")
         label.add_argument("--limit", type=int, default=20, help="how many decisions to show")
+
+        escalations = commands.add_parser("escalations", help="list open escalations")
+        resolve = commands.add_parser("resolve", help="resolve an escalation")
+        resume = commands.add_parser("resume", help="lift a drift pause")
+        for command in (escalations, resolve, resume):
+            command.add_argument("config", help="the project's YAML configuration")
+            command.add_argument("--root", required=True, help="directory holding the project")
+        resolve.add_argument("artifact", help="the escalated artifact, e.g. a-0003")
+        choice = resolve.add_mutually_exclusive_group(required=True)
+        for resolution in Resolution:
+            choice.add_argument(
+                f"--{resolution.value}", dest="resolution", action="store_const", const=resolution.value
+            )
+        for command in (resolve, resume):
+            command.add_argument("--note", default="", help="why, for the record")
         return parser
 
 

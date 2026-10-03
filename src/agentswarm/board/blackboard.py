@@ -15,6 +15,7 @@ from agentswarm.core.domain import (
     CommitPushed,
     Envelope,
     Escalated,
+    EscalationResolved,
     Event,
     Finding,
     FindingAdded,
@@ -25,6 +26,7 @@ from agentswarm.core.domain import (
     Promoted,
     Rejected,
     Released,
+    Resolution,
     Resumed,
     SignedOff,
     Sized,
@@ -52,6 +54,9 @@ class BoardViews:
     _unjudged: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _fixes: dict[FindingId, ArtifactId] = field(default_factory=dict[FindingId, ArtifactId])
     _merge_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
+    _escalations: dict[ArtifactId, Escalated] = field(default_factory=dict[ArtifactId, Escalated])
+    _accepted: set[ArtifactId] = field(default_factory=set[ArtifactId])
+    _dropped: set[ArtifactId] = field(default_factory=set[ArtifactId])
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
     _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
@@ -80,6 +85,7 @@ class BoardViews:
             case CommitPushed():
                 self._last_commit[event.artifact] = event.commit
                 self._unjudged[event.artifact] = event.commit
+                self._accepted.discard(event.artifact)  # an approval covers the state a person saw
             case FindingAdded():
                 self._findings.setdefault(event.finding.artifact, []).append(event.finding)
             case FindingResolved():
@@ -101,6 +107,7 @@ class BoardViews:
                     f for f in self._findings.get(event.artifact, []) if f.level != event.from_level
                 ]
                 self._unjudged.pop(event.artifact, None)
+                self._accepted.discard(event.artifact)  # an approval is for one gate
                 if event.commit is not None:
                     self._merge_commit.setdefault(event.artifact, event.commit)  # the first one: the merge
             case Rejected():
@@ -109,6 +116,19 @@ class BoardViews:
             case Escalated():
                 if event.artifact is not None:
                     self._unjudged.pop(event.artifact, None)
+                    self._escalations[event.artifact] = event
+            case EscalationResolved():
+                self._escalations.pop(event.artifact, None)
+                match event.resolution:
+                    case Resolution.ACCEPT:
+                        self._accepted.add(event.artifact)
+                        last = self._last_commit.get(event.artifact)
+                        if last is not None:
+                            self._unjudged[event.artifact] = last  # back to its gate, approved
+                    case Resolution.DROP:
+                        self._dropped.add(event.artifact)
+                    case Resolution.RETRY:
+                        pass
             case _:
                 assert_never(event)
 
@@ -119,7 +139,21 @@ class BoardViews:
         return list(self._artifacts.values())
 
     def artifacts_at(self, level: Level) -> list[Artifact]:
-        return [a for a in self._artifacts.values() if a.level == level]
+        """The live artifacts at a level (dropped ones are retired and left out)."""
+        return [a for a in self._artifacts.values() if a.level == level and a.id not in self._dropped]
+
+    def open_escalation(self, id: ArtifactId) -> Escalated | None:
+        return self._escalations.get(id)
+
+    def open_escalations(self) -> list[Escalated]:
+        return list(self._escalations.values())
+
+    def accepted(self, id: ArtifactId) -> bool:
+        """A person approved the artifact's current state (until its next commit)."""
+        return id in self._accepted
+
+    def dropped(self, id: ArtifactId) -> bool:
+        return id in self._dropped
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
@@ -180,12 +214,16 @@ class BoardViews:
     # Events that change the artifact itself. Claims, releases, sign-offs, analyzer findings and escalations
     # don't: if they did, one analyzer signing off would make every other analyzer look again, and an
     # escalation would void the sign-offs it was raised about.
+    # A retry is a change too (teams should look again); accepting or dropping leaves the artifact as it was.
     CHANGES: ClassVar[tuple[type, ...]] = (ArtifactCreated, CommitPushed, Promoted, Rejected, Sized)
 
     def version(self, id: ArtifactId) -> int:
         """The seq of the artifact's last change (see CHANGES); teams key on it to act once per change."""
         for envelope in reversed(self._histories.get(id, [])):
-            if isinstance(envelope.event, self.CHANGES):
+            event = envelope.event
+            if isinstance(event, self.CHANGES) or (
+                isinstance(event, EscalationResolved) and event.resolution is Resolution.RETRY
+            ):
                 return envelope.seq
         return 0
 

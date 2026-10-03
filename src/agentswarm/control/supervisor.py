@@ -19,7 +19,16 @@ from datetime import timedelta
 from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.core.clock import Clock
 from agentswarm.core.config import JevMode, LevelLadder, ProjectConfig
-from agentswarm.core.domain import Artifact, CommitPushed, Escalated, Event, Paused, Promoted, Rejected
+from agentswarm.core.domain import (
+    Artifact,
+    CommitPushed,
+    Escalated,
+    EscalationResolved,
+    Event,
+    Paused,
+    Promoted,
+    Rejected,
+)
 from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.decisions import DecisionStore
 from agentswarm.judging.judgement import Judgement
@@ -69,12 +78,13 @@ class Supervisor:
     def _reason(self, views: BoardViews, artifact: Artifact, history: list[Event]) -> str | None:
         rejections = 0
         for event in reversed(history):  # rejections since the artifact last moved up
-            if isinstance(event, Promoted):
+            if isinstance(event, Promoted | EscalationResolved):
                 break
             rejections += isinstance(event, Rejected)
         if rejections >= self._config.supervisor.max_rejections:
             return f"rejected {rejections} times in a row"
-        rounds = sum(isinstance(e, CommitPushed) for e in history)
+        since = max((i for i, e in enumerate(history) if isinstance(e, EscalationResolved)), default=-1)
+        rounds = sum(isinstance(e, CommitPushed) for e in history[since + 1 :])  # a person reset the count
         budget = self._config.budgets.max_rounds_per_artifact
         if budget is not None and rounds > budget:
             return f"used {rounds} rounds, over the budget of {budget}"
@@ -91,7 +101,7 @@ class Supervisor:
         for event in reversed(history):
             if isinstance(event, Escalated):
                 return True
-            if isinstance(event, CommitPushed | Promoted | Rejected):
+            if isinstance(event, CommitPushed | Promoted | Rejected | EscalationResolved):
                 return False
         return False
 

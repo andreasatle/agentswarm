@@ -3,8 +3,9 @@
 An umbrella artifact (split by decomposition) does no work of its own. When every child has reached the
 next level, the join gate checks the umbrella there: the hard checks of that level's gate on its current
 tip, then a Jev question, "together, do the children accomplish the parent task?". Passing promotes the
-umbrella; failing or unsure escalates to a person. In shadow mode the question is logged and the
-umbrella moves up regardless.
+umbrella; failing or unsure escalates to a person, who can accept the join (`agentswarm resolve ...
+--accept`): that replaces the judgement, never the hard checks. In shadow mode the question is logged and
+the umbrella moves up regardless.
 """
 
 from datetime import timedelta
@@ -73,11 +74,8 @@ class JoinPromoter:
         return bool(children) and all(self._ladder.reached(c.level, target) for c in children)
 
     def _asked(self, views: BoardViews, umbrella: Artifact, target: Level) -> bool:
-        """Whether this join was already escalated: a person decides from there."""
-        prefix = self._reason(umbrella.level, target, "")
-        return any(
-            isinstance(e, Escalated) and e.reason.startswith(prefix) for e in views.history(umbrella.id)
-        )
+        """Whether a person has an open escalation about this umbrella: they decide from there."""
+        return views.open_escalation(umbrella.id) is not None
 
     def _join(self, views: BoardViews, umbrella: Artifact, target: Level) -> Event:
         tip = self._repository.tip(target)
@@ -93,7 +91,7 @@ class JoinPromoter:
                 return self._escalate(umbrella, target, f"hard checks fail on {target}: {failures[0].detail}")
 
         decision: DecisionId | None = None
-        if self._judgement is not None:
+        if self._judgement is not None and not views.accepted(umbrella.id):
             try:
                 judged = self._judgement.ask(
                     f"join:{umbrella.level}->{target}", ctx, tip, tip, self._children_diff(views, umbrella)

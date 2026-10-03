@@ -170,6 +170,23 @@ class Sized(Frozen):
         return self.artifact
 
 
+class Resolution(StrEnum):
+    RETRY = "retry"  # clear the escalation: teams pick the artifact up again
+    ACCEPT = "accept"  # a person approves its current state at its gate (judgement, not hard checks)
+    DROP = "drop"  # retire it; merged code stays (reverting is a separate, explicit action)
+
+
+class EscalationResolved(Frozen):
+    kind: Literal["escalation_resolved"] = "escalation_resolved"
+    artifact: ArtifactId
+    resolution: Resolution
+    note: str = ""
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class Paused(Frozen):
     """New work stops project-wide (the supervisor saw drift); analyzers and gates carry on."""
 
@@ -240,7 +257,8 @@ type Event = Annotated[
     | Resumed
     | Promoted
     | Rejected
-    | Escalated,
+    | Escalated
+    | EscalationResolved,
     Field(discriminator="kind"),
 ]
 

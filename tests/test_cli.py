@@ -6,6 +6,7 @@ import yaml
 
 from agentswarm.cli import Cli
 from agentswarm.core.config import ProjectConfig
+from tests.support.projects import Decomposing
 from tests.support.samples import Samples
 from tests.support.suites import FarewellSuite
 
@@ -104,3 +105,44 @@ class TestCliEvaluation:
     def test_label_needs_an_existing_log(self, tmp_path: Path) -> None:
         with pytest.raises(SystemExit, match="no decision log"):
             Cli(show=lambda _: None).dispatch(["label", str(tmp_path / "missing.sqlite")])
+
+
+class TestCliEscalations:
+    async def test_list_accept_and_carry_on(self, tmp_path: Path) -> None:
+        root = tmp_path / "project"
+        project = Decomposing.open(root, join=0.05, persistent_decisions=True)  # the join judge will say no
+        goal = project.create_artifact("Write a greeting library with hello and goodbye")
+        await project.run_until_idle()
+        project.close()
+        config = tmp_path / "project.yaml"
+        config.write_text(yaml.safe_dump(Decomposing.CONFIG))
+        shown: list[str] = []
+        cli = Cli(show=shown.append)
+
+        assert cli.dispatch(["escalations", str(config), "--root", str(root)]) == 0
+        assert f"{goal.id} [raw]" in shown[-1] and "The parts don't add up" in shown[-1]
+        assert "join:raw->experimental: reject (active)" in shown[-1]
+
+        assert (
+            cli.dispatch(["resolve", str(config), "--root", str(root), goal.id, "--accept", "--note", "fine"])
+            == 0
+        )
+        cli.dispatch(["escalations", str(config), "--root", str(root)])
+        assert shown[-1] == "No open escalations."
+
+        project = Decomposing.open(root, join=0.05, persistent_decisions=True)
+        await project.run_until_idle()
+        views = project.views()
+        assert views.artifact(goal.id).level == "experimental"  # the accepted join went through...
+        assert views.open_escalation(goal.id) is not None  # ...and the next one asks again
+        project.close()
+
+    def test_resolving_without_an_escalation_is_refused(self, tmp_path: Path) -> None:
+        root = tmp_path / "project"
+        Decomposing.open(root, join=0.95).close()
+        config = tmp_path / "project.yaml"
+        config.write_text(yaml.safe_dump(Decomposing.CONFIG))
+        with pytest.raises(SystemExit, match="no open escalation"):
+            Cli(show=lambda _: None).dispatch(
+                ["resolve", str(config), "--root", str(root), "a-0001", "--retry"]
+            )

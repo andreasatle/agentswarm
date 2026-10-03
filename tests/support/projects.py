@@ -7,11 +7,14 @@ from typing import Any, ClassVar
 
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import ProjectConfig
+from agentswarm.jev.api import NoulAnswer
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
-from agentswarm.judging.judges import ChangeReadiness
+from agentswarm.judging.judges import ChangeReadiness, JoinCheck, SizeCheck, SplitCheck
+from agentswarm.llm.workers import FakeWorker, FakeWorkers, Toolbox
 from agentswarm.project import Project, ProjectServices
-from tests.support.samples import Samples
+from agentswarm.teams.decomposer import ChildTask, Split
+from tests.support.samples import Judged, Samples
 
 
 class Projects:
@@ -63,3 +66,43 @@ class Projects:
             decider=FakeDecider(judged or ()), decisions=decisions, clock=FakeClock(Samples.AT)
         )
         return Project.open(config, root, services)
+
+
+class Decomposing:
+    """A project that decomposes: decomposer and fake executor at raw, a judged gate, a train to candidate."""
+
+    CONFIG = Projects.CONFIG | {
+        "levels": ["raw", "experimental", "candidate"],
+        "models": {"coder": {"model": "ollama:any"}},
+        "teams": [
+            {"use": "decomposer", "watches": "raw", "model": "coder"},
+            {"use": "fake_executor", "watches": "raw"},
+        ],
+        "gates": [
+            Projects.CONFIG["gates"][0] | {"judge": "ChangeReadiness"},
+            {"from": "experimental", "to": "candidate", "hard_checks": ["non_empty"]},
+        ],
+        "jev": {"mode": "active"},
+    }
+
+    @classmethod
+    def open(cls, root: Path, join: float, persistent_decisions: bool = False) -> Project:
+        def split(toolbox: Toolbox | None) -> Split:
+            return Split(
+                children=(ChildTask(task="Write the hello part"), ChildTask(task="Write the goodbye part"))
+            )
+
+        answers = [
+            SizeCheck(fits=NoulAnswer(noul=0.05)),  # the goal is too large...
+            SizeCheck(fits=NoulAnswer(noul=0.95)),  # ...its parts fit (repeats)
+            SplitCheck(smaller=NoulAnswer(noul=0.95)),
+            Judged.passing(),
+            JoinCheck(accomplished=NoulAnswer(noul=join)),
+        ]
+        services = ProjectServices(
+            workers=FakeWorkers({"coder": FakeWorker([split])}),
+            decider=FakeDecider(answers),
+            decisions=None if persistent_decisions else InMemoryDecisions(),
+            clock=FakeClock(Samples.AT),
+        )
+        return Project.open(ProjectConfig.model_validate(cls.CONFIG), root, services)

@@ -89,7 +89,7 @@ class Promoter:
         # Judge exactly the announced commit, detached so the artifact's branch is never moved.
         worktree = self._repository.checkout_detached(commit, f"_gate-{artifact.id}")
         try:
-            outcome = self._gate.evaluate(ctx, worktree)
+            outcome = self._gate.evaluate(ctx, worktree, approved=self._board.current().accepted(artifact.id))
         finally:
             worktree.remove()
         if outcome.verdict is Verdict.PROMOTE:

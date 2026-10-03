@@ -11,7 +11,9 @@ one of those commits, moving every artifact up to it in one batch:
        what comes before it, and give that artifact a blocker finding (the router makes the fix);
     4. fast-forward the upper level (compare-and-swap) and append one Promoted per artifact.
 
-A gate that requires a human escalates once per target commit instead of promoting.
+A gate that requires a human escalates once instead, and promotes up to the last artifact a person
+accepted (`agentswarm resolve ... --accept`). A dropped artifact never holds the train: its code is on the
+line already (reverting is a separate action), so it rides along without a Promoted event of its own.
 """
 
 from collections.abc import Sequence
@@ -69,8 +71,13 @@ class TrainPromoter:
         if not ready:
             return 0
         if self._gate.requires_human:
-            return self._ask_human(*ready[-1])
-        held = self._claim([artifact for _, artifact in ready])
+            views = self._board.current()
+            accepted = [i for i, (_, artifact) in enumerate(ready) if views.accepted(artifact.id)]
+            if not accepted:
+                return self._ask_human(*ready[-1])
+            ready = ready[: accepted[-1] + 1]
+        views = self._board.current()
+        held = self._claim([artifact for _, artifact in ready if not views.dropped(artifact.id)])
         if held is None:
             return 0
         try:
@@ -93,6 +100,8 @@ class TrainPromoter:
         return ready
 
     def _is_ready(self, views: BoardViews, artifact: Artifact) -> bool:
+        if views.dropped(artifact.id):
+            return True
         return (
             artifact.level == self._gate.from_level
             and all(views.signed_off(artifact.id, team) for team in self._requires)
@@ -129,9 +138,10 @@ class TrainPromoter:
                     commit=target,
                 )
                 for _, artifact in prefix
+                if not self._board.current().dropped(artifact.id)
             ]
         self._board.append(events)
-        return len(prefix) + (failure is not None)
+        return sum(isinstance(e, Promoted) for e in events) + (failure is not None)
 
     def _checked_prefix(
         self, ready: list[tuple[str, Artifact]]
@@ -157,13 +167,9 @@ class TrainPromoter:
         return self._checked[commit]
 
     def _ask_human(self, commit: str, artifact: Artifact) -> int:
-        """Escalate once per target commit; a person approves with `agentswarm resolve ... --accept`."""
-        reason = f"{self._gate.name}: needs human approval to promote up to {commit[:12]}"
-        asked = any(
-            isinstance(e, Escalated) and e.reason == reason
-            for e in self._board.current().history(artifact.id)
-        )
-        if asked:
+        """Escalate once; a person approves with `agentswarm resolve ... --accept`."""
+        if self._board.current().open_escalation(artifact.id) is not None:
             return 0
+        reason = f"{self._gate.name}: needs human approval to promote up to {commit[:12]}"
         self._board.append([Escalated(artifact=artifact.id, reason=reason)])
         return 1

@@ -96,10 +96,13 @@ class Gate:
                 return (self._finding(ctx, check.kind, f"{result.name} failed:\n{result.output}"),)
         return ()
 
-    def evaluate(self, ctx: ArtifactContext, worktree: Worktree) -> GateOutcome:
+    def evaluate(self, ctx: ArtifactContext, worktree: Worktree, approved: bool = False) -> GateOutcome:
+        """`approved`: a person accepted this state, which replaces judgement and the human requirement."""
         findings = self.run_checks(worktree.path, ctx)
         if findings:
             return GateOutcome(verdict=Verdict.REJECT, decision=None, findings=findings)
+        if approved:
+            return GateOutcome(verdict=Verdict.PROMOTE, decision=None)
         if self._judgement is None:
             return self._unless_human(GateOutcome(verdict=Verdict.PROMOTE, decision=None))
         try:

@@ -19,3 +19,4 @@ and when it is due. When an item is done, delete it here in the same commit.
 | **Sharpen the judge's question wording** | First real run: Jev lowers p(in_scope) for trivial tests, mixing two questions. §12.2 asks for one narrow property per question. Tune with calibration data. | Phase 4 | Phase 2, first real run |
 | **A harder task suite** | In the first full run the model executor solved all 14 greeter tasks, so model runs gave no negative examples. Tasks the executor sometimes fails would. | Phase 4 (calibration) | Phase 2 result |
 | **Spend budgets** (`budgets.usd_per_day`, §14.1) | Needs per-call cost tracking from the model layer. | Phase 6 (scheduler) | Phase 3 step 8 |
+| **Explicit revert of a merged artifact** (§9) | `resolve --drop` retires an artifact but its merged code stays on the level branches. Reverting it is an explicit, logged action the proposal reserves for a person or the supervisor. | Phase 4 or later | Phase 3 step 9 |
