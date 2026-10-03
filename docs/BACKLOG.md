@@ -20,3 +20,14 @@ and when it is due. When an item is done, delete it here in the same commit.
 | **A harder task suite** | In the first full run the model executor solved all 14 greeter tasks, so model runs gave no negative examples. Tasks the executor sometimes fails would. | Phase 4 (calibration) | Phase 2 result |
 | **Spend budgets** (`budgets.usd_per_day`, §14.1) | Needs per-call cost tracking from the model layer. | Phase 6 (scheduler) | Phase 3 step 8 |
 | **Explicit revert of a merged artifact** (§9) | `resolve --drop` retires an artifact but its merged code stays on the level branches. Reverting it is an explicit, logged action the proposal reserves for a person or the supervisor. | Phase 4 or later | Phase 3 step 9 |
+
+## Next session: remaining Phase 4–6 work (paused 2026-10-03)
+
+- Phase 4: when eval-3 finishes (`~/agentswarm-runs/eval-3.log` ends with `exit 0`), run
+  `agentswarm audit ~/agentswarm-runs/eval-3/decisions.sqlite`. Record the result in the phase-4 doc,
+  disclosing that it is in-sample (tuned on the same tasks), then mark Phase 4 complete.
+- Out-of-sample check: run the tuned thresholds against a third task set they weren't tuned on.
+- Phase 5 step 6: live run of the handbook project, then mark Phase 5 complete.
+- Phase 6 step 5: live swarm run of greeter + handbook (needs a swarm YAML), then mark Phase 6 complete.
+- Docs: update TUTORIAL, REFERENCE and README for the document domain, swarm, spend/budgets, scheduler,
+  `model_tiers`, `usd_per_million` and test counts; remove the spend-budgets backlog item.
