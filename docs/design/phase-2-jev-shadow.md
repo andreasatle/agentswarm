@@ -1,7 +1,7 @@
 # Phase 2: Jev in shadow mode
 
-Status: **in progress.** Decided: Q1 (port the client). Step 1 used the recommendations for Q4 and Q5;
-Q2 and Q3 are still open. Proposal sections: §11 (gates), §12 (Jev), §15 (decision log).
+Status: **in progress.** Decided: Q1 (port the client), Q2 (automatic outcomes; manual labels only
+where nothing else works). Step 1 used the recommendations for Q4 and Q5; Q3 is still open. Proposal sections: §11 (gates), §12 (Jev), §15 (decision log).
 
 **Exit criterion (§19):** 50+ logged gate decisions with outcomes, and a first calibration report.
 
@@ -39,29 +39,40 @@ Gate.evaluate
 | `Policy` | `policy.py` | Pure code: thresholds per field → `Ruling` (PROMOTE / REJECT with findings / ESCALATE). Noul: `p ≥ pass` passes, `p ≤ fail` fails, between is unsure. |
 | `JudgeState` | `judges.py` | What Jev sees: north star, task, open findings, diff (truncated to a character budget). |
 | `DecisionLog` | `decisions.py` | A `decisions` table (plus a `states` table keyed by hash) in the project's SQLite file. Records every decision; outcomes are filled in later. |
-| `OutcomeRecorder` | `decisions.py` | Fills outcomes from later events where it can (below), and accepts manual labels. |
-| `CalibrationReport` | `calibration.py` | Per decision point and field: reliability bins, ECE, sample size, a warning when n is small. Port of your `09_calibration.py`, text output (PNG optional). |
-| CLI | `cli.py` | `agentswarm decisions` (list), `agentswarm label` (record outcomes by hand), `agentswarm calibrate`. |
+| `Outcome` | `decisions.py` | The ground truth for **one question** of one decision: the true answer, and its source (`hidden_tests`, `mutation`, `planted`, `merge_queue`, `human`). |
+| `OutcomeRecorder` | `decisions.py` | Attaches outcomes to logged decisions; never overwrites an automatic outcome with a weaker one. |
+| `EvalTask`, `TaskSuite` | `evaluation/suite.py` | Small tasks on a seed project, each with **hidden acceptance tests** the executor never sees, and optionally a **planted fault**. |
+| `MutationCheck` | `evaluation/mutation.py` | Breaks the changed code in known ways and reruns the executor's tests in the sandbox. Tests that still pass don't exercise the behaviour. |
+| `FaultyExecutor` | `evaluation/faults.py` | Wraps an executor: does the task, then makes a known out-of-scope edit (and variants: drops part of the task, writes a trivially passing test). The fault is the label. |
+| `EvaluationRun` | `evaluation/run.py` | Runs every task in the suite through a fresh project (executor → gate with Jev in shadow), then computes and records the outcomes. |
+| `CalibrationReport` | `calibration.py` | Per decision point and question: reliability bins, ECE, sample size, a warning when n is small, and **which outcome source** the numbers rest on. Port of your `09_calibration.py`, text output. |
+| CLI | `cli.py` | `agentswarm evaluate` (run the suite), `agentswarm calibrate`, `agentswarm label` (spot checks only). |
 
 ### Shadow vs active (§12.3)
 
 `jev_mode: shadow` (the default) logs every ruling but the gate behaves exactly as today. `active` makes
 the gate act on the ruling. Per project for now; per decision point later.
 
-### Outcomes: the honest part
+### Outcomes: automatic wherever possible
 
-§15.2 gets outcomes "for free" from later events, but most of those signals need things that don't exist
-yet (higher levels, rollbacks, tester teams). In Phase 2 the available signals are:
+Decision: **no routine manual labelling.** Each question gets its ground truth from a source that needs
+no human:
 
-| Signal | Means |
-| --- | --- |
-| Judge said pass, merge-queue checks then failed | the pass was wrong on that point |
-| Judge said reject (shadow) and the artifact was promoted anyway | not ground truth: shadow mode promotes regardless |
-| A human labels the decision | ground truth |
+| Question | Outcome source | How |
+| --- | --- | --- |
+| `complete` | **hidden acceptance tests** | Each suite task carries tests the executor never sees. Run them in the sandbox on the gated commit: pass ⇒ complete. |
+| `tests_relevant` | **mutation testing** | Apply known mutations to the code the change added; rerun the change's own tests. Most mutants caught ⇒ relevant. |
+| `in_scope` | **planted faults** | `FaultyExecutor` adds a known unrelated edit to some runs; clean runs are in scope. Known by construction. |
+| any (pass) | **merge queue** | Jev said pass but the checks failed on the merged result ⇒ wrong on that point (rare; a bonus signal). |
+| any | **human** (`agentswarm label`) | Only a spot check of about 20 decisions, to confirm the automatic sources agree with human judgement. |
 
-So in Phase 2, **most outcomes will be human labels**: `agentswarm label` shows each unlabeled decision
-(task, diff, Jev's probabilities) and asks yes/no per question. 50 decisions × 3 questions is about an
-hour of labelling.
+Two consequences:
+
+- Outcomes are **per question**, not per decision: one decision can have `complete` from hidden tests and
+  `in_scope` from a planted fault.
+- The calibration is only as representative as the suite. Synthetic tasks and planted faults are not the
+  mix of mistakes a real project makes. Real-project outcomes (§15.2) take over as later phases add
+  higher levels, testers and rollbacks.
 
 ## Not in Phase 2
 
@@ -78,14 +89,16 @@ hour of labelling.
 1. `JevClient` + typed specs, tested offline with `httpx.MockTransport`; one opt-in live test.
 2. `RawToExperimental`, `JudgeCatalog`, `Policy`: pure code, no I/O.
 3. New `Decider` interface; `Gate` builds `JudgeState` with the real diff; shadow/active.
-4. `DecisionLog` + `OutcomeRecorder` + `agentswarm decisions/label`.
-5. `CalibrationReport` + `agentswarm calibrate`; generate 50+ decisions on the greeter example.
+4. `DecisionLog`, `Outcome`, `OutcomeRecorder` (storage only; outcomes added by hand in tests).
+5. `TaskSuite` with hidden tests + 10–20 tasks; `EvaluationRun` with hidden-test outcomes.
+6. `MutationCheck` and `FaultyExecutor`: the other two automatic outcome sources.
+7. `CalibrationReport`, `agentswarm evaluate/calibrate/label`; run the suite to get 50+ decisions.
 
 ## Questions for review
 
 1. **Copy or depend?** Port the Jev client into `agentswarm/jev/` as classes (recommended), rather than
    importing from `~/Projects/Jev`, which is a tutorial, not a package.
-2. **Outcomes from human labels** in Phase 2, as above. Acceptable?
+2. ~~Outcomes from human labels~~ **Decided:** automatic outcome sources; human labels only for spot checks.
 3. **Defer relevance filters** to Phase 3?
 4. **Key handling:** `TYPESAFE_API_KEY` and nothing else from the environment; the CLI loads a `.env`
    in the working directory (as in the Jev tutorial). The Jev model version goes in the project config.
