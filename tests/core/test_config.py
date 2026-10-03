@@ -67,6 +67,15 @@ class TestProjectConfig:
             {"teams": [{"use": "executor", "watches": "raw", "checks": ["missing"]}]},
             {"models": {"m": {"model": "no-provider-prefix"}}},
             {"teams": [{"use": "executor", "watches": "raw"}, {"use": "executor", "watches": "raw"}]},
+            {"gates": [{"from": "raw", "to": "experimental", "requires": ["executor"]}]},
+            {
+                "levels": ["raw", "experimental", "candidate"],
+                "gates": [{"from": "experimental", "to": "candidate", "requires": ["nobody"]}],
+            },
+            {
+                "levels": ["raw", "experimental", "candidate"],
+                "gates": [{"from": "experimental", "to": "candidate", "judge": "ChangeReadiness"}],
+            },
         ],
         ids=[
             "unknown-team-level",
@@ -78,6 +87,9 @@ class TestProjectConfig:
             "undefined-team-check",
             "model-without-provider",
             "duplicate-team",
+            "sign-offs-at-the-lowest-gate",
+            "required-team-not-watching",
+            "judge-above-the-lowest-level",
         ],
     )
     def test_rejects_inconsistent_configs(self, overrides: dict[str, Any]) -> None:
@@ -96,7 +108,9 @@ class TestPresets:
             }
         )
         assert config.levels.levels == ("raw", "experimental", "candidate", "production")
-        assert [t.use for t in config.teams] == ["executor"]
+        assert [t.use for t in config.teams] == ["executor", "integration_tester", "red_team"]
+        assert [g.requires for g in config.gates][1] == ("integration_tester", "red_team")
+        assert config.gates[2].requires_human
         assert config.gates[0].judge == "ChangeReadiness"
 
     def test_a_project_key_replaces_the_preset_key_whole(self) -> None:

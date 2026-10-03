@@ -1,6 +1,7 @@
 """The promoter: the deterministic loop that runs one gate over the artifacts at its level."""
 
 from datetime import timedelta
+from typing import Protocol
 
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.claims import ClaimRegistry
@@ -10,6 +11,14 @@ from agentswarm.core.domain import Artifact, Claim, Escalated, Event, Rejected
 from agentswarm.gating.gate import Gate, GateOutcome, Verdict
 from agentswarm.gating.merge_queue import MergeQueue, MergeRequest
 from agentswarm.workspace.git import Repository
+
+
+class PromotionLoop(Protocol):
+    """What the project steps: one gate's promotion loop, whichever kind it is."""
+
+    def step(self) -> int:
+        """Do one round of promotion work; return how many artifacts it acted on."""
+        ...
 
 
 class Promoter:

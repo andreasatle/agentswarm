@@ -1,12 +1,18 @@
 # Defaults for `domain: software`. A project's own top-level keys replace these key by key
 # (a project that lists `gates` replaces all of them). See `agentswarm config CONFIG` for the result.
+# Every team expects the project to define `models.coder`: a preset never picks a model provider.
 levels: [raw, experimental, candidate, production]
 
 checks:
   unit_tests: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300}
 
 teams:
-  - {use: executor, watches: raw, model: coder, checks: [unit_tests]}   # the project defines models.coder
+  - {use: executor, watches: raw, model: coder, checks: [unit_tests]}
+  - {use: integration_tester, watches: experimental, model: coder, checks: [unit_tests], relevance: IntegrationRelevance}
+  - {use: red_team, watches: experimental, model: coder, checks: [unit_tests], relevance: AdversarialRelevance}
 
 gates:
   - {from: raw, to: experimental, hard_checks: [unit_tests], judge: ChangeReadiness}
+  # Release train: candidate fast-forwards over artifacts both analyzers have signed off.
+  - {from: experimental, to: candidate, hard_checks: [unit_tests], requires: [integration_tester, red_team]}
+  - {from: candidate, to: production, hard_checks: [unit_tests], requires_human: true}

@@ -16,7 +16,8 @@ from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import Artifact, ProjectId, TeamName
 from agentswarm.gating.checks import CheckSet
 from agentswarm.gating.gate import Gate
-from agentswarm.gating.promotion import Promoter
+from agentswarm.gating.promotion import Promoter, PromotionLoop
+from agentswarm.gating.train import TrainPromoter
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.deciders import Decider, JevDecider
 from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
@@ -56,7 +57,7 @@ class Project:
         board: Blackboard,
         repository: Repository,
         runners: list[TeamRunner],
-        promoters: list[Promoter],
+        promoters: list[PromotionLoop],
         decisions: DecisionStore,
         owned: list[Closeable],
     ) -> None:
@@ -105,20 +106,19 @@ class Project:
             )
             for team in config.teams
         ]
-        promoters = [
-            Promoter(
-                Gate.from_config(
-                    gate, checks, judgements.build(gate.judge, gate.thresholds) if gate.judge else None
-                ),
-                board,
-                claims,
-                repository,
-                contexts,
-                clock,
-                lease,
+        promoters: list[PromotionLoop] = []
+        for gate_config in config.gates:
+            judgement = (
+                judgements.build(gate_config.judge, gate_config.thresholds) if gate_config.judge else None
             )
-            for gate in config.gates
-        ]
+            gate = Gate.from_config(gate_config, checks, judgement)
+            if gate_config.from_level == config.levels.lowest:
+                promoters.append(Promoter(gate, board, claims, repository, contexts, clock, lease))
+            else:
+                requires = [TeamName(team) for team in gate_config.requires]
+                promoters.append(
+                    TrainPromoter(gate, requires, board, claims, repository, contexts, clock, lease)
+                )
         return cls(config, board, repository, runners, promoters, decisions, owned)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:

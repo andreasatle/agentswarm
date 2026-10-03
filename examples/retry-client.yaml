@@ -27,8 +27,7 @@ gates:
   - from: candidate
     to: production
     hard_checks: [build, all_tests]
-    judge: CandidateToProduction
-    requires_human: true
+    requires_human: true  # a Jev judge here (CandidateToProduction, §11.3) arrives in Phase 4
 
 budgets: {usd_per_day: 20, max_rounds_per_artifact: 8}
 jev: {model: jev-latest, mode: shadow}

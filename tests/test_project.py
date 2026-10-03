@@ -20,7 +20,7 @@ from agentswarm.core.domain import (
     Promoted,
     Rejected,
     Released,
-    TeamName,
+    SignedOff,
 )
 from agentswarm.jev.api import NoulAnswer
 from agentswarm.judging.deciders import FakeDecider
@@ -161,6 +161,15 @@ class TestProjectWithAnalyzers:
                     "relevance": "AdversarialRelevance",
                 },
             ],
+            "gates": [
+                *Projects.CONFIG["gates"],
+                {
+                    "from": "experimental",
+                    "to": "candidate",
+                    "hard_checks": ["non_empty"],
+                    "requires": ["red_team"],
+                },
+            ],
         }
 
         def attack(toolbox: Toolbox | None) -> AnalysisReport:
@@ -185,13 +194,16 @@ class TestProjectWithAnalyzers:
         await project.run_until_idle()
 
         views = project.views()
-        assert views.artifact(artifact.id).level == Samples.EXPERIMENTAL
+        assert (
+            views.artifact(artifact.id).level == Samples.CANDIDATE
+        )  # rode the train once its finding was fixed
         (added,) = [e for e in views.history(artifact.id) if isinstance(e, FindingAdded)]
         assert (added.finding.team, added.finding.kind) == ("red_team", FindingKind.EDGE_CASE)
-        assert views.signed_off(artifact.id, TeamName("red_team"))
+        assert any(isinstance(e, SignedOff) and e.team == "red_team" for e in views.history(artifact.id))
         # The router turned the finding into a fix artifact, which reached the level and resolved it.
         fix = views.artifact(views.fix_for(added.finding.id) or ArtifactId("missing"))
-        assert (fix.parent, fix.level, fix.created_by) == (artifact.id, Samples.EXPERIMENTAL, "router")
+        assert (fix.parent, fix.level, fix.created_by) == (artifact.id, Samples.CANDIDATE, "router")
+        assert project.repository.tip("candidate") == project.repository.tip("experimental")
         assert views.open_findings(artifact.id) == []
         (relevance,) = [
             d

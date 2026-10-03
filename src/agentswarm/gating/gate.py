@@ -76,6 +76,10 @@ class Gate:
         )
 
     @property
+    def requires_human(self) -> bool:
+        return self._requires_human
+
+    @property
     def name(self) -> str:
         return f"gate:{self.from_level}->{self.to_level}"
 

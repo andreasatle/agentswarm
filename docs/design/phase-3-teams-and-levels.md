@@ -202,6 +202,23 @@ that the preset YAML ships in the built wheel.
 - The fix task carries the original task and the full finding (including the failing test), because the
   executor of a fix artifact sees only its own task.
 
+**Step 6 (release train).**
+- `gating/train.py:TrainPromoter` serves every gate above the lowest level; `Promoter` keeps the lowest.
+  Both satisfy a small `PromotionLoop` protocol the project steps.
+- Ready = at the lower level, signed off by every `requires:` team for its current version, no open
+  `MAJOR`/`BLOCKER` finding, unclaimed. The promoter claims the whole batch before promoting, so no
+  analyzer can add a finding to an artifact mid-promotion.
+- Hard checks run on the batch's last commit; on failure the promoter finds the first failing commit,
+  promotes what precedes it, and gives that artifact a `BLOCKER` finding (which the router turns into a
+  fix). Results are cached per commit. The upper branch moves with a compare-and-swap `update-ref`.
+- `requires_human` gates escalate once per target commit; approval comes with step 9.
+- **Bug found by the tests:** an escalation counted as a change to the artifact, which voided the
+  sign-offs it was raised about. Escalations no longer change the version (the step-9 "retry" will).
+- Config rules: `requires:` names must be teams watching the gate's lower level; the lowest gate can't
+  require sign-offs (it judges single changes); a judge above the lowest level is refused until Phase 4.
+- The software preset now has the full ladder: integration tester and red team (with relevance
+  filters) at `experimental`, a `candidate` gate requiring both sign-offs, a human `production` gate.
+
 ## Steps (one commit each)
 
 **3a**

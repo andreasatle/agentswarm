@@ -122,6 +122,9 @@ class GateConfig(Strict):
     judge: str | None = None  # name of a judge spec; used from phase 2
     thresholds: dict[str, Threshold] = Field(default_factory=dict[str, Threshold])
     requires_human: bool = False
+    requires: tuple[
+        str, ...
+    ] = ()  # teams whose sign-off every promoted artifact needs (gates above the base)
 
 
 class ModelConfig(Strict):
@@ -227,7 +230,21 @@ class ProjectConfig(Strict):
                     raise ValueError(
                         f"gate {gate.from_level} -> {gate.to_level} uses undefined check {name!r}"
                     )
+            self._check_gate_level_rules(gate)
         return self
+
+    def _check_gate_level_rules(self, gate: GateConfig) -> None:
+        name = f"gate {gate.from_level} -> {gate.to_level}"
+        for team in gate.requires:
+            if not any(t.use == team and t.watches == gate.from_level for t in self.teams):
+                raise ValueError(
+                    f"{name} requires {team!r}, which is not a team watching {gate.from_level!r}"
+                )
+        if gate.from_level == self.levels.lowest:
+            if gate.requires:
+                raise ValueError(f"{name} judges single changes; only gates above it can require sign-offs")
+        elif gate.judge is not None:
+            raise ValueError(f"{name}: judges above the lowest level arrive in Phase 4 (see docs/BACKLOG.md)")
 
     def gate_from(self, level: Level) -> GateConfig | None:
         return next((g for g in self.gates if g.from_level == level), None)

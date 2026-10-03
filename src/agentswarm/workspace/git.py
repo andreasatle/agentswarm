@@ -166,6 +166,17 @@ class Repository:
     def tip(self, branch: str) -> str:
         return self.git.run(self.path, "rev-parse", f"refs/heads/{branch}")
 
+    def first_parent_commits(self, since: str, until: str) -> list[str]:
+        """The commits on `until`'s first-parent line that `since` doesn't have, oldest first."""
+        out = self.git.run(self.path, "rev-list", "--first-parent", "--reverse", f"{since}..{until}")
+        return out.splitlines() if out else []
+
+    def fast_forward(self, branch: str, commit: str, expected: str) -> None:
+        """Move `branch` to `commit`, only if it still points to `expected` and `commit` descends from it."""
+        if self.git.attempt(self.path, "merge-base", "--is-ancestor", expected, commit).returncode != 0:
+            raise GitError(("fast-forward", branch, commit), 1, f"{commit} does not descend from {expected}")
+        self.git.run(self.path, "update-ref", f"refs/heads/{branch}", commit, expected)
+
     def ensure_branch(self, artifact: Artifact) -> None:
         """Create the artifact's branch from the base level if it doesn't exist yet."""
         if not self.has_branch(artifact.branch):

@@ -25,6 +25,7 @@ class Samples:
     B = ArtifactId("a-0002")
     RAW = Level("raw")
     EXPERIMENTAL = Level("experimental")
+    CANDIDATE = Level("candidate")
     EXECUTOR = TeamName("executor")
     TESTER = TeamName("tester")
     AT = datetime(2026, 10, 3, tzinfo=UTC)

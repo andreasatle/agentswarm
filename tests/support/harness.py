@@ -11,10 +11,11 @@ from agentswarm.board.context import ContextBuilder
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import CheckConfig, JevMode, LevelLadder
-from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, CommitPushed, FindingKind
+from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, CommitPushed, FindingKind, TeamName
 from agentswarm.gating.checks import CommandCheck, HardCheck
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.promotion import Promoter
+from agentswarm.gating.train import TrainPromoter
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
 from agentswarm.judging.judgement import Judgement
@@ -45,6 +46,7 @@ class Checks:
 
 class Harness:
     LADDER = LevelLadder(levels=(Samples.RAW, Samples.EXPERIMENTAL))
+    WITH_CANDIDATE = LevelLadder(levels=(Samples.RAW, Samples.EXPERIMENTAL, Samples.CANDIDATE))
     NORTH_STAR = "a small demo project"
 
     def __init__(
@@ -53,12 +55,13 @@ class Harness:
         checks: Sequence[HardCheck] = (),
         answers: Sequence[ChangeReadiness] | None = None,  # None: the gate has no judge
         mode: JevMode = JevMode.ACTIVE,
+        ladder: LevelLadder = LADDER,
     ) -> None:
         self.clock = FakeClock(Samples.AT)
         self.log = SqliteEventLog(root / "events.sqlite", Samples.PROJECT, self.clock)
         self.board = Blackboard(self.log)
         self.claims = ClaimRegistry(self.board, self.clock)
-        self.repository = Repository.create(root / "repo", root / "worktrees", self.LADDER, Git())
+        self.repository = Repository.create(root / "repo", root / "worktrees", ladder, Git())
         self.contexts = ContextBuilder(self.board, self.repository, self.NORTH_STAR)
         self.decider = FakeDecider(answers or ())
         self.decisions = InMemoryDecisions()
@@ -94,6 +97,18 @@ class Harness:
         if announce:
             self.board.append([CommitPushed(artifact=artifact.id, commit=sha)])
         return sha
+
+    def train(
+        self,
+        requires: Sequence[TeamName] = (),
+        checks: Sequence[HardCheck] = (),
+        requires_human: bool = False,
+    ) -> TrainPromoter:
+        """The release-train promoter for experimental -> candidate (needs ladder=WITH_CANDIDATE)."""
+        gate = Gate(Samples.EXPERIMENTAL, Samples.CANDIDATE, checks, requires_human=requires_human)
+        return TrainPromoter(
+            gate, requires, self.board, self.claims, self.repository, self.contexts, self.clock
+        )
 
     def runner(self, team: Team) -> TeamRunner:
         return TeamRunner(team, self.board, self.claims, self.repository, self.contexts, self.clock)

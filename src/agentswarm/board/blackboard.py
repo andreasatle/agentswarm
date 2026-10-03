@@ -146,9 +146,10 @@ class BoardViews:
         """The latest commit no gate has ruled on yet, if any."""
         return self._unjudged.get(id)
 
-    # Events that change the artifact itself. Claims, releases, sign-offs and findings from analyzers don't:
-    # if they did, one analyzer signing off would make every other analyzer look at the artifact again.
-    CHANGES: ClassVar[tuple[type, ...]] = (ArtifactCreated, CommitPushed, Promoted, Rejected, Escalated)
+    # Events that change the artifact itself. Claims, releases, sign-offs, analyzer findings and escalations
+    # don't: if they did, one analyzer signing off would make every other analyzer look again, and an
+    # escalation would void the sign-offs it was raised about.
+    CHANGES: ClassVar[tuple[type, ...]] = (ArtifactCreated, CommitPushed, Promoted, Rejected)
 
     def version(self, id: ArtifactId) -> int:
         """The seq of the artifact's last change (see CHANGES); teams key on it to act once per change."""
