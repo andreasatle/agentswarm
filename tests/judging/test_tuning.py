@@ -33,6 +33,14 @@ class TestThresholdTuner:
         assert failing is not None and failing.threshold == 0.1
         assert passing.coverage == pytest.approx(10 / 23)
 
+    def test_thresholds_snap_to_the_nearest_answer_of_their_kind(self) -> None:
+        # One "yes" at 0.62 sits among the "no"s: a greedy fail threshold of 0.62 would reject it for nothing.
+        data = rows(*[(0.2, False)] * 20, (0.62, True), *[(0.9, True)] * 20)
+        tuner = ThresholdTuner(precision=0.95, min_decided=5)
+        failing, passing = tuner.failing(data), tuner.passing(data)
+        assert failing is not None and failing.threshold == 0.2 and failing.precision == 1.0
+        assert passing is not None and passing.threshold == 0.62  # snapped to the lowest yes it passes
+
     def test_no_threshold_when_the_target_is_out_of_reach(self) -> None:
         data = rows(*[(0.9, True), (0.9, False)] * 5)
         assert ThresholdTuner(precision=0.95).passing(data) is None

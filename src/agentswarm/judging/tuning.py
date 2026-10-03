@@ -5,13 +5,16 @@ For one decision point and question, with p the judge's p(yes) and the ground tr
 - pass threshold: the lowest t such that the answers with p ≥ t are "yes" at least `precision` of the time;
 - fail threshold: the highest t such that the answers with p ≤ t are "no" at least `precision` of the time;
 
-each needing at least `min_decided` answers on its side. A question is ready to go active when both exist,
+each needing at least `min_decided` answers on its side, and then snapped to the nearest answer of its own
+kind (the pass threshold up to the lowest "yes" at or above it, the fail threshold down to the highest "no"
+at or below it): that never lowers precision or coverage of correct answers, and leaves the values nothing
+was observed for to escalate. A question is ready to go active when both exist,
 they don't overlap, and it has at least `min_support` answers in all. Every figure comes with the 95%
 Wilson lower bound, because 50 answers prove much less than their precision suggests.
 """
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict
@@ -124,7 +127,8 @@ class ThresholdTuner:
             side = [r for r in rows if r.p_yes >= t]
             correct = sum(r.truth for r in side)
             if len(side) >= self._min_decided and correct / len(side) >= self._precision:
-                return Side(threshold=t, decided=len(side), correct=correct, coverage=len(side) / len(rows))
+                snapped = min(r.p_yes for r in side if r.truth)  # the lowest "yes" it passes
+                return self._side(rows, snapped, lambda r, s=snapped: r.p_yes >= s, lambda r: r.truth)
         return None
 
     def failing(self, rows: Sequence[Labelled]) -> Side | None:
@@ -132,8 +136,24 @@ class ThresholdTuner:
             side = [r for r in rows if r.p_yes <= t]
             correct = sum(not r.truth for r in side)
             if len(side) >= self._min_decided and correct / len(side) >= self._precision:
-                return Side(threshold=t, decided=len(side), correct=correct, coverage=len(side) / len(rows))
+                snapped = max(r.p_yes for r in side if not r.truth)  # the highest "no" it fails
+                return self._side(rows, snapped, lambda r, s=snapped: r.p_yes <= s, lambda r: not r.truth)
         return None
+
+    @staticmethod
+    def _side(
+        rows: Sequence[Labelled],
+        threshold: float,
+        decides: Callable[[Labelled], bool],
+        right: Callable[[Labelled], bool],
+    ) -> Side:
+        side = [r for r in rows if decides(r)]
+        return Side(
+            threshold=threshold,
+            decided=len(side),
+            correct=sum(right(r) for r in side),
+            coverage=len(side) / len(rows),
+        )
 
 
 class TuningReport(Frozen):

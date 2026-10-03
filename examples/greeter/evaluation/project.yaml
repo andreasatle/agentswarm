@@ -31,4 +31,8 @@ teams:
       - Put tests in tests/ and run them with run_checks.
 
 gates:
-  - {from: raw, to: experimental, hard_checks: [unit_tests]}
+  - from: raw
+    to: experimental
+    hard_checks: [unit_tests]
+    # From `agentswarm tune` on 93 shadow decisions (Phase 4); between fail and pass the gate escalates.
+    thresholds: {complete: {pass: 0.63, fail: 0.33}, in_scope: {pass: 0.37, fail: 0.20}, tests_relevant: {pass: 0.84, fail: 0.03}}

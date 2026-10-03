@@ -152,3 +152,13 @@ edge cases (Roman numerals, ordinals, a centred banner, strict parsing, list joi
 boundaries, counting with a pattern, careful name capitalisation, formal initials with particles, a
 template registry class). Same project, layout and safeguard as the first suite: all 24 reference
 solutions pass their hidden tests and the seed fails them.
+
+**Step 8 (runs), first half.** Shadow evaluation of both suites with the new `in_scope` wording: 93
+decisions (three model runs on the hard suite ended without a decision: two without a structured answer,
+one with no change; one more failed its hidden tests, the first negative example from a model run). All
+three questions now separate cleanly (`complete`: every "no" ≤ 0.32, every "yes" ≥ 0.66; `in_scope`:
+"no" ≤ 0.20, "yes" ≥ 0.37; `tests_relevant`: near perfect). **Tuner fix:** the greedy fail threshold
+(highest t still ≥ 95% precise) could include a correct answer for no gain; thresholds now snap to the
+nearest answer of their own kind, which never lowers precision or the coverage of correct answers, and
+leaves unobserved values to escalate. Tuned: complete 0.63 / 0.33, in_scope 0.37 / 0.20, tests_relevant
+0.84 / 0.03, all ready; written into `examples/greeter/evaluation/project.yaml`.
