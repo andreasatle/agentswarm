@@ -55,6 +55,7 @@ class EvaluationRun:
         services_for: Callable[[EvalTask], ProjectServices] | None = None,  # tests inject fakes
         variants: Sequence[Variant] = tuple(Variant),
         clock: Clock | None = None,
+        active: Sequence[str] = (),  # decision points that act, e.g. "gate:*"; the rest stay shadow
     ) -> None:
         if any(v.scripted for v in variants):
             missing = [t.id for t in suite.tasks if not t.reference]
@@ -66,7 +67,7 @@ class EvaluationRun:
         self._services_for = services_for or self.real_services
         self._variants = tuple(variants)
         self._clock = clock or SystemClock()
-        self._config = suite.project_config()
+        self._config = suite.project_config(active)
         sandbox = Sandboxes.build(self._config.sandbox)
         self._hidden = HiddenTests(suite.test_command, suite.test_timeout_s, sandbox)
         self._mutation = MutationTesting(suite.test_command, suite.test_timeout_s, sandbox)

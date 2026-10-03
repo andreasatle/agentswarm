@@ -12,13 +12,14 @@ Hidden tests are never in the repository the executor works in. They are copied 
 checkout of the judged commit and run there, in the project's sandbox.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agentswarm.core.config import JevConfig, JevMode, ProjectConfig
+from agentswarm.core.config import JevMode, ProjectConfig
 from agentswarm.gating.checks import CheckResult
 from agentswarm.workspace.git import Repository
 from agentswarm.workspace.sandbox import Sandbox
@@ -81,8 +82,9 @@ class TaskSuite(Frozen):
             raise ValueError(f"suite {path} refers to missing files: {missing}")
         return resolved
 
-    def project_config(self) -> ProjectConfig:
-        """The project configuration, with the suite's judge on the first gate and Jev in shadow mode."""
+    def project_config(self, active: Sequence[str] = ()) -> ProjectConfig:
+        """The project configuration, with the suite's judge on the first gate; Jev in shadow mode except for
+        the decision points in `active` (glob patterns)."""
         config = ProjectConfig.load(self.project)
         lowest = config.levels.lowest
         if config.gate_from(lowest) is None:
@@ -90,7 +92,7 @@ class TaskSuite(Frozen):
         gates = tuple(
             g.model_copy(update={"judge": self.judge}) if g.from_level == lowest else g for g in config.gates
         )
-        jev = JevConfig(model=config.jev.model, mode=JevMode.SHADOW, timeout_s=config.jev.timeout_s)
+        jev = config.jev.model_copy(update={"mode": JevMode.SHADOW, "active": tuple(active)})
         return config.model_copy(update={"gates": gates, "jev": jev})
 
 

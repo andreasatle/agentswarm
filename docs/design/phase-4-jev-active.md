@@ -134,3 +134,10 @@ current wording, both thresholds, and `min_support` answers. `agentswarm tune` p
 `thresholds:` YAML line per gate. On the Phase 2 log it reports everything as old wording (correctly:
 `in_scope` changed in step 3). Thresholds for non-gate points (relevance, size, join, drift) still use
 the defaults; making them configurable waits until one of them has enough data to tune.
+
+**Step 5 (audit).** `judging/audit.py:GateAudit` audits active decisions at one gate point (shadow ones
+never acted). A promotion is wrong as soon as one question's truth is "no"; a rejection is wrong only if
+every question's truth is "yes"; anything the truths don't settle is counted as unknown. Each rate is
+compared with its bound through the 95% Wilson upper limit, so an empty or tiny sample is never "within
+bounds". `agentswarm audit DECISIONS` prints it; `agentswarm evaluate --active "gate:*"` runs a suite with
+those points active and prints the audit after the calibration report.

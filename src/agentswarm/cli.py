@@ -37,6 +37,7 @@ from agentswarm.core.domain import (
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
+from agentswarm.judging.audit import GateAudit
 from agentswarm.judging.calibration import CalibrationReport
 from agentswarm.judging.decisions import SqliteDecisions
 from agentswarm.judging.judges import JudgeCatalog
@@ -103,7 +104,8 @@ class Cli:
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         status CONFIG --root DIR                   every artifact's history
-        evaluate SUITE --workdir DIR               run a task suite; record outcomes; print calibration
+        evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
+        audit DECISIONS [--point POINT]            how often an active gate was wrong, against outcomes
         calibrate DECISIONS                        the calibration report for a decision log
         tune DECISIONS [--precision P]             thresholds that reach a target precision, per question
         label DECISIONS [--limit N]                spot-check automatic outcomes by hand
@@ -144,6 +146,8 @@ class Cli:
                 return self.calibrate(args)
             case "tune":
                 return self.tune(args)
+            case "audit":
+                return self.audit(args)
             case "label":
                 return self.label(args)
             case "escalations" | "resolve" | "resume":
@@ -175,12 +179,16 @@ class Cli:
         workdir.mkdir(parents=True, exist_ok=True)
         variants = tuple(Variant(v) for v in args.variant) if args.variant else tuple(Variant)
         with SqliteDecisions(workdir / "decisions.sqlite") as decisions:
-            run = EvaluationRun(suite, workdir, decisions, self._evaluation_services, variants)
+            run = EvaluationRun(
+                suite, workdir, decisions, self._evaluation_services, variants, active=args.active
+            )
             for task in suite.tasks:
                 for variant in variants:
                     result = await run.run_task(task, variant)
                     self._show(EvaluationReport.line(result))
             self._show("\n" + CalibrationReport.of(decisions).render())
+            if args.active:
+                self._show("\n" + GateAudit.of(decisions).render())
         return 0
 
     def calibrate(self, args: argparse.Namespace) -> int:
@@ -192,6 +200,11 @@ class Cli:
         tuner = ThresholdTuner(args.precision, args.min_support)
         with SqliteDecisions(self._existing(args.decisions)) as decisions:
             self._show(TuningReport.of(tuner.tune(decisions, JudgeCatalog.standard())).render())
+        return 0
+
+    def audit(self, args: argparse.Namespace) -> int:
+        with SqliteDecisions(self._existing(args.decisions)) as decisions:
+            self._show(GateAudit.of(decisions, args.point).render())
         return 0
 
     def label(self, args: argparse.Namespace) -> int:
@@ -263,6 +276,15 @@ class Cli:
             choices=[v.value for v in Variant],
             help="run only these variants; may be repeated (default: all)",
         )
+        evaluate.add_argument(
+            "--active",
+            action="append",
+            default=[],
+            help="a decision point to run active (glob); may be repeated",
+        )
+        audit = commands.add_parser("audit", help="how often an active gate was wrong")
+        audit.add_argument("decisions", help="a decisions.sqlite file")
+        audit.add_argument("--point", default="gate:raw->experimental", help="the gate's decision point")
         calibrate = commands.add_parser("calibrate", help="the calibration report for a decision log")
         calibrate.add_argument("decisions", help="a decisions.sqlite file")
         tune = commands.add_parser("tune", help="thresholds from a decision log, per question")

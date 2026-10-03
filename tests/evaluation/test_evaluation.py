@@ -9,6 +9,7 @@ from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.mutation import MutationTesting
 from agentswarm.evaluation.run import EvaluationRun
 from agentswarm.evaluation.suite import HiddenTests, TaskSuite
+from agentswarm.judging.audit import GateAudit
 from agentswarm.judging.decisions import InMemoryDecisions, Outcomes, OutcomeSource
 from tests.support.suites import EXAMPLES, EXECUTOR_ONLY, FarewellSuite, GreeterSuite, TinySuite
 
@@ -149,3 +150,18 @@ class TestScriptedVariants:
             EvaluationRun(
                 TinySuite.write(tmp_path), tmp_path / "run", InMemoryDecisions(), TinySuite.services
             )
+
+
+class TestActiveEvaluation:
+    async def test_an_active_gate_is_audited_against_the_planted_truths(self, tmp_path: Path) -> None:
+        suite = FarewellSuite.write(tmp_path)
+        decisions = InMemoryDecisions()
+        variants = (Variant.REFERENCE, Variant.TRIVIAL_TESTS)
+        run = EvaluationRun(
+            suite, tmp_path / "run", decisions, FarewellSuite.services, variants, active=["gate:*"]
+        )
+        await run.run()
+        assert {d.mode for d in decisions.all()} == {JevMode.ACTIVE}
+        audit = GateAudit.of(decisions)
+        # The fake judge passes everything: right for the reference, wrong for the trivial tests.
+        assert (audit.false_promotions.errors, audit.false_promotions.of) == (1, 2)
