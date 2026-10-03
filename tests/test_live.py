@@ -1,6 +1,6 @@
 """A real model on the greeter example: the Phase 1 exit criterion. Opt in with AGENTSWARM_LIVE_MODEL.
 
-    AGENTSWARM_LIVE_MODEL=ollama:gemma4:26b uv run --extra ollama pytest -m live -s
+    AGENTSWARM_LIVE_MODEL=ollama:gemma4:e4b uv run --extra ollama pytest -m live -s
 
 Checks run in Docker when a daemon answers (the image from docker/sandbox-python.Dockerfile must exist),
 otherwise on the host with this interpreter.
