@@ -1,0 +1,34 @@
+# The project the greeter task suite runs in (suite.yaml): the executor and one gate, nothing else,
+# so each evaluation run measures the gate's judge on exactly one change.
+project: greeter
+domain: software
+north_star: A small, well-tested Python greeting library.
+
+levels: [raw, experimental]
+seed: ../seed
+
+# Checks run in Docker, isolated. The --root directory must be one Docker can mount (anywhere under
+# $HOME with Colima or Docker Desktop). Build the image once with
+#   docker build -t agentswarm/sandbox-python:3.13 -f docker/sandbox-python.Dockerfile docker
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+
+models:
+  # Any LangChain provider works; install its extra (uv sync --extra ollama|openai|anthropic).
+  # The model must make real tool calls: qwen2.5-coder on Ollama writes them as plain text instead.
+  coder: {model: "ollama:gemma4:e4b", temperature: 0}
+
+checks:
+  unit_tests: {command: [python, -m, pytest, -q, -p, no:cacheprovider], kind: test_failure, timeout_s: 120}
+
+teams:
+  - use: executor
+    watches: raw
+    model: coder
+    checks: [unit_tests]
+    max_model_calls: 30
+    constraints:
+      - Use only the Python standard library.
+      - Put tests in tests/ and run them with run_checks.
+
+gates:
+  - {from: raw, to: experimental, hard_checks: [unit_tests]}

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Self, cast
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from agentswarm.core.domain import FindingKind, Level
 
@@ -215,6 +215,10 @@ class ProjectConfig(Strict):
         if isinstance(value, list | tuple):
             return {"levels": cast(Sequence[object], value)}
         return value
+
+    @field_serializer("levels")
+    def _ladder_as_list(self, ladder: LevelLadder) -> list[str]:
+        return list(ladder.levels)  # written back the way it is written in YAML
 
     @model_validator(mode="after")
     def _references_resolve(self) -> Self:

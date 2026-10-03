@@ -18,7 +18,7 @@ from agentswarm.project import Project
 from agentswarm.workspace.sandbox import DockerSandbox
 from tests.support.paths import RepoPaths
 
-EXAMPLE = RepoPaths.GREETER / "project.yaml"
+EXAMPLE = RepoPaths.GREETER / "evaluation" / "project.yaml"
 TASK = "Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!', with tests."
 
 

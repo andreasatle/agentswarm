@@ -1,11 +1,13 @@
-# A small real task for the Phase 1 exit criterion. Run it with:
+# The greeter project on the software preset (agentswarm/core/presets/software.yaml), which supplies the
+# levels raw -> experimental -> candidate -> production, the unit_tests check and the gates: a Jev judge
+# out of raw, a release train to candidate that needs both analyzers' sign-offs, a human production gate.
+# `uv run agentswarm config examples/greeter/project.yaml` prints the result.
+#
 #   uv run agentswarm run examples/greeter/project.yaml --root ~/agentswarm-runs/greeter \
 #       --task "Add a function farewell(name) that returns 'Goodbye, <name>!', with tests"
 project: greeter
 domain: software
 north_star: A small, well-tested Python greeting library.
-
-levels: [raw, experimental]
 seed: seed
 
 # Checks run in Docker, isolated. The --root directory must be one Docker can mount (anywhere under
@@ -18,9 +20,7 @@ models:
   # The model must make real tool calls: qwen2.5-coder on Ollama writes them as plain text instead.
   coder: {model: "ollama:gemma4:e4b", temperature: 0}
 
-checks:
-  unit_tests: {command: [python, -m, pytest, -q, -p, no:cacheprovider], kind: test_failure, timeout_s: 120}
-
+# Replaces the preset's teams (key by key: listing teams replaces them all), to add constraints.
 teams:
   - use: executor
     watches: raw
@@ -30,6 +30,7 @@ teams:
     constraints:
       - Use only the Python standard library.
       - Put tests in tests/ and run them with run_checks.
+  - {use: integration_tester, watches: experimental, model: coder, checks: [unit_tests], relevance: IntegrationRelevance}
+  - {use: red_team, watches: experimental, model: coder, checks: [unit_tests], relevance: AdversarialRelevance}
 
-gates:
-  - {from: raw, to: experimental, hard_checks: [unit_tests]}
+jev: {mode: shadow}   # Jev judges and logs; nothing it says blocks or splits work yet (Phase 4)

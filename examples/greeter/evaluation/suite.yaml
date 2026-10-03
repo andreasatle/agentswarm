@@ -1,7 +1,7 @@
 # The greeter task suite: small tasks with hidden acceptance tests (Phase 2 design, step 5).
 # Hidden tests give the ground truth for the judge's `complete` question; the executor never sees them.
 # Each task's reference solution (reference/) is what the scripted variants write (evaluation/faults.py).
-project: ../project.yaml
+project: project.yaml
 judge: ChangeReadiness
 test_command:
 - python

@@ -32,7 +32,7 @@ class TestGreeterSuite:
 class TestTaskSuite:
     def test_load_resolves_paths_against_the_suite_file(self) -> None:
         suite = GreeterSuite.SUITE
-        assert suite.project == (EXAMPLES / "project.yaml").resolve()
+        assert suite.project == (EXAMPLES / "evaluation" / "project.yaml").resolve()
         assert all(h.is_absolute() and h.is_file() for t in suite.tasks for h in t.hidden_tests)
 
     def test_project_config_puts_the_judge_on_the_first_gate_in_shadow_mode(self) -> None:
