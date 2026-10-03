@@ -1,5 +1,7 @@
 """Jev's JSON wire format as Pydantic models. Ported from ~/Projects/Jev/jev_api.py."""
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 # --- Questions (what is sent) ---
@@ -11,19 +13,19 @@ class NoulCriteria(BaseModel):
 
 
 class NoulQuestion(BaseModel):
-    type: str = "noul"
+    type: Literal["noul"] = "noul"
     instructions: str
     criteria: NoulCriteria | None = None
 
 
 class ChoiceQuestion(BaseModel):
-    type: str = "choice"
+    type: Literal["choice"] = "choice"
     instructions: str
     criteria: dict[str, str]  # option key -> description
 
 
 class ScoreQuestion(BaseModel):
-    type: str = "score"
+    type: Literal["score"] = "score"
     instructions: str
     criteria: list[str]  # ordered levels, lowest first
 
