@@ -1,8 +1,6 @@
 # Phase 2: Jev in shadow mode
 
-Status: **in progress.** Decided: Q1 (port the client), Q2 (automatic outcomes; manual labels only
-where nothing else works), Q3 (relevance filters deferred to Phase 3, recorded in `docs/BACKLOG.md`).
-Step 1 used the recommendations for Q4 and Q5. Proposal sections: §11 (gates), §12 (Jev), §15 (decision log).
+Status: **complete.** All five questions decided (see the end). Proposal sections: §11 (gates), §12 (Jev), §15 (decision log).
 
 **Exit criterion (§19):** 50+ logged gate decisions with outcomes, and a first calibration report.
 
@@ -213,6 +211,29 @@ concrete to fix. `Verdict` moved to `policy.py`. Threshold YAML keys stay `pass`
   Added: negate an `if` condition (or remove its `not`).
 - Jev also rated trivial tests lower on `in_scope` (0.25) than the reference (0.75): the questions are
   not fully independent. Sharpening the wording is Phase 4 work (`docs/BACKLOG.md`).
+
+## Result: the exit criterion
+
+`agentswarm evaluate examples/greeter/evaluation/suite.yaml --workdir ~/agentswarm-runs/eval-1`, with
+`gemma4:e4b` as the executor and `jev-latest` judging in shadow mode: **56 decisions** (14 tasks × 4
+variants), 154 of 168 questions with automatic outcomes (the 14 without are `in_scope` for model runs).
+
+| Question | n | Truths from | ECE | Brier | At pass 0.9 / fail 0.2 |
+| --- | --- | --- | --- | --- | --- |
+| `complete` | 56 | hidden tests 42, planted 14 | 0.130 | 0.027 | decides 62%, right 100% |
+| `in_scope` | 42 | planted 42 | 0.289 | 0.218 | decides 43%, right 78% |
+| `tests_relevant` | 56 | planted 42, mutation 14 | 0.073 | 0.006 | decides 86%, right 100% |
+
+Reading it (n is small, so this is direction, not measurement):
+- `tests_relevant` is close to ideal: confident and right.
+- `complete` is right whenever it decides, but under-confident on correct work (p ≈ 0.77 for 10 complete
+  changes), so 38% would escalate at the default thresholds.
+- `in_scope` is the weak question: the 3 wrong decisions are `trivial-tests` runs that Jev called out of
+  scope. That is the wording issue already in the backlog.
+- The model executor solved all 14 tasks, so model runs contributed only positive examples; negatives
+  come from the scripted variants. A harder suite would give model-run negatives too.
+- Next steps belong to Phase 4: more data (200+), per-question thresholds from these reports, sharper
+  wording for `in_scope`, and the 20-decision human spot check (`agentswarm label`).
 
 ## Questions for review
 
