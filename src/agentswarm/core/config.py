@@ -86,7 +86,10 @@ class SandboxConfig(Strict):
 
 class JevConfig(Strict):
     model: str = "jev-latest"  # pin a concrete version (e.g. "jev-1.13.0") once thresholds are calibrated
-    mode: JevMode = JevMode.SHADOW  # shadow: judge and log only; active: gates act on the ruling
+    mode: JevMode = JevMode.SHADOW  # the default for decision points `active` doesn't name
+    # Decision points that act on Jev's ruling, as glob patterns over point names, e.g.
+    # "gate:raw->experimental", "relevance:*", "size:raw". Promote a point once it is calibrated (§12.3).
+    active: tuple[str, ...] = ()
     timeout_s: float = Field(default=30.0, gt=0)
 
 

@@ -81,6 +81,23 @@ class TestProject:
         assert promoting.ruling.verdict is Verdict.PROMOTE
         project.close()
 
+    async def test_only_the_points_named_active_act_on_the_judge(self, tmp_path: Path) -> None:
+        config = Projects.CONFIG | {
+            "gates": [Projects.CONFIG["gates"][0] | {"judge": "ChangeReadiness"}],
+            "jev": {"mode": "shadow", "active": ["gate:*"]},
+        }
+        project = Projects.open_config(
+            ProjectConfig.model_validate(config), tmp_path, judged=[Judged.incomplete(), Judged.passing()]
+        )
+        artifact = project.create_artifact("Write the greeting")
+        await project.run_until_idle()
+        history = project.views().history(artifact.id)
+        assert [type(e) for e in history].count(
+            Rejected
+        ) == 1  # the gate acted although the default is shadow
+        assert {d.mode for d in project.decisions.all()} == {"active"}
+        project.close()
+
     async def test_several_artifacts_all_reach_the_next_level(self, tmp_path: Path) -> None:
         project = Projects.open(tmp_path)
         tasks = ["First part", "Second part", "Third part"]

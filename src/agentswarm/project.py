@@ -23,7 +23,7 @@ from agentswarm.gating.train import TrainPromoter
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.deciders import Decider, JevDecider
 from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
-from agentswarm.judging.judgement import Judgements
+from agentswarm.judging.judgement import Judgements, ModeTable
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
@@ -105,7 +105,7 @@ class Project:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
             decider = JevDecider(jev)
-        judgements = Judgements(services.judges, decider, decisions, config.jev.mode, clock)
+        judgements = Judgements(services.judges, decider, decisions, ModeTable.of(config.jev), clock)
 
         workers = services.workers or LangChainWorkers(ChatModels(config.models))
         artifacts = ArtifactFactory(board, config.levels)

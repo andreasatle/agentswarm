@@ -114,7 +114,9 @@ class Gate:
                 worktree.diff_against(self.to_level),
             )
         except DeciderError as error:
-            if self._judgement.mode is JevMode.SHADOW:  # shadow mode never blocks: carry on unjudged
+            if (
+                self._judgement.mode_for(self.name) is JevMode.SHADOW
+            ):  # shadow never blocks: carry on unjudged
                 self._log.warning(
                     "%s: judge unavailable for %s, continuing unjudged: %s", self.name, ctx.artifact.id, error
                 )

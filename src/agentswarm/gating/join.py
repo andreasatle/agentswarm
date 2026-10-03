@@ -97,7 +97,7 @@ class JoinPromoter:
                     f"join:{umbrella.level}->{target}", ctx, tip, tip, self._children_diff(views, umbrella)
                 )
             except DeciderError as error:
-                if self._judgement.mode is JevMode.ACTIVE:
+                if self._judgement.mode_for(f"join:{umbrella.level}->{target}") is JevMode.ACTIVE:
                     return self._escalate(umbrella, target, f"judge unavailable: {error}")
             else:
                 decision = judged.id

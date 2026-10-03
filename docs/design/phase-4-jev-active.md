@@ -103,3 +103,9 @@ intervals against the bounds above.
   is large enough to split.
 
 ## Decisions made during implementation
+
+**Step 1 (active per decision point).** `jev.active` holds glob patterns (`fnmatchcase`) over point
+names; `ModeTable` resolves a point's mode, and `Judgement.mode_for(point)` replaces the single
+`Judgement.mode`. Places that decide what to do without an answer (the gate and the join when Jev is
+unreachable) ask the table for their own point. Existing configs are unchanged: no patterns means every
+point uses `jev.mode`.
