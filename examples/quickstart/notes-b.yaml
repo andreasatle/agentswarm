@@ -1,0 +1,19 @@
+# One of the two projects in ../swarm-quickstart.yaml: the quickstart project under another name.
+project: notes-b
+domain: software
+north_star: Notes that say something.
+seed: seed
+
+levels: [raw, experimental]
+sandbox: {kind: local}   # runs checks on this machine: fine here, the fake executor writes no code
+
+checks:
+  notes_have_text:
+    command: [python3, -c, "import pathlib, sys; sys.exit(any(p.stat().st_size == 0 for p in pathlib.Path().glob('*.md')))"]
+    kind: test_failure
+
+teams:
+  - {use: fake_executor, watches: raw}
+
+gates:
+  - {from: raw, to: experimental, hard_checks: [notes_have_text]}

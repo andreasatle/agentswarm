@@ -1,0 +1,6 @@
+# Two quickstart projects at once, sharing one scheduler: runs anywhere (no model, Jev or Docker).
+#   uv run agentswarm swarm examples/swarm-quickstart.yaml --task "notes-a=Write a note" --task "notes-b=Write a note"
+scheduler: {max_model_calls: 2}
+projects:
+  - {config: quickstart/notes-a.yaml, root: ~/agentswarm-runs/swarm/notes-a}
+  - {config: quickstart/notes-b.yaml, root: ~/agentswarm-runs/swarm/notes-b}

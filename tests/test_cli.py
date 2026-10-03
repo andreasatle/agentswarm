@@ -6,6 +6,7 @@ import yaml
 
 from agentswarm.cli import Cli
 from agentswarm.core.config import ProjectConfig
+from tests.support.paths import RepoPaths
 from tests.support.projects import Decomposing
 from tests.support.samples import Samples
 from tests.support.suites import FarewellSuite
@@ -146,3 +147,37 @@ class TestCliEscalations:
             Cli(show=lambda _: None).dispatch(
                 ["resolve", str(config), "--root", str(root), "a-0001", "--retry"]
             )
+
+
+class TestCliSwarm:
+    def test_runs_the_quickstart_pair_with_tasks_per_project(self, tmp_path: Path) -> None:
+        quickstart = RepoPaths.EXAMPLES / "quickstart"
+        swarm = {
+            "projects": [
+                {"config": str(quickstart / "notes-a.yaml"), "root": str(tmp_path / "a")},
+                {"config": str(quickstart / "notes-b.yaml"), "root": str(tmp_path / "b")},
+            ]
+        }
+        path = tmp_path / "swarm.yaml"
+        path.write_text(yaml.safe_dump(swarm))
+        shown: list[str] = []
+        assert Cli(show=shown.append).dispatch(["swarm", str(path), "--task", "notes-a=Write a note"]) == 0
+        assert shown[0].startswith("=== notes-a (1 rounds)") and "[experimental] Write a note" in shown[0]
+        assert shown[1].startswith("=== notes-b (0 rounds)") and "(no artifacts)" in shown[1]
+
+    def test_a_task_for_an_unknown_project_is_refused(self, tmp_path: Path) -> None:
+        path = tmp_path / "swarm.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "projects": [
+                        {
+                            "config": str(RepoPaths.EXAMPLES / "quickstart" / "notes-a.yaml"),
+                            "root": str(tmp_path / "a"),
+                        }
+                    ]
+                }
+            )
+        )
+        with pytest.raises(SystemExit, match="PROJECT=TEXT"):
+            Cli(show=lambda _: None).dispatch(["swarm", str(path), "--task", "nobody=Write"])

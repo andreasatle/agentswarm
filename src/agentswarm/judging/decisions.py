@@ -178,7 +178,9 @@ class SqliteDecisions:
     )
 
     def __init__(self, path: Path) -> None:
-        self._db = sqlite3.connect(path, isolation_level=None, timeout=10.0)
+        # check_same_thread=False: a swarm runs a project's blocking steps in worker threads. Each project's
+        # steps still run one at a time, so the connection is never used by two threads at once.
+        self._db = sqlite3.connect(path, isolation_level=None, timeout=10.0, check_same_thread=False)
         self._db.execute("PRAGMA foreign_keys = ON")
         for statement in self._SCHEMA:
             self._db.execute(statement)

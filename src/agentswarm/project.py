@@ -1,5 +1,6 @@
 """One project with its north star: the board, the repository, its teams and its gates, wired together."""
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -186,10 +187,12 @@ class Project:
         actions = 0
         for runner in self._runners:
             actions += await runner.step()
+        # Gates, the router and the supervisor block (git, sandboxes, synchronous Jev): in a thread, so other
+        # projects in the same process keep going meanwhile.
         for promoter in self._promoters:
-            actions += promoter.step()
-        actions += self._router.step()
-        actions += self._supervisor.step()
+            actions += await asyncio.to_thread(promoter.step)
+        actions += await asyncio.to_thread(self._router.step)
+        actions += await asyncio.to_thread(self._supervisor.step)
         return actions
 
     async def run_until_idle(self, max_rounds: int = 50) -> int:

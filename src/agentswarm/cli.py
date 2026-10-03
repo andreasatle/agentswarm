@@ -45,6 +45,7 @@ from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.project import Project, ProjectServices
+from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
 
 
@@ -115,6 +116,7 @@ class Cli:
         calibrate DECISIONS                        the calibration report for a decision log
         tune DECISIONS [--precision P]             thresholds that reach a target precision, per question
         label DECISIONS [--limit N]                spot-check automatic outcomes by hand
+        swarm SWARM [--task PROJECT=TEXT]...       several projects at once, sharing one scheduler
         escalations CONFIG --root DIR              open escalations, with the decisions behind them
         resolve CONFIG --root DIR ARTIFACT --retry|--accept|--drop [--note TEXT]
         resume CONFIG --root DIR [--note TEXT]     lift a drift pause
@@ -158,6 +160,8 @@ class Cli:
                 return self.label(args)
             case "escalations" | "resolve" | "resume":
                 return self.escalations(args)
+            case "swarm":
+                return asyncio.run(self.swarm(args))
             case _:
                 raise ValueError(f"unknown command {args.command!r}")
 
@@ -217,6 +221,25 @@ class Cli:
         with SqliteDecisions(self._existing(args.decisions)) as decisions:
             check = SpotCheck(decisions, JudgeCatalog.standard(), self._ask, self._show, SystemClock())
             self._show(check.run(args.limit).render())
+        return 0
+
+    async def swarm(self, args: argparse.Namespace) -> int:
+        swarm = Swarm.open(SwarmConfig.load(Path(args.swarm)))
+        try:
+            for item in args.task:
+                name, _, task = item.partition("=")
+                if name not in swarm.projects or not task:
+                    raise SystemExit(
+                        f"--task must look like PROJECT=TEXT with a project of the swarm: {item!r}"
+                    )
+                swarm.projects[name].create_artifact(task)
+            for run in await swarm.run(args.max_rounds):
+                status = f"{run.rounds} rounds" if run.rounds is not None else f"still busy: {run.error}"
+                self._show(
+                    f"=== {run.project} ({status})\n{Report.render(swarm.projects[run.project].views())}\n"
+                )
+        finally:
+            swarm.close()
         return 0
 
     def escalations(self, args: argparse.Namespace) -> int:
@@ -305,6 +328,10 @@ class Cli:
         label.add_argument("decisions", help="a decisions.sqlite file")
         label.add_argument("--limit", type=int, default=20, help="how many decisions to show")
 
+        swarm = commands.add_parser("swarm", help="run several projects at once, sharing one scheduler")
+        swarm.add_argument("swarm", help="the swarm's YAML file")
+        swarm.add_argument("--task", action="append", default=[], help="PROJECT=TEXT: a task for one project")
+        swarm.add_argument("--max-rounds", type=int, default=50)
         escalations = commands.add_parser("escalations", help="list open escalations")
         resolve = commands.add_parser("resolve", help="resolve an escalation")
         resume = commands.add_parser("resume", help="lift a drift pause")

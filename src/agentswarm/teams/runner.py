@@ -90,13 +90,12 @@ class TeamRunner:
 
     async def step(self) -> int:
         """Act on every artifact that needs this team. Returns how many it acted on."""
-        views = self._board.current()
-        if self._team.pausable and views.paused:
+        if self._team.pausable and self._board.current().paused:
             return 0  # nothing is marked handled, so the work is picked up after Resumed
-        if self._budget is not None and self._budget.exhausted(views):
-            return 0  # likewise: the work waits for tomorrow's budget
         acted = 0
         for artifact in self._candidates():
+            if self._budget is not None and self._budget.exhausted(self._board.current()):
+                break  # checked before every action, not once per step; the rest waits for tomorrow
             if await self._handle(artifact):
                 acted += 1
         return acted

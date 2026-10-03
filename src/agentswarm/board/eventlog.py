@@ -95,7 +95,9 @@ class SqliteEventLog(EventLog):
     def __init__(self, path: Path, project: ProjectId, clock: Clock) -> None:
         super().__init__(project, clock)
         # isolation_level=None: transactions are explicit, so BEGIN IMMEDIATE takes the write lock up front.
-        self._db = sqlite3.connect(path, isolation_level=None, timeout=10.0)
+        # check_same_thread=False: a swarm runs a project's blocking steps in worker threads. Each project's
+        # steps still run one at a time, so the connection is never used by two threads at once.
+        self._db = sqlite3.connect(path, isolation_level=None, timeout=10.0, check_same_thread=False)
         self._db.execute(self._SCHEMA)
 
     def head(self) -> int:

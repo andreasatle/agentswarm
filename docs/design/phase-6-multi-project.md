@@ -73,3 +73,15 @@ order. `control/budget.py:Budget` reads spend for the current UTC day from the b
 project's team runners skip their turn (nothing marked handled, as with a pause), and the supervisor
 escalates once a day (project-wide, `artifact: None`). Gates keep judging over budget: Jev is cheap, and
 the model spend that budgets exist for is in team actions. Budgets work without a scheduler too.
+
+**Step 4 (swarm).** `swarm.py`: a swarm file lists project configs and roots (relative to it, `~`
+expanded) and scheduler limits; `Swarm.open` builds each project with the shared scheduler in its
+services; `Swarm.run` runs every project's loop as an asyncio task (`gather`), reporting a project still
+busy at the round limit instead of failing the others. `Project.step` runs gates, the router and the
+supervisor with `asyncio.to_thread`, so a project's blocking work doesn't stall the others; SQLite
+connections allow use from worker threads (a project's steps still run one at a time). `agentswarm swarm
+SWARM [--task PROJECT=TEXT]...`; `examples/swarm-quickstart.yaml` runs two quickstart projects offline.
+- **Bug found by the end-to-end test:** the budget was checked once per runner step, so a step could
+  spend past it on every waiting artifact. It is now checked before every action.
+- **The exit criterion holds in tests** (`tests/test_swarm.py`): two projects run concurrently (model runs
+  overlap), the one with room finishes, the one with a $2 budget stops at exactly $2 and reports it once.
