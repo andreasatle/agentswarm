@@ -54,11 +54,11 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 [tool.ruff.lint.flake8-bugbear]
 # NewType "constructors" return their argument unchanged, so they are safe as defaults.
 extend-immutable-calls = [
-    "agentswarm.domain.ArtifactId",
-    "agentswarm.domain.TeamName",
-    "agentswarm.domain.Level",
-    "agentswarm.domain.ProjectId",
-    "agentswarm.domain.DecisionId",
+    "agentswarm.core.domain.ArtifactId",
+    "agentswarm.core.domain.TeamName",
+    "agentswarm.core.domain.Level",
+    "agentswarm.core.domain.ProjectId",
+    "agentswarm.core.domain.DecisionId",
 ]
 
 [tool.pyright]

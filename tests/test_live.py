@@ -13,11 +13,12 @@ from pathlib import Path
 import pytest
 
 from agentswarm.cli import Report
-from agentswarm.config import ProjectConfig, SandboxKind
+from agentswarm.core.config import ProjectConfig, SandboxKind
 from agentswarm.project import Project
-from agentswarm.sandbox import DockerSandbox
+from agentswarm.workspace.sandbox import DockerSandbox
+from tests.support.paths import RepoPaths
 
-EXAMPLE = Path(__file__).parent.parent / "examples" / "greeter" / "project.yaml"
+EXAMPLE = RepoPaths.GREETER / "project.yaml"
 TASK = "Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!', with tests."
 
 

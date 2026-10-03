@@ -5,7 +5,7 @@ import pytest
 import yaml
 
 from agentswarm.cli import Cli
-from tests.samples import Samples
+from tests.support.samples import Samples
 
 
 class Configs:

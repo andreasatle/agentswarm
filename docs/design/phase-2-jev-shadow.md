@@ -34,18 +34,18 @@ Gate.evaluate
 | `JevClient` | `jev/client.py` | The only reader of `TYPESAFE_API_KEY`. HTTPS only, base URL fixed in code, model version from config (pinned, e.g. `jev-1.13.0`). Sends one request, parses the response. Ported from `~/Projects/Jev/jev_client.py` + `jev_api.py`. |
 | `Ask`, `Option`, `NoulAnswer`, `ScoreAnswer`, `ChoiceAnswer` | `jev/spec.py` | Typed question specs, as in your `jev.py`. |
 | `QuestionSet` | `jev/spec.py` | `QuestionSet.of(spec)` builds the questions object from a spec's `Annotated` fields (your `questions_of`, as a class). |
-| `Decider` (changed) | `deciders.py` | `decide(state, spec) -> Answered[M]` (answers + the model version that answered). Implementations: `JevDecider`, `FakeDecider` (scripted answers). |
-| `RawToExperimental` | `judges.py` | The §11.3 judge spec: `in_scope`, `tests_relevant`, `complete` (Noul). Each field also says which `FindingKind` and message a failure produces (§11.6, source 1). |
-| `JudgeCatalog` | `judges.py` | Spec classes by name, since the config refers to `judge: RawToExperimental`. |
-| `Policy` | `policy.py` | Pure code: thresholds per field → `Ruling` (PROMOTE / REJECT with findings / ESCALATE). Noul: `p ≥ pass` passes, `p ≤ fail` fails, between is unsure. |
-| `JudgeState` | `judges.py` | What Jev sees: north star, task, open findings, diff (truncated to a character budget). |
-| `DecisionLog` | `decisions.py` | A `decisions` table (plus a `states` table keyed by hash) in the project's SQLite file. Records every decision; outcomes are filled in later. |
-| `Outcome` | `decisions.py` | The ground truth for **one question** of one decision: the true answer, and its source (`hidden_tests`, `mutation`, `planted`, `merge_queue`, `human`). |
+| `Decider` (changed) | `judging/deciders.py` | `decide(state, spec) -> Answered[M]` (answers + the model version that answered). Implementations: `JevDecider`, `FakeDecider` (scripted answers). |
+| `RawToExperimental` | `judging/judges.py` | The §11.3 judge spec: `in_scope`, `tests_relevant`, `complete` (Noul). Each field also says which `FindingKind` and message a failure produces (§11.6, source 1). |
+| `JudgeCatalog` | `judging/judges.py` | Spec classes by name, since the config refers to `judge: RawToExperimental`. |
+| `Policy` | `judging/policy.py` | Pure code: thresholds per field → `Ruling` (PROMOTE / REJECT with findings / ESCALATE). Noul: `p ≥ pass` passes, `p ≤ fail` fails, between is unsure. |
+| `JudgeState` | `judging/judges.py` | What Jev sees: north star, task, open findings, diff (truncated to a character budget). |
+| `DecisionStore`, `SqliteDecisions` | `judging/decisions.py` | The decision log in `decisions.sqlite`: every decision with its full state and a state hash, and outcomes per question. (Planned as `DecisionLog` with a separate `states` table; see step 4.) |
+| `Outcome` | `judging/decisions.py` | The ground truth for **one question** of one decision: the true answer, and its source (`hidden_tests`, `mutation`, `planted`, `human`). |
 | `EvalTask`, `TaskSuite` | `evaluation/suite.py` | Small tasks on a seed project, each with **hidden acceptance tests** the executor never sees, and optionally a **planted fault**. |
 | `MutationCheck` | `evaluation/mutation.py` | Breaks the changed code in known ways and reruns the executor's tests in the sandbox. Tests that still pass don't exercise the behaviour. |
 | `FaultyExecutor` | `evaluation/faults.py` | Wraps an executor: does the task, then makes a known out-of-scope edit (and variants: drops part of the task, writes a trivially passing test). The fault is the label. |
 | `EvaluationRun` | `evaluation/run.py` | Runs every task in the suite through a fresh project (executor → gate with Jev in shadow), then computes and records the outcomes. |
-| `CalibrationReport` | `calibration.py` | Per decision point and question: reliability bins, ECE, sample size, a warning when n is small, and **which outcome source** the numbers rest on. Port of your `09_calibration.py`, text output. |
+| `CalibrationReport` | `judging/calibration.py` | Per decision point and question: reliability bins, ECE, sample size, a warning when n is small, and **which outcome source** the numbers rest on. Port of your `09_calibration.py`, text output. |
 | CLI | `cli.py` | `agentswarm evaluate` (run the suite), `agentswarm calibrate`, `agentswarm label` (spot checks only). |
 
 ### Shadow vs active (§12.3)
@@ -94,6 +94,9 @@ Two consequences:
 7. `CalibrationReport`, `agentswarm evaluate/calibrate/label`; run the suite to get 50+ decisions.
 
 ## Decisions made during implementation
+
+*After step 5 the package was reorganised into subpackages (see the layout in `AGENTS.md`); module
+paths in this document use the new layout.*
 
 Recorded as they happen, for the end-of-phase tutorial.
 

@@ -6,12 +6,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from agentswarm.clock import Clock, SystemClock
-from agentswarm.decisions import Decision, DecisionStore, Outcome, OutcomeSource
-from agentswarm.domain import DecisionId, Escalated, Level
+from agentswarm.core.clock import Clock, SystemClock
+from agentswarm.core.domain import DecisionId, Escalated, Level
 from agentswarm.evaluation.suite import EvalTask, HiddenTests, TaskSuite
+from agentswarm.judging.decisions import Decision, DecisionStore, Outcome, OutcomeSource
 from agentswarm.project import Project, ProjectServices
-from agentswarm.sandbox import Sandboxes
+from agentswarm.workspace.sandbox import Sandboxes
 
 
 class TaskResult(BaseModel):

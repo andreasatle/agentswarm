@@ -2,6 +2,25 @@
 
 The design is in [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md). Section numbers (§) in code refer to it.
 
+## Layout
+
+```
+src/agentswarm/
+  core/        domain model (§7), project configuration (§17), clock
+  board/       event log, blackboard views, claims, artifact context (§8)
+  workspace/   git repositories and worktrees (§9), sandboxes (§13.4)
+  gating/      hard checks, gates, merge queue, promoter (§11)
+  judging/     judge specs, threshold policy, deciders, decision log (§12, §15)
+  jev/         the Jev client and typed question specs
+  llm/         chat models and workers: the only place LangChain is imported (§13)
+  teams/       the team loop, executor teams, team catalog (§10)
+  evaluation/  task suites with known answers, evaluation runs
+  project.py   wires one project together; cli.py is the command line
+tests/         mirrors src/agentswarm/; shared helpers live in tests/support/
+```
+
+New code goes in the subpackage whose responsibility it shares; a new subpackage needs a reason.
+
 ## Code structure
 
 - **Classes, not flat functions.** Behaviour lives in methods on classes that own their state and
@@ -15,7 +34,7 @@ The design is in [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md). Section numbers
 - **Typed end to end.** Pydantic models for data, `StrEnum` for closed sets. No string parsing,
   no dict indexing with hand-written keys.
 - **Tests are grouped in classes**, one `Test<Subject>` per class under test.
-- **LangChain and LangGraph stay in adapter modules** (`models.py`, `workers.py`, the executor's toolbox).
+- **LangChain and LangGraph stay in `agentswarm/llm/`** (`models.py`, `workers.py`).
   The rest of the code sees only our own interfaces and Pydantic models. Those adapters may relax
   pyright's `reportUnknown*` rules with a file-level comment; nowhere else.
 - **Provider agnostic.** Never hard-code a model provider. Models are chosen in the project config as

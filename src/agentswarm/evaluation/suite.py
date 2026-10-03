@@ -18,10 +18,10 @@ from typing import Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agentswarm.config import JevConfig, JevMode, ProjectConfig
-from agentswarm.gates import CheckResult
-from agentswarm.git import Repository
-from agentswarm.sandbox import Sandbox
+from agentswarm.core.config import JevConfig, JevMode, ProjectConfig
+from agentswarm.gating.checks import CheckResult
+from agentswarm.workspace.git import Repository
+from agentswarm.workspace.sandbox import Sandbox
 
 
 class Frozen(BaseModel):

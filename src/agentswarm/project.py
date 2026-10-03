@@ -6,26 +6,27 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Protocol, Self
 
-from agentswarm.blackboard import Blackboard, BoardViews
-from agentswarm.catalog import TeamCatalog, TeamResources
-from agentswarm.claims import ClaimRegistry
-from agentswarm.clock import Clock, SystemClock
-from agentswarm.config import ProjectConfig
-from agentswarm.context import ContextBuilder
-from agentswarm.deciders import Decider, JevDecider
-from agentswarm.decisions import DecisionStore, SqliteDecisions
-from agentswarm.domain import Artifact, ArtifactCreated, ArtifactId, ProjectId, TeamName
-from agentswarm.eventlog import ConcurrencyConflict, SqliteEventLog
-from agentswarm.gates import CheckSet, Gate, GateJudgement
-from agentswarm.git import Git, Repository
+from agentswarm.board.blackboard import Blackboard, BoardViews
+from agentswarm.board.claims import ClaimRegistry
+from agentswarm.board.context import ContextBuilder
+from agentswarm.board.eventlog import ConcurrencyConflict, SqliteEventLog
+from agentswarm.core.clock import Clock, SystemClock
+from agentswarm.core.config import ProjectConfig
+from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, ProjectId, TeamName
+from agentswarm.gating.checks import CheckSet
+from agentswarm.gating.gate import Gate, GateJudgement
+from agentswarm.gating.promotion import Promoter
 from agentswarm.jev.client import JevClient
-from agentswarm.judges import JudgeCatalog
-from agentswarm.models import ChatModels
-from agentswarm.policy import Policy
-from agentswarm.promotion import Promoter
-from agentswarm.sandbox import Sandboxes
-from agentswarm.teams import TeamRunner
-from agentswarm.workers import LangChainWorkers, WorkerProvider
+from agentswarm.judging.deciders import Decider, JevDecider
+from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
+from agentswarm.judging.judges import JudgeCatalog
+from agentswarm.judging.policy import Policy
+from agentswarm.llm.models import ChatModels
+from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
+from agentswarm.teams.catalog import TeamCatalog, TeamResources
+from agentswarm.teams.runner import TeamRunner
+from agentswarm.workspace.git import Git, Repository
+from agentswarm.workspace.sandbox import Sandboxes
 
 
 class Closeable(Protocol):

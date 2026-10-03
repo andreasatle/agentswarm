@@ -1,75 +1,27 @@
 """End to end: the Phase 0 exit criterion from proposal §19."""
 
-import sys
-from collections.abc import Sequence
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, ClassVar
 
-from agentswarm.blackboard import Blackboard
-from agentswarm.clock import FakeClock
-from agentswarm.config import ProjectConfig
-from agentswarm.deciders import FakeDecider
-from agentswarm.decisions import InMemoryDecisions
-from agentswarm.domain import ArtifactCreated, Claimed, CommitPushed, ProjectId, Promoted, Rejected, Released
-from agentswarm.eventlog import SqliteEventLog
-from agentswarm.executor import ExecutorReport, WorktreeToolbox
-from agentswarm.judges import RawToExperimental
-from agentswarm.policy import Verdict
+from agentswarm.board.blackboard import Blackboard
+from agentswarm.board.eventlog import SqliteEventLog
+from agentswarm.core.clock import FakeClock
+from agentswarm.core.config import ProjectConfig
+from agentswarm.core.domain import (
+    ArtifactCreated,
+    Claimed,
+    CommitPushed,
+    ProjectId,
+    Promoted,
+    Rejected,
+    Released,
+)
+from agentswarm.judging.policy import Verdict
+from agentswarm.llm.workers import FakeWorker, FakeWorkers, Toolbox
 from agentswarm.project import Project, ProjectServices
-from agentswarm.workers import FakeWorker, FakeWorkers, Toolbox
-from tests.samples import Judged, Samples
-
-
-class Projects:
-    """Opens a project in a temporary directory with a fake executor and a scripted decider."""
-
-    CONFIG: ClassVar[dict[str, Any]] = {
-        "project": "demo",
-        "domain": "software",
-        "north_star": "A small demo project",
-        "levels": ["raw", "experimental"],
-        "sandbox": {"kind": "local"},
-        "checks": {
-            # Every markdown file in the tree must be non-empty.
-            "non_empty": {
-                "command": [
-                    sys.executable,
-                    "-c",
-                    "import pathlib, sys; "
-                    "sys.exit(any(p.stat().st_size == 0 for p in pathlib.Path().glob('*.md')))",
-                ],
-                "kind": "test_failure",
-            }
-        },
-        "teams": [{"use": "fake_executor", "watches": "raw"}],
-        "gates": [{"from": "raw", "to": "experimental", "hard_checks": ["non_empty"]}],
-    }
-
-    @classmethod
-    def open(
-        cls, root: Path, judged: Sequence[RawToExperimental] | None = None, persistent_decisions: bool = False
-    ) -> Project:
-        """Without `judged`, the gate has hard checks only; with it, an active judge answering in turn."""
-        config = cls.CONFIG
-        if judged is not None:
-            gate = config["gates"][0] | {"judge": "RawToExperimental"}
-            config = config | {"gates": [gate], "jev": {"mode": "active"}}
-        return cls.open_config(ProjectConfig.model_validate(config), root, judged, persistent_decisions)
-
-    @staticmethod
-    def open_config(
-        config: ProjectConfig,
-        root: Path,
-        judged: Sequence[RawToExperimental] | None = None,
-        persistent_decisions: bool = False,
-    ) -> Project:
-        """By default decisions stay in memory; `persistent_decisions` uses the real decisions.sqlite."""
-        decisions = None if persistent_decisions else InMemoryDecisions()
-        services = ProjectServices(
-            decider=FakeDecider(judged or ()), decisions=decisions, clock=FakeClock(Samples.AT)
-        )
-        return Project.open(config, root, services)
+from agentswarm.teams.executor import ExecutorReport, WorktreeToolbox
+from tests.support.projects import Projects
+from tests.support.samples import Judged, Samples
 
 
 class TestProject:

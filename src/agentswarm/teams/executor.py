@@ -1,0 +1,247 @@
+"""Executor teams: they implement an artifact's task on its raw branch (proposal §10.3)."""
+
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
+from pathlib import PurePosixPath
+
+from pydantic import BaseModel, ConfigDict
+
+from agentswarm.core.domain import (
+    ArtifactContext,
+    CommitPushed,
+    Escalated,
+    Event,
+    Instruction,
+    Level,
+    Promoted,
+    Rejected,
+    TeamName,
+)
+from agentswarm.gating.checks import CheckResult, HardCheck
+from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.teams.runner import Relevance
+from agentswarm.workspace.git import Worktree
+
+
+class Frozen(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class CheckReport(Frozen):
+    results: tuple[CheckResult, ...]
+
+    @property
+    def passed(self) -> bool:
+        return all(r.passed for r in self.results)
+
+    def summary(self) -> str:
+        if not self.results:
+            return "no checks configured"
+        return "\n\n".join(
+            f"{r.name}: {'passed' if r.passed else 'FAILED'}" + ("" if r.passed else f"\n{r.output}")
+            for r in self.results
+        )
+
+
+class ToolError(Exception):
+    """A tool call the model made was invalid; the message goes back to the model."""
+
+
+class WorktreeToolbox:
+    """The executor's tools, confined to one worktree. Checks run in the project's sandbox.
+
+    Each public method is a tool: its signature and docstring are what the model sees. Errors are
+    returned as text so the model can correct itself, never raised into the agent loop.
+    """
+
+    READ_LIMIT = 100_000  # characters
+
+    def __init__(self, worktree: Worktree, checks: Sequence[HardCheck]) -> None:
+        self._worktree = worktree
+        self._checks = tuple(checks)
+
+    def tools(self) -> Sequence[Callable[..., str]]:
+        return [self.list_files, self.read_file, self.write_file, self.delete_file, self.run_checks]
+
+    def list_files(self) -> str:
+        """List every file in the project, one relative path per line."""
+        return "\n".join(self._worktree.files()) or "(the project has no files yet)"
+
+    def read_file(self, path: str) -> str:
+        """Return the full content of the file at `path`, relative to the project root."""
+        try:
+            relative = self._safe(path)
+            content = self._worktree.read(relative)
+        except (ToolError, OSError, UnicodeDecodeError) as error:
+            return f"error: {error}"
+        if len(content) > self.READ_LIMIT:
+            return content[: self.READ_LIMIT] + f"\n... (truncated at {self.READ_LIMIT} characters)"
+        return content
+
+    def write_file(self, path: str, content: str) -> str:
+        """Create or overwrite the file at `path`, relative to the project root, with `content`."""
+        try:
+            relative = self._safe(path)
+            self._worktree.write(relative, content)
+        except (ToolError, OSError) as error:
+            return f"error: {error}"
+        return f"wrote {relative} ({len(content)} characters)"
+
+    def delete_file(self, path: str) -> str:
+        """Delete the file at `path`, relative to the project root."""
+        try:
+            relative = self._safe(path)
+            self._worktree.delete(relative)
+        except (ToolError, OSError) as error:
+            return f"error: {error}"
+        return f"deleted {relative}"
+
+    def run_checks(self) -> str:
+        """Run the project's checks (such as the test suite) and report which passed and why others failed."""
+        return self.check_report().summary()
+
+    def check_report(self) -> CheckReport:
+        return CheckReport(results=tuple(check.run(self._worktree.path) for check in self._checks))
+
+    def _safe(self, path: str) -> str:
+        """The path normalised relative to the worktree, refusing anything that could escape it."""
+        candidate = PurePosixPath(path)
+        if candidate.is_absolute() or ".." in candidate.parts:
+            raise ToolError(f"path must be relative and stay inside the project: {path!r}")
+        if not candidate.parts or candidate.parts[0] == ".git":
+            raise ToolError(f"not a writable project path: {path!r}")
+        resolved = (self._worktree.path / candidate).resolve()
+        if not resolved.is_relative_to(self._worktree.path.resolve()):
+            raise ToolError(f"path leaves the project through a link: {path!r}")
+        return str(candidate)
+
+
+class ExecutorRequest(Frozen):
+    """The payload an executor's model receives."""
+
+    north_star: str
+    instruction: Instruction
+    files: tuple[str, ...]
+    diff_summary: str  # what the branch already changes relative to the level it forked from
+
+
+class ExecutorReport(Frozen):
+    """What the model returns when it has finished working."""
+
+    summary: str  # one line: what was changed; used as the commit message
+    complete: bool  # whether the model believes every part of the task is done
+
+
+class Executor(ABC):
+    """Shared by all executors: acts when an artifact has no commit yet, or its latest commit was rejected."""
+
+    def __init__(self, watches: Level, name: TeamName) -> None:
+        self._watches = watches
+        self._name = name
+
+    @property
+    def name(self) -> TeamName:
+        return self._name
+
+    @property
+    def watches(self) -> Level:
+        return self._watches
+
+    def relevant(self, ctx: ArtifactContext) -> Relevance:
+        milestones = [e for e in ctx.history if isinstance(e, CommitPushed | Rejected | Promoted | Escalated)]
+        if not milestones or isinstance(milestones[-1], Rejected):
+            return Relevance.YES
+        return Relevance.NO
+
+    @abstractmethod
+    async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]: ...
+
+
+class FakeExecutor(Executor):
+    """An executor without a model: writes the task (and the findings it was asked to fix) to a file."""
+
+    def __init__(self, watches: Level, name: TeamName = TeamName("executor")) -> None:
+        super().__init__(watches, name)
+
+    async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+        artifact = ctx.artifact
+        lines = [f"# {artifact.task}", ""] + [f"- fixed: {f.detail}" for f in ctx.open_findings]
+        worktree.write(f"{artifact.id}.md", "\n".join(lines) + "\n")
+        sha = worktree.commit(f"{artifact.id}: {artifact.task}")
+        return [CommitPushed(artifact=artifact.id, commit=sha)]
+
+
+class ExecutorTeam(Executor):
+    """An executor backed by a model that edits the worktree with tools and runs the checks itself.
+
+    After the model finishes, the executor runs the checks once more, deterministically. Work that passes
+    is committed and announced for the gate. Work that still fails, or that the model calls incomplete,
+    is committed but escalated, so it is kept for a human and the gate doesn't judge it.
+    """
+
+    INSTRUCTIONS = """\
+You are the executor in a software team. Implement the task in `instruction.goal` in the project.
+
+- Use list_files and read_file to understand the project before changing it.
+- Make the smallest change that fully accomplishes the task. Do not change unrelated code.
+- Fix every finding in `instruction.must_fix`; they explain why the previous attempt was rejected.
+- Follow every rule in `instruction.constraints`.
+- Add or update tests for the behaviour you change.
+- Run run_checks after your changes and keep fixing until every check passes.
+- When you are done, give your final answer in the required structured format: a one-line summary
+  of the change, and whether the task is complete. Do not finish with a plain-text reply."""
+
+    def __init__(
+        self,
+        worker: Worker,
+        checks: Sequence[HardCheck],
+        watches: Level,
+        constraints: Sequence[str] = (),
+        name: TeamName = TeamName("executor"),
+    ) -> None:
+        super().__init__(watches, name)
+        self._worker = worker
+        self._checks = tuple(checks)
+        self._constraints = tuple(constraints)
+
+    async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+        artifact = ctx.artifact
+        toolbox = WorktreeToolbox(worktree, self._checks)
+        try:
+            report = await self._worker.run(
+                self.INSTRUCTIONS, self.request(ctx, worktree), ExecutorReport, toolbox
+            )
+        except WorkerError as error:
+            return self._escalate(ctx, worktree, f"executor failed: {error}")
+        if not worktree.has_changes():
+            return [Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")]
+
+        sha = worktree.commit(f"{artifact.id}: {report.summary}")
+        events: list[Event] = [CommitPushed(artifact=artifact.id, commit=sha)]
+        checks = toolbox.check_report()
+        if not checks.passed:
+            events.append(Escalated(artifact=artifact.id, reason=f"checks still fail:\n{checks.summary()}"))
+        elif not report.complete:
+            events.append(
+                Escalated(artifact=artifact.id, reason=f"executor reports incomplete: {report.summary}")
+            )
+        return events
+
+    @staticmethod
+    def _escalate(ctx: ArtifactContext, worktree: Worktree, reason: str) -> list[Event]:
+        """Escalate, first committing any work in progress so a human can see it."""
+        escalated = Escalated(artifact=ctx.artifact.id, reason=reason)
+        if not worktree.has_changes():
+            return [escalated]
+        sha = worktree.commit(f"{ctx.artifact.id}: work in progress (escalated)")
+        return [CommitPushed(artifact=ctx.artifact.id, commit=sha), escalated]
+
+    def request(self, ctx: ArtifactContext, worktree: Worktree) -> ExecutorRequest:
+        return ExecutorRequest(
+            north_star=ctx.north_star,
+            instruction=Instruction(
+                goal=ctx.artifact.task, must_fix=ctx.open_findings, constraints=self._constraints
+            ),
+            files=tuple(worktree.files()),
+            diff_summary=ctx.diff_summary,
+        )

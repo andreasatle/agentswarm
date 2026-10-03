@@ -6,10 +6,9 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from agentswarm.blackboard import BoardViews
-from agentswarm.catalog import TeamCatalog
-from agentswarm.config import ProjectConfig
-from agentswarm.domain import (
+from agentswarm.board.blackboard import BoardViews
+from agentswarm.core.config import ProjectConfig
+from agentswarm.core.domain import (
     ArtifactCreated,
     Claimed,
     CommitPushed,
@@ -21,6 +20,7 @@ from agentswarm.domain import (
     Released,
 )
 from agentswarm.project import Project, ProjectServices
+from agentswarm.teams.catalog import TeamCatalog
 
 
 class Report:
