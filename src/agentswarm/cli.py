@@ -41,6 +41,7 @@ from agentswarm.judging.calibration import CalibrationReport
 from agentswarm.judging.decisions import SqliteDecisions
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
+from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.catalog import TeamCatalog
 
@@ -104,6 +105,7 @@ class Cli:
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR               run a task suite; record outcomes; print calibration
         calibrate DECISIONS                        the calibration report for a decision log
+        tune DECISIONS [--precision P]             thresholds that reach a target precision, per question
         label DECISIONS [--limit N]                spot-check automatic outcomes by hand
         escalations CONFIG --root DIR              open escalations, with the decisions behind them
         resolve CONFIG --root DIR ARTIFACT --retry|--accept|--drop [--note TEXT]
@@ -140,6 +142,8 @@ class Cli:
                 return asyncio.run(self.evaluate(args))
             case "calibrate":
                 return self.calibrate(args)
+            case "tune":
+                return self.tune(args)
             case "label":
                 return self.label(args)
             case "escalations" | "resolve" | "resume":
@@ -182,6 +186,12 @@ class Cli:
     def calibrate(self, args: argparse.Namespace) -> int:
         with SqliteDecisions(self._existing(args.decisions)) as decisions:
             self._show(CalibrationReport.of(decisions).render())
+        return 0
+
+    def tune(self, args: argparse.Namespace) -> int:
+        tuner = ThresholdTuner(args.precision, args.min_support)
+        with SqliteDecisions(self._existing(args.decisions)) as decisions:
+            self._show(TuningReport.of(tuner.tune(decisions, JudgeCatalog.standard())).render())
         return 0
 
     def label(self, args: argparse.Namespace) -> int:
@@ -255,6 +265,14 @@ class Cli:
         )
         calibrate = commands.add_parser("calibrate", help="the calibration report for a decision log")
         calibrate.add_argument("decisions", help="a decisions.sqlite file")
+        tune = commands.add_parser("tune", help="thresholds from a decision log, per question")
+        tune.add_argument("decisions", help="a decisions.sqlite file")
+        tune.add_argument(
+            "--precision", type=float, default=0.95, help="how often a decided answer must be right"
+        )
+        tune.add_argument(
+            "--min-support", type=int, default=20, help="answers needed before a point can go active"
+        )
         label = commands.add_parser("label", help="spot-check automatic outcomes by hand")
         label.add_argument("decisions", help="a decisions.sqlite file")
         label.add_argument("--limit", type=int, default=20, help="how many decisions to show")

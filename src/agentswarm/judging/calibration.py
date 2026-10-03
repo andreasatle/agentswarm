@@ -124,38 +124,57 @@ class QuestionCalibration(Frozen):
         return "\n".join(lines)
 
 
-class CalibrationReport(Frozen):
-    questions: tuple[QuestionCalibration, ...]
+class LabelledAnswers(Frozen):
+    """Every calibrated answer that has a ground truth, grouped by decision point, judge version and question.
+
+    Shared by the calibration report and the threshold tuner. LLM-fallback decisions are left out:
+    uncalibrated answers would only blur the picture.
+    """
+
+    groups: dict[tuple[str, str, str], tuple[Labelled, ...]]  # (point, judge_version, field) -> answers
     unlabelled: int  # questions asked that have no outcome yet
+    judges: dict[tuple[str, str], str]  # (point, judge_version) -> judge name
 
     @classmethod
-    def of(cls, store: DecisionStore, threshold: Threshold = Policy.DEFAULT) -> Self:
-        rows: list[Labelled] = []
+    def of(cls, store: DecisionStore) -> Self:
+        groups: dict[tuple[str, str, str], list[Labelled]] = {}
+        judges: dict[tuple[str, str], str] = {}
         unlabelled = 0
         for decision in store.all():
             if LLMDecider.is_llm(decision.model):
-                continue  # uncalibrated answers would only blur the picture
+                continue
+            judges[(decision.point, decision.judge_version)] = decision.judge
             outcomes = store.outcomes(decision.id)
             for question in decision.ruling.questions:
                 best = Outcomes.strongest(outcomes, question.field)
                 if best is None:
                     unlabelled += 1
                     continue
-                rows.append(
-                    Labelled(
-                        point=decision.point,
-                        judge_version=decision.judge_version,
-                        field=question.field,
-                        p_yes=question.p_yes,
-                        truth=best.truth,
-                        source=best.source,
-                    )
+                row = Labelled(
+                    point=decision.point,
+                    judge_version=decision.judge_version,
+                    field=question.field,
+                    p_yes=question.p_yes,
+                    truth=best.truth,
+                    source=best.source,
                 )
-        groups: dict[tuple[str, str, str], list[Labelled]] = {}
-        for row in rows:  # one wording of a judge is not evidence about another
-            groups.setdefault((row.point, row.judge_version, row.field), []).append(row)
-        questions = tuple(QuestionCalibration.of(group, threshold) for _, group in sorted(groups.items()))
-        return cls(questions=questions, unlabelled=unlabelled)
+                groups.setdefault((row.point, row.judge_version, row.field), []).append(row)
+        return cls(
+            groups={key: tuple(rows) for key, rows in sorted(groups.items())},
+            unlabelled=unlabelled,
+            judges=judges,
+        )
+
+
+class CalibrationReport(Frozen):
+    questions: tuple[QuestionCalibration, ...]
+    unlabelled: int  # questions asked that have no outcome yet
+
+    @classmethod
+    def of(cls, store: DecisionStore, threshold: Threshold = Policy.DEFAULT) -> Self:
+        answers = LabelledAnswers.of(store)  # one wording of a judge is not evidence about another
+        questions = tuple(QuestionCalibration.of(rows, threshold) for rows in answers.groups.values())
+        return cls(questions=questions, unlabelled=answers.unlabelled)
 
     def render(self) -> str:
         if not self.questions:

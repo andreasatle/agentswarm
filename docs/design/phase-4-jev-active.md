@@ -125,3 +125,12 @@ The calibration report groups by decision point, judge version and question. `in
 the change modify only what the task asks for? Judge which files and behaviour it changes, not how good
 its tests are." This starts a new version of `ChangeReadiness`: the Phase 2 data remains in the logs as
 the unversioned wording.
+
+**Step 4 (tuning).** `judging/tuning.py:ThresholdTuner` works on `LabelledAnswers` (the calibration
+report's grouping, now shared): per point, judge version and question, the lowest pass and highest fail
+threshold reaching the target precision with at least `min_decided` answers on that side, the pass
+threshold kept strictly above the fail threshold (with discrete data they can otherwise meet). Ready =
+current wording, both thresholds, and `min_support` answers. `agentswarm tune` prints each question and a
+`thresholds:` YAML line per gate. On the Phase 2 log it reports everything as old wording (correctly:
+`in_scope` changed in step 3). Thresholds for non-gate points (relevance, size, join, drift) still use
+the defaults; making them configurable waits until one of them has enough data to tune.
