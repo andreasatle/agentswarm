@@ -11,7 +11,7 @@ from agentswarm.judging.judgement import Judgement, Judgements
 from agentswarm.llm.workers import Worker, WorkerProvider
 from agentswarm.teams.analyzer import IntegrationTester, RedTeam
 from agentswarm.teams.decomposer import Decomposer
-from agentswarm.teams.executor import ExecutorTeam, FakeExecutor
+from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
 from agentswarm.teams.relevance import RelevanceFilter
 from agentswarm.teams.runner import Team
 
@@ -40,6 +40,13 @@ class TeamResources:
 
     def judgement(self, judge: str) -> Judgement:
         return self._judgements.build(judge)
+
+    def tiers_for(self, team: TeamConfig) -> list[Tier]:
+        """The team's model tiers, cheapest first; a single `model` is one tier."""
+        models = team.model_tiers or ((team.model,) if team.model is not None else ())
+        if not models:
+            raise ValueError(f"team {team.use!r} needs a model; set `model:` or `model_tiers:`")
+        return [Tier(model, self._workers.worker(model, team.max_model_calls)) for model in models]
 
     def worker_for(self, team: TeamConfig) -> Worker:
         if team.model is None:
@@ -78,7 +85,7 @@ class TeamCatalog:
         catalog.register(
             "executor",
             lambda team, resources: ExecutorTeam(
-                resources.worker_for(team),
+                resources.tiers_for(team),
                 resources.checks_for(team),
                 team.watches,
                 team.constraints,

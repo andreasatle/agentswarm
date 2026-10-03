@@ -60,7 +60,8 @@ class Report:
             case Released():
                 return f"released by {event.team}"
             case CommitPushed():
-                return f"commit {event.commit[:10]}"
+                by = f" by {event.model}" if event.model else ""
+                return f"commit {event.commit[:10]}{by}"
             case FindingAdded():
                 return f"finding {event.finding.id} ({event.finding.kind}): {event.finding.detail}"
             case FindingResolved():

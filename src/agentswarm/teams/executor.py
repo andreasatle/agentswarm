@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
@@ -197,6 +198,12 @@ class FakeExecutor(Executor):
         return [CommitPushed(artifact=artifact.id, commit=sha)]
 
 
+@dataclass(frozen=True)
+class Tier:
+    model: str  # the name in the project's `models`
+    worker: Worker
+
+
 class ExecutorTeam(Executor):
     """An executor backed by a model that edits the worktree with tools and runs the checks itself.
 
@@ -219,7 +226,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
 
     def __init__(
         self,
-        worker: Worker,
+        workers: Worker | Sequence[Tier],  # one worker, or tiers from cheap to strong (§13.3)
         checks: Sequence[HardCheck],
         watches: Level,
         constraints: Sequence[str] = (),
@@ -227,24 +234,26 @@ You are the executor in a software team. Implement the task in `instruction.goal
         requires_sizing: bool = False,
     ) -> None:
         super().__init__(watches, name, requires_sizing)
-        self._worker = worker
+        self._tiers: tuple[Tier, ...] | None = tuple(workers) if isinstance(workers, Sequence) else None
+        self._single = workers if not isinstance(workers, Sequence) else None
+        if self._tiers is not None and not self._tiers:
+            raise ValueError("an executor needs at least one model tier")
         self._checks = tuple(checks)
         self._constraints = tuple(constraints)
 
     async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
         artifact = ctx.artifact
         toolbox = WorktreeToolbox(worktree, self._checks)
+        model, worker = self.tier_for(ctx)
         try:
-            report = await self._worker.run(
-                self.INSTRUCTIONS, self.request(ctx, worktree), ExecutorReport, toolbox
-            )
+            report = await worker.run(self.INSTRUCTIONS, self.request(ctx, worktree), ExecutorReport, toolbox)
         except WorkerError as error:
             return self._escalate(ctx, worktree, f"executor failed: {error}")
         if not worktree.has_changes():
             return [Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")]
 
         sha = worktree.commit(f"{artifact.id}: {report.summary}")
-        events: list[Event] = [CommitPushed(artifact=artifact.id, commit=sha)]
+        events: list[Event] = [CommitPushed(artifact=artifact.id, commit=sha, model=model)]
         checks = toolbox.check_report()
         if not checks.passed:
             events.append(Escalated(artifact=artifact.id, reason=f"checks still fail:\n{checks.summary()}"))
@@ -253,6 +262,15 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 Escalated(artifact=artifact.id, reason=f"executor reports incomplete: {report.summary}")
             )
         return events
+
+    def tier_for(self, ctx: ArtifactContext) -> tuple[str | None, Worker]:
+        """The cheapest tier first, one tier up per rejection so far, staying on the strongest."""
+        if self._tiers is None:
+            assert self._single is not None
+            return None, self._single
+        rejections = sum(isinstance(e, Rejected) for e in ctx.history)
+        tier = self._tiers[min(rejections, len(self._tiers) - 1)]
+        return tier.model, tier.worker
 
     @staticmethod
     def _escalate(ctx: ArtifactContext, worktree: Worktree, reason: str) -> list[Event]:

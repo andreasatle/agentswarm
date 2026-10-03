@@ -116,6 +116,7 @@ class CommitPushed(Frozen):
     kind: Literal["commit_pushed"] = "commit_pushed"
     artifact: ArtifactId
     commit: str
+    model: str | None = None  # the model tier that made it, when a model did (§13.3)
 
     @property
     def subject(self) -> ArtifactId:

@@ -151,6 +151,9 @@ class TeamConfig(Strict):
     use: str  # name in the team catalog
     watches: Level
     model: str | None = None  # name of an entry in ProjectConfig.models
+    model_tiers: tuple[
+        str, ...
+    ] = ()  # instead of `model`: cheap first, moving up a tier per rejection (§13.3)
     checks: tuple[str, ...] = ()  # checks the team may run while working, by name
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
     constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
@@ -234,8 +237,11 @@ class ProjectConfig(Strict):
                 raise ValueError(f"team {team.use!r} watches unknown level {team.watches!r}")
             if self.jev.fallback is not None and self.jev.fallback not in self.models:
                 raise ValueError(f"jev.fallback names undefined model {self.jev.fallback!r}")
-            if team.model is not None and team.model not in self.models:
-                raise ValueError(f"team {team.use!r} uses undefined model {team.model!r}")
+            if team.model is not None and team.model_tiers:
+                raise ValueError(f"team {team.use!r}: set `model` or `model_tiers`, not both")
+            for model in (team.model, *team.model_tiers):
+                if model is not None and model not in self.models:
+                    raise ValueError(f"team {team.use!r} uses undefined model {model!r}")
             for name in team.checks:
                 if name not in self.checks:
                     raise ValueError(f"team {team.use!r} uses undefined check {name!r}")

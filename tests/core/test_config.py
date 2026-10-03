@@ -68,6 +68,7 @@ class TestProjectConfig:
             {"models": {"m": {"model": "no-provider-prefix"}}},
             {"teams": [{"use": "executor", "watches": "raw"}, {"use": "executor", "watches": "raw"}]},
             {"gates": [{"from": "raw", "to": "experimental", "requires": ["executor"]}]},
+            {"teams": [{"use": "executor", "watches": "raw", "model_tiers": ["missing"]}]},
             {
                 "levels": ["raw", "experimental", "candidate"],
                 "gates": [{"from": "experimental", "to": "candidate", "requires": ["nobody"]}],
@@ -88,6 +89,7 @@ class TestProjectConfig:
             "model-without-provider",
             "duplicate-team",
             "sign-offs-at-the-lowest-gate",
+            "undefined-model-tier",
             "required-team-not-watching",
             "judge-above-the-lowest-level",
         ],

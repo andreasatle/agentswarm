@@ -4,6 +4,8 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.eventlog import SqliteEventLog
@@ -28,7 +30,7 @@ from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
 from agentswarm.judging.judges import AdversarialRelevance
 from agentswarm.judging.policy import Verdict
-from agentswarm.llm.workers import FakeWorker, FakeWorkers, Toolbox
+from agentswarm.llm.workers import FakeWorker, FakeWorkers, Step, Toolbox
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.analyzer import AnalysisReport, AnalysisToolbox, ReportedProblem
 from agentswarm.teams.executor import ExecutorReport, WorktreeToolbox
@@ -259,4 +261,44 @@ class TestProjectWithDecomposition:
         escalations = [e for e in views.history(goal.id) if isinstance(e, Escalated)]
         assert len(escalations) == 1
         assert "The parts don't add up" in escalations[0].reason
+        project.close()
+
+
+class TestModelTiers:
+    async def test_a_rejection_moves_the_executor_up_a_tier(self, tmp_path: Path) -> None:
+        def work(text: str) -> Step[BaseModel]:
+            def step(toolbox: Toolbox | None) -> ExecutorReport:
+                assert isinstance(toolbox, WorktreeToolbox)
+                toolbox.write_file("greeting.md", f"{text}\n")
+                return ExecutorReport(summary=text, complete=True)
+
+            return step
+
+        config = Projects.CONFIG | {
+            "models": {"small": {"model": "ollama:small"}, "large": {"model": "ollama:large"}},
+            "teams": [
+                {
+                    "use": "executor",
+                    "watches": "raw",
+                    "model_tiers": ["small", "large"],
+                    "checks": ["non_empty"],
+                }
+            ],
+            "gates": [Projects.CONFIG["gates"][0] | {"judge": "ChangeReadiness"}],
+            "jev": {"mode": "active"},
+        }
+        services = ProjectServices(
+            workers=FakeWorkers(
+                {"small": FakeWorker([work("small try")]), "large": FakeWorker([work("large try")])}
+            ),
+            decider=FakeDecider([Judged.incomplete(), Judged.passing()]),
+            decisions=InMemoryDecisions(),
+            clock=FakeClock(Samples.AT),
+        )
+        project = Project.open(ProjectConfig.model_validate(config), tmp_path, services)
+        artifact = project.create_artifact("Write a greeting")
+        await project.run_until_idle()
+        commits = [e for e in project.views().history(artifact.id) if isinstance(e, CommitPushed)]
+        assert [c.model for c in commits] == ["small", "large"]
+        assert project.views().artifact(artifact.id).level == Samples.EXPERIMENTAL
         project.close()

@@ -141,3 +141,8 @@ every question's truth is "yes"; anything the truths don't settle is counted as 
 compared with its bound through the 95% Wilson upper limit, so an empty or tiny sample is never "within
 bounds". `agentswarm audit DECISIONS` prints it; `agentswarm evaluate --active "gate:*"` runs a suite with
 those points active and prints the audit after the calibration report.
+
+**Step 6 (model tiers).** `model_tiers` replaces `model` on a team (setting both is an error). The
+executor's tier is the number of rejections in the artifact's history, capped at the strongest tier;
+`CommitPushed.model` records the tier's model name (`None` for single-model teams built directly). Other
+teams take one model, as before; routing by a Jev Choice question waits for Choice policies.
