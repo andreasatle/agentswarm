@@ -15,6 +15,7 @@ from agentswarm.eventlog import SqliteEventLog
 from agentswarm.gates import CommandCheck, FakeDecider, Gate, HardCheck, Verdict
 from agentswarm.git import Git, Repository
 from agentswarm.promotion import Promoter
+from agentswarm.teams import Team, TeamRunner
 from tests.samples import Samples
 
 
@@ -79,3 +80,6 @@ class Harness:
         if announce:
             self.board.append([CommitPushed(artifact=artifact.id, commit=sha)])
         return sha
+
+    def runner(self, team: Team) -> TeamRunner:
+        return TeamRunner(team, self.board, self.claims, self.repository, self.contexts, self.clock)

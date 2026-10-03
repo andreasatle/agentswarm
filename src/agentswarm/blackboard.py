@@ -83,6 +83,9 @@ class BoardViews:
     def artifact(self, id: ArtifactId) -> Artifact:
         return self._artifacts[id]
 
+    def artifacts(self) -> list[Artifact]:
+        return list(self._artifacts.values())
+
     def artifacts_at(self, level: Level) -> list[Artifact]:
         return [a for a in self._artifacts.values() if a.level == level]
 

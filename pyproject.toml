@@ -33,6 +33,16 @@ extend-exclude = ["*.md"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.flake8-bugbear]
+# NewType "constructors" return their argument unchanged, so they are safe as defaults.
+extend-immutable-calls = [
+    "agentswarm.domain.ArtifactId",
+    "agentswarm.domain.TeamName",
+    "agentswarm.domain.Level",
+    "agentswarm.domain.ProjectId",
+    "agentswarm.domain.DecisionId",
+]
+
 [tool.pyright]
 include = ["src", "tests"]
 pythonVersion = "3.13"
