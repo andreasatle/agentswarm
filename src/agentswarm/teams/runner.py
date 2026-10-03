@@ -34,6 +34,11 @@ class Team(Protocol):
     @property
     def watches(self) -> Level: ...
 
+    @property
+    def pausable(self) -> bool:
+        """Whether a project pause stops this team (teams that start new work); analyzers carry on."""
+        ...
+
     def relevant(self, ctx: ArtifactContext) -> Relevance:
         """Cheap: is there something for this team here?"""
         ...
@@ -76,6 +81,8 @@ class TeamRunner:
 
     async def step(self) -> int:
         """Act on every artifact that needs this team. Returns how many it acted on."""
+        if self._team.pausable and self._board.current().paused:
+            return 0  # nothing is marked handled, so the work is picked up after Resumed
         acted = 0
         for artifact in self._candidates():
             if await self._handle(artifact):

@@ -236,6 +236,22 @@ that the preset YAML ships in the built wheel.
 - **The exit criterion's first half holds in tests:** a goal split into two children reaches
   `candidate`, children by train, umbrella by join.
 
+**Step 8 (supervisor).**
+- `control/supervisor.py:Supervisor` runs every project step after the router. Stalls are measured in
+  time since an artifact's last event (`supervisor.stall_after_minutes`), not in idle steps, because
+  `run_until_idle` stops stepping when nothing happens. Rejections are counted back to the last
+  promotion; rounds are commits, against `budgets.max_rounds_per_artifact`.
+- Each cause escalates once per state: an escalation stands until the artifact changes (commit,
+  promotion, rejection). Top-level artifacts and umbrellas never stall (an umbrella waits on its parts,
+  which are supervised themselves).
+- Drift: after every `supervisor.drift_every` merged changes, `DriftCheck` over the recent tasks and their
+  diffs. The decision concerns the project, so `Judgement.ask_state` takes a ready-made `JudgeState`.
+  Active mode: a clear "no" appends the project-wide `Paused` event; shadow mode only logs.
+- Pausing: `Team.pausable` (executor and decomposer yes, analyzers no). A paused runner skips its turn
+  without marking anything handled, so work resumes after `Resumed`.
+- Spend budgets (`budgets.usd_per_day`) need cost tracking, which belongs to the Phase 6 scheduler.
+- **The exit criterion holds in tests:** stall and drift escalations are triggered and checked.
+
 ## Steps (one commit each)
 
 **3a**

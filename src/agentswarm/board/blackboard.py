@@ -21,9 +21,11 @@ from agentswarm.core.domain import (
     FindingId,
     FindingResolved,
     Level,
+    Paused,
     Promoted,
     Rejected,
     Released,
+    Resumed,
     SignedOff,
     Sized,
     TeamName,
@@ -50,6 +52,7 @@ class BoardViews:
     _unjudged: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _fixes: dict[FindingId, ArtifactId] = field(default_factory=dict[FindingId, ArtifactId])
     _merge_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
+    paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
     _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
     _sign_offs: dict[ArtifactId, dict[TeamName, int]] = field(
@@ -86,6 +89,10 @@ class BoardViews:
             case Sized():
                 if not event.fits:
                     self._umbrellas.add(event.artifact)
+            case Paused():
+                self.paused = True
+            case Resumed():
+                self.paused = False
             case Promoted():
                 self._artifacts[event.artifact] = self._artifacts[event.artifact].model_copy(
                     update={"level": event.to_level}
@@ -116,6 +123,10 @@ class BoardViews:
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
+
+    def last_activity(self, id: ArtifactId) -> datetime:
+        """When anything last happened to the artifact."""
+        return self._histories[id][-1].at
 
     def is_umbrella(self, id: ArtifactId) -> bool:
         """Split into children by decomposition: it does no work itself and joins when they are done."""

@@ -142,6 +142,10 @@ class Analyzer(ABC):
     def watches(self) -> Level:
         return self._watches
 
+    @property
+    def pausable(self) -> bool:
+        return False  # checking merged work is never what drift is about
+
     def relevant(self, ctx: ArtifactContext) -> Relevance:
         """Deterministic: merged into the level, and not yet signed off by this team in this version."""
         if ctx.merge_commit is None or self._name in ctx.signed_off_by:

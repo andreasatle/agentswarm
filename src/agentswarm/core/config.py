@@ -154,6 +154,14 @@ class TeamConfig(Strict):
     max_depth: int = Field(default=3, ge=1)  # decomposition: how deep tasks may be split
 
 
+class SupervisorConfig(Strict):
+    """When the supervisor steps in (§14.1)."""
+
+    stall_after_minutes: float = Field(default=30.0, gt=0)  # no event on an artifact for this long
+    max_rejections: int = Field(default=3, ge=1)  # rejected this many times in a row
+    drift_every: int = Field(default=5, ge=1)  # ask about drift after every N changes merged
+
+
 class Budgets(Strict):
     usd_per_day: float | None = None
     max_rounds_per_artifact: int | None = None
@@ -191,6 +199,7 @@ class ProjectConfig(Strict):
     teams: tuple[TeamConfig, ...] = ()
     gates: tuple[GateConfig, ...] = ()
     budgets: Budgets = Budgets()
+    supervisor: SupervisorConfig = SupervisorConfig()
     jev: JevConfig = JevConfig()
 
     @model_validator(mode="before")

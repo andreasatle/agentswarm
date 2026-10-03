@@ -83,6 +83,10 @@ You are the planner. The task in the data is too large for one change by one tea
     def watches(self) -> Level:
         return self._watches
 
+    @property
+    def pausable(self) -> bool:
+        return True
+
     def relevant(self, ctx: ArtifactContext) -> Relevance:
         unsized = not any(isinstance(e, Sized) for e in ctx.history)
         return Relevance.YES if unsized and ctx.artifact.fixes is None else Relevance.NO

@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 
 from agentswarm.core.clock import Clock
 from agentswarm.core.config import JevMode, Threshold
-from agentswarm.core.domain import ArtifactContext
+from agentswarm.core.domain import ArtifactContext, ArtifactId
 from agentswarm.judging.deciders import Decider
 from agentswarm.judging.decisions import Decision, DecisionDraft, DecisionStore
 from agentswarm.judging.judges import Judge, JudgeCatalog, JudgeState
@@ -43,12 +43,17 @@ class Judgement:
         proposal: Sequence[str] = (),
     ) -> Decision:
         """Ask, rule and record. Raises DeciderError if the decider gives no answers."""
-        state = JudgeState.of(ctx, diff, proposal)
+        return self.ask_state(point, ctx.artifact.id, commit, base, JudgeState.of(ctx, diff, proposal))
+
+    def ask_state(
+        self, point: str, artifact: ArtifactId, commit: str, base: str, state: JudgeState
+    ) -> Decision:
+        """Ask about a state built by the caller, e.g. the supervisor's view of recent work."""
         answered = self._decider.decide(state, self.judge.spec)
         return self._decisions.record(
             DecisionDraft(
                 point=point,
-                artifact=ctx.artifact.id,
+                artifact=artifact,
                 commit=commit,
                 base=base,
                 mode=self.mode,

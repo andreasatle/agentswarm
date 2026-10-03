@@ -20,9 +20,11 @@ from agentswarm.core.domain import (
     Event,
     FindingAdded,
     FindingResolved,
+    Paused,
     Promoted,
     Rejected,
     Released,
+    Resumed,
     SignedOff,
     Sized,
 )
@@ -58,6 +60,10 @@ class Report:
                 return f"finding {event.finding} resolved{by}: {event.reason}"
             case SignedOff():
                 return f"signed off by {event.team}"
+            case Paused():
+                return f"PAUSED: {event.reason}"
+            case Resumed():
+                return f"resumed: {event.reason}"
             case Sized():
                 return "fits one branch" if event.fits else f"split into {', '.join(event.children)}"
             case Promoted():

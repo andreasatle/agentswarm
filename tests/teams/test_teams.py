@@ -26,6 +26,10 @@ class RecordingTeam:
     def watches(self) -> Level:
         return Samples.RAW
 
+    @property
+    def pausable(self) -> bool:
+        return True
+
     def relevant(self, ctx: ArtifactContext) -> Relevance:
         return self._relevance
 

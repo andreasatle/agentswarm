@@ -140,6 +140,15 @@ class JoinCheck(BaseModel):
     ]
 
 
+class DriftCheck(BaseModel):
+    """Is recent work heading toward the north star? (§14.1, drift)"""
+
+    on_course: Annotated[
+        NoulAnswer,
+        Ask("Does this recent work advance the north star, rather than serving other goals?"),
+    ]
+
+
 class JudgeState(BaseModel):
     """What a judge is shown about an artifact (§8.3): small, typed, and the diff instead of file names."""
 
@@ -185,6 +194,7 @@ class JudgeCatalog:
         catalog.register(SizeCheck)
         catalog.register(SplitCheck)
         catalog.register(JoinCheck)
+        catalog.register(DriftCheck)
         catalog.alias(
             "RawToExperimental", "ChangeReadiness"
         )  # its Phase 2 name, still in older decision logs

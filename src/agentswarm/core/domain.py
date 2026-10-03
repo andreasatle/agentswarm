@@ -170,6 +170,26 @@ class Sized(Frozen):
         return self.artifact
 
 
+class Paused(Frozen):
+    """New work stops project-wide (the supervisor saw drift); analyzers and gates carry on."""
+
+    kind: Literal["paused"] = "paused"
+    reason: str
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
+class Resumed(Frozen):
+    kind: Literal["resumed"] = "resumed"
+    reason: str
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
 class Promoted(Frozen):
     kind: Literal["promoted"] = "promoted"
     artifact: ArtifactId
@@ -216,6 +236,8 @@ type Event = Annotated[
     | FindingResolved
     | SignedOff
     | Sized
+    | Paused
+    | Resumed
     | Promoted
     | Rejected
     | Escalated,

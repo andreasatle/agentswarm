@@ -11,6 +11,7 @@ from agentswarm.board.claims import ClaimRegistry
 from agentswarm.board.context import ContextBuilder
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.router import FindingRouter
+from agentswarm.control.supervisor import Supervisor
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName
@@ -61,6 +62,7 @@ class Project:
         promoters: list[PromotionLoop],
         decisions: DecisionStore,
         artifacts: ArtifactFactory,
+        supervisor: Supervisor,
         owned: list[Closeable],
     ) -> None:
         self.config = config
@@ -72,6 +74,7 @@ class Project:
         self._owned = owned  # resources this project opened, closed with it
         self._artifacts = artifacts
         self._router = FindingRouter(board, self._artifacts, config.levels)
+        self._supervisor = supervisor
 
     @classmethod
     def open(cls, config: ProjectConfig, root: Path, services: ProjectServices | None = None) -> Self:
@@ -135,20 +138,23 @@ class Project:
             promoters.append(
                 JoinPromoter(config.levels, gates, join, board, claims, repository, contexts, clock, lease)
             )
-        return cls(config, board, repository, runners, promoters, decisions, artifacts, owned)
+        drift = judgements.build("DriftCheck") if decider is not None else None
+        supervisor = Supervisor(config, board, repository, decisions, drift, clock)
+        return cls(config, board, repository, runners, promoters, decisions, artifacts, supervisor, owned)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
         """Put a new artifact on the board at the lowest level, with the next free id."""
         return self._artifacts.create(task, created_by)
 
     async def step(self) -> int:
-        """Run every team, every gate and the router once. Returns the number of actions taken."""
+        """Run every team, every gate, the router and the supervisor once. Returns the actions taken."""
         actions = 0
         for runner in self._runners:
             actions += await runner.step()
         for promoter in self._promoters:
             actions += promoter.step()
         actions += self._router.step()
+        actions += self._supervisor.step()
         return actions
 
     async def run_until_idle(self, max_rounds: int = 50) -> int:

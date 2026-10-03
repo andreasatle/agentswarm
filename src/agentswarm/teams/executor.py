@@ -153,6 +153,10 @@ class Executor(ABC):
     def watches(self) -> Level:
         return self._watches
 
+    @property
+    def pausable(self) -> bool:
+        return True
+
     def relevant(self, ctx: ArtifactContext) -> Relevance:
         sized = [e for e in ctx.history if isinstance(e, Sized)]
         if any(not s.fits for s in sized):
