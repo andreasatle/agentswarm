@@ -8,7 +8,7 @@ provider's native structured output or falls back to tool calling, so any provid
 works. `FakeWorker` follows a script and needs no model.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol
 
 from langchain.agents import create_agent
@@ -162,9 +162,9 @@ class LangChainWorkers:
 
 
 class FakeWorkers:
-    """Hands out prepared fake workers by model name."""
+    """Hands out prepared workers (fakes, usually) by model name."""
 
-    def __init__(self, workers: dict[str, FakeWorker]) -> None:
+    def __init__(self, workers: Mapping[str, Worker]) -> None:
         self._workers = workers
 
     def worker(self, model: str, max_model_calls: int) -> Worker:

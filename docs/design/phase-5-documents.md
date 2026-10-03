@@ -69,3 +69,20 @@ a problem needs a failing one. `ReviewingAnalyzer` (text): a read-only toolbox, 
 quote of at least 12 characters found verbatim (whitespace runs normalised) in the file it names; invented,
 too short or misattributed quotes are dropped. Named `ProbingAnalyzer`, not `TestingAnalyzer`, because
 pytest collects any imported class whose name starts with `Test`.
+
+**Steps 2–5 (teams, judges, preset, end to end).**
+- `teams/documents.py`: `Writer` (an `ExecutorTeam` with writing instructions: Markdown, one sentence per
+  line, a section per file), `Outliner` (a `Decomposer` that splits a document into sections),
+  `ConsistencyChecker`, `FactChecker`, `AudienceReviewer` (`ReviewingAnalyzer`s). New finding kinds
+  `unsupported` and `unclear`. Executors wait for sizing when the project has any planner (decomposer or
+  outliner), and either planner brings the join gate.
+- Judges: `SectionReadiness` (on topic, clear, complete, each with `Fails`) and one relevance judge per
+  reviewer.
+- `presets/document.yaml`: draft → reviewed → final → published; `check_doc` (from the seed); the five
+  teams on `models.main`; a judged first gate, sign-off trains to `final` and `published`, a human
+  publishing gate. `examples/handbook/project.yaml` needs only a north star, a model and its Jev modes
+  (`size:*`, `split:*`, `join:*` active, so the outliner really splits).
+- **Exit criterion in tests** (`tests/domains/test_documents.py`): a goal outlined into two sections is
+  written, judged, reviewed by all three reviewers and, once a person approves, published, the umbrella
+  with it. No engine class changed for the domain beyond step 1's evidence strategies.
+- `ScriptedWorker` (tests) answers by output type, so one fake model can serve every team in a run.

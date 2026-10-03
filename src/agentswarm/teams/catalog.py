@@ -1,7 +1,7 @@
 """The team catalog: team definitions by name, instantiated per project from its configuration (§10.3)."""
 
 from collections.abc import Callable, Sequence
-from typing import Self
+from typing import ClassVar, Self
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import LevelLadder, TeamConfig
@@ -11,6 +11,7 @@ from agentswarm.judging.judgement import Judgement, Judgements
 from agentswarm.llm.workers import Worker, WorkerProvider
 from agentswarm.teams.analyzer import IntegrationTester, RedTeam
 from agentswarm.teams.decomposer import Decomposer
+from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
 from agentswarm.teams.relevance import RelevanceFilter
 from agentswarm.teams.runner import Team
@@ -37,6 +38,12 @@ class TeamResources:
 
     def has_team(self, use: str) -> bool:
         return use in self._team_uses
+
+    PLANNERS: ClassVar[frozenset[str]] = frozenset({"decomposer", "outliner"})
+
+    def plans(self) -> bool:
+        """Whether the project sizes tasks before work (a decomposer or outliner), so executors wait."""
+        return bool(self._team_uses & self.PLANNERS)
 
     def judgement(self, judge: str) -> Judgement:
         return self._judgements.build(judge)
@@ -89,16 +96,40 @@ class TeamCatalog:
                 resources.checks_for(team),
                 team.watches,
                 team.constraints,
-                requires_sizing=resources.has_team("decomposer"),
+                requires_sizing=resources.plans(),
+            ),
+        )
+        catalog.register(
+            "writer",
+            lambda team, resources: Writer(
+                resources.tiers_for(team),
+                resources.checks_for(team),
+                team.watches,
+                team.constraints,
+                name=TeamName(team.use),
+                requires_sizing=resources.plans(),
             ),
         )
         catalog.register(
             "fake_executor",
-            lambda team, resources: FakeExecutor(
-                team.watches, requires_sizing=resources.has_team("decomposer")
-            ),
+            lambda team, resources: FakeExecutor(team.watches, requires_sizing=resources.plans()),
         )
-        catalog.register("decomposer", cls._decomposer)
+        catalog.register("decomposer", lambda team, resources: cls._planner(Decomposer, team, resources))
+        catalog.register("outliner", lambda team, resources: cls._planner(Outliner, team, resources))
+        for use, reviewer in (
+            ("consistency_checker", ConsistencyChecker),
+            ("fact_checker", FactChecker),
+            ("audience_reviewer", AudienceReviewer),
+        ):
+            catalog.register(
+                use,
+                lambda team, resources, reviewer=reviewer: reviewer(
+                    TeamName(team.use),
+                    team.watches,
+                    resources.worker_for(team),
+                    resources.relevance_for(team),
+                ),
+            )
         for use, analyzer in (("integration_tester", IntegrationTester), ("red_team", RedTeam)):
             catalog.register(
                 use,
@@ -113,10 +144,10 @@ class TeamCatalog:
         return catalog
 
     @staticmethod
-    def _decomposer(team: TeamConfig, resources: TeamResources) -> Team:
+    def _planner(kind: type[Decomposer], team: TeamConfig, resources: TeamResources) -> Team:
         if team.watches != resources.ladder.lowest:
-            raise ValueError(f"the decomposer must watch the lowest level, {resources.ladder.lowest!r}")
-        return Decomposer(
+            raise ValueError(f"the {team.use} must watch the lowest level, {resources.ladder.lowest!r}")
+        return kind(
             team.watches,
             resources.worker_for(team),
             resources.judgement("SizeCheck"),

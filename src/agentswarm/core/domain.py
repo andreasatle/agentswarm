@@ -45,6 +45,8 @@ class FindingKind(StrEnum):
     INCONSISTENT = "inconsistent"
     TOO_LARGE = "too_large"  # should be decomposed
     EDGE_CASE = "edge_case"  # breaks on unusual input or misuse (red team)
+    UNSUPPORTED = "unsupported"  # a claim that may be wrong or lacks support (fact checker)
+    UNCLEAR = "unclear"  # hard to follow for the intended reader (audience reviewer, document gate)
 
 
 class Severity(StrEnum):

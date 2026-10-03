@@ -1,0 +1,18 @@
+# A small handbook on the document preset (agentswarm/core/presets/document.yaml): an outliner splits the
+# goal into sections, a writer writes each, a judge gates draft -> reviewed, consistency and fact checkers
+# sign off for final, an audience reviewer for published, and a person approves publishing.
+#
+#   uv run agentswarm run examples/handbook/project.yaml --root ~/agentswarm-runs/handbook \
+#       --task "Write a short handbook for running a book club: choosing books, running a meeting, keeping members"
+project: handbook
+domain: document
+north_star: A short, friendly handbook that helps a first-time organiser run a book club.
+seed: seed
+
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+
+models:
+  main: {model: "ollama:gemma4:e4b", temperature: 0}
+
+# Sizing, splitting and joining act on Jev's answers, so the outliner really splits; the rest is shadow.
+jev: {mode: shadow, active: ["size:*", "split:*", "join:*"]}

@@ -6,6 +6,9 @@ from typing import Any, Self
 from langchain.messages import AIMessage
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.runnables import Runnable
+from pydantic import BaseModel
+
+from agentswarm.llm.workers import Toolbox
 
 
 class FakeToolModel(GenericFakeChatModel):
@@ -38,3 +41,24 @@ class Replies:
     def model(self) -> FakeToolModel:
         messages: Iterator[AIMessage] = iter(self._messages)
         return FakeToolModel(messages=messages)
+
+
+class ScriptedWorker:
+    """A worker that answers by what is asked for: one handler per output type, called with the payload.
+
+    Lets one fake model serve several teams in a run (planner, writer, reviewers), each by its output type.
+    """
+
+    def __init__(
+        self, handlers: dict[type[BaseModel], Callable[[BaseModel, Toolbox | None], BaseModel]]
+    ) -> None:
+        self._handlers = handlers
+        self.calls: list[type[BaseModel]] = []
+
+    async def run[T: BaseModel](
+        self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
+    ) -> T:
+        self.calls.append(output)
+        result = self._handlers[output](payload, toolbox)
+        assert isinstance(result, output)
+        return result

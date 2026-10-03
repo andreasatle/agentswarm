@@ -1,0 +1,19 @@
+# Defaults for `domain: document`. A project's own top-level keys replace these key by key.
+# Every team expects the project to define `models.main`: a preset never picks a model provider.
+# The project's seed provides tools/check_doc.py (see examples/handbook/seed).
+levels: [draft, reviewed, final, published]
+
+checks:
+  check_doc: {command: [python, tools/check_doc.py], kind: build_failure, timeout_s: 60}
+
+teams:
+  - {use: outliner, watches: draft, model: main}
+  - {use: writer, watches: draft, model: main, checks: [check_doc]}
+  - {use: consistency_checker, watches: reviewed, model: main, relevance: ConsistencyRelevance}
+  - {use: fact_checker, watches: reviewed, model: main, relevance: FactRelevance}
+  - {use: audience_reviewer, watches: final, model: main, relevance: AudienceRelevance}
+
+gates:
+  - {from: draft, to: reviewed, hard_checks: [check_doc], judge: SectionReadiness}
+  - {from: reviewed, to: final, hard_checks: [check_doc], requires: [consistency_checker, fact_checker]}
+  - {from: final, to: published, hard_checks: [check_doc], requires: [audience_reviewer], requires_human: true}

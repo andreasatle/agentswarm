@@ -121,7 +121,26 @@ class TestPresets:
         assert [g.judge for g in config.gates] == [None]
 
     def test_a_domain_without_a_preset_gets_nothing(self) -> None:
-        assert Presets.for_domain("document") == {}
+        assert Presets.for_domain("spreadsheet") == {}
+
+    def test_the_document_preset_has_the_document_ladder_and_teams(self) -> None:
+        config = ProjectConfig.model_validate(
+            {
+                "project": "p",
+                "domain": "document",
+                "north_star": "n",
+                "models": {"main": {"model": "ollama:m"}},
+            }
+        )
+        assert config.levels.levels == ("draft", "reviewed", "final", "published")
+        assert [t.use for t in config.teams] == [
+            "outliner",
+            "writer",
+            "consistency_checker",
+            "fact_checker",
+            "audience_reviewer",
+        ]
+        assert config.gates[0].judge == "SectionReadiness" and config.gates[-1].requires_human
 
     def test_preset_teams_need_the_project_to_define_their_model(self) -> None:
         with pytest.raises(ValidationError, match="undefined model 'coder'"):

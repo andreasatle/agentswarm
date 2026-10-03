@@ -100,6 +100,45 @@ class ChangeReadiness(BaseModel):
     ]
 
 
+class SectionReadiness(BaseModel):
+    """Is this section ready to join the shared document? (the document domain's first gate)"""
+
+    on_topic: Annotated[
+        NoulAnswer,
+        Ask("Does the change stay on the topic its task gives, without adding unrelated material?"),
+        Fails(FindingKind.OUT_OF_SCOPE, "The section strays from its topic"),
+    ]
+    clear: Annotated[
+        NoulAnswer,
+        Ask("Is the text clear and easy to follow for a reader new to the subject?"),
+        Fails(FindingKind.UNCLEAR, "The section is hard to follow"),
+    ]
+    complete: Annotated[
+        NoulAnswer,
+        Ask("Does the change cover everything its task asks for?"),
+        Fails(FindingKind.INCOMPLETE, "The section does not cover everything its task asks for"),
+    ]
+
+
+class ConsistencyRelevance(BaseModel):
+    relevant: Annotated[
+        NoulAnswer,
+        Ask("Does this text use terms, names or figures that other parts of the document might also use?"),
+    ]
+
+
+class FactRelevance(BaseModel):
+    relevant: Annotated[
+        NoulAnswer, Ask("Does this text make factual claims that could be wrong or need support?")
+    ]
+
+
+class AudienceRelevance(BaseModel):
+    relevant: Annotated[
+        NoulAnswer, Ask("Could parts of this text be hard to follow for a reader new to the subject?")
+    ]
+
+
 class IntegrationRelevance(BaseModel):
     """Is this change worth integration testing? (§12.1, team relevance filter)"""
 
@@ -202,6 +241,10 @@ class JudgeCatalog:
         catalog = cls()
         catalog.register(ChangeReadiness)
         catalog.register(IntegrationRelevance)
+        catalog.register(SectionReadiness)
+        catalog.register(ConsistencyRelevance)
+        catalog.register(FactRelevance)
+        catalog.register(AudienceRelevance)
         catalog.register(AdversarialRelevance)
         catalog.register(SizeCheck)
         catalog.register(SplitCheck)

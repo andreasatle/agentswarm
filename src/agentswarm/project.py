@@ -97,7 +97,7 @@ class Project:
             decisions = SqliteDecisions(root / "decisions.sqlite")
             owned.append(decisions)
         decider = services.decider
-        decomposes = any(t.use == "decomposer" for t in config.teams)
+        decomposes = any(t.use in TeamResources.PLANNERS for t in config.teams)
         needs_judges = (
             any(g.judge for g in config.gates) or any(t.relevance for t in config.teams) or decomposes
         )
