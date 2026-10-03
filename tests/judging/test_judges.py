@@ -10,10 +10,10 @@ from agentswarm.judging.judges import ChangeReadiness, Fails, Judge, JudgeCatalo
 
 
 class TestJudge:
-    def test_raw_to_experimental_asks_the_three_questions_of_the_proposal(self) -> None:
+    def test_change_readiness_asks_the_three_questions_of_the_proposal(self) -> None:
         judge = Judge(ChangeReadiness)
         assert judge.fields() == ("in_scope", "tests_relevant", "complete")
-        assert [q.fails.kind for q in judge.questions] == [
+        assert [q.fails.kind if q.fails else None for q in judge.questions] == [
             FindingKind.OUT_OF_SCOPE,
             FindingKind.INCOMPLETE,
             FindingKind.INCOMPLETE,
@@ -26,12 +26,17 @@ class TestJudge:
             "instructions": "Does the change address every part of the task?",
         }
 
-    def test_every_question_needs_ask_and_fails(self) -> None:
+    def test_every_question_needs_ask_and_only_gate_judges_need_fails(self) -> None:
+        class NoAsk(BaseModel):
+            done: Annotated[NoulAnswer, Fails(FindingKind.INCOMPLETE, "Not done")]
+
         class NoFails(BaseModel):
             done: Annotated[NoulAnswer, Ask("Done?")]
 
-        with pytest.raises(TypeError, match="needs both Ask"):
-            Judge(NoFails)
+        with pytest.raises(TypeError, match="needs Ask"):
+            Judge(NoAsk)
+        assert not Judge(NoFails).can_reject()
+        assert Judge(ChangeReadiness).can_reject()
 
     def test_only_noul_questions_for_now(self) -> None:
         class Scored(BaseModel):

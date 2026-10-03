@@ -29,11 +29,11 @@ class Fails:
 class JudgeQuestion:
     field: str
     ask: Ask
-    fails: Fails
+    fails: Fails | None  # what a clear "no" means as a finding; gates need it, relevance filters don't
 
 
 class Judge:
-    """A validated judge spec: every field is a Noul answer with both Ask(...) and Fails(...)."""
+    """A validated judge spec: every field is a Noul answer with Ask(...), and optionally Fails(...)."""
 
     def __init__(self, spec: type[BaseModel]) -> None:
         self.spec = spec
@@ -48,6 +48,10 @@ class Judge:
     def fields(self) -> tuple[str, ...]:
         return tuple(q.field for q in self.questions)
 
+    def can_reject(self) -> bool:
+        """Whether every question says what its failure means, as a gate's judge must."""
+        return all(q.fails is not None for q in self.questions)
+
     def _question(self, name: str) -> JudgeQuestion:
         field = self.spec.model_fields[name]
         where = f"{self.spec.__name__}.{name}"
@@ -55,8 +59,8 @@ class Judge:
             raise TypeError(f"{where}: judges use Noul answers only for now (see docs/BACKLOG.md)")
         ask = next((m for m in field.metadata if isinstance(m, Ask)), None)
         fails = next((m for m in field.metadata if isinstance(m, Fails)), None)
-        if ask is None or fails is None:
-            raise TypeError(f"{where}: needs both Ask(...) and Fails(...) in Annotated[...]")
+        if ask is None:
+            raise TypeError(f"{where}: needs Ask(...) in Annotated[...]")
         return JudgeQuestion(name, ask, fails)
 
 
@@ -80,6 +84,30 @@ class ChangeReadiness(BaseModel):
         NoulAnswer,
         Ask("Does the change address every part of the task?"),
         Fails(FindingKind.INCOMPLETE, "The change does not address every part of the task"),
+    ]
+
+
+class IntegrationRelevance(BaseModel):
+    """Is this change worth integration testing? (§12.1, team relevance filter)"""
+
+    relevant: Annotated[
+        NoulAnswer,
+        Ask(
+            "Does this change alter behaviour that other parts of the code rely on, so that testing how the "
+            "parts work together could reveal a problem?"
+        ),
+    ]
+
+
+class AdversarialRelevance(BaseModel):
+    """Is this change worth attacking? (§12.1, team relevance filter)"""
+
+    relevant: Annotated[
+        NoulAnswer,
+        Ask(
+            "Does this change handle input, state or resources that could be misused, or fail on unusual "
+            "values?"
+        ),
     ]
 
 
@@ -121,6 +149,8 @@ class JudgeCatalog:
     def standard(cls) -> Self:
         catalog = cls()
         catalog.register(ChangeReadiness)
+        catalog.register(IntegrationRelevance)
+        catalog.register(AdversarialRelevance)
         catalog.alias(
             "RawToExperimental", "ChangeReadiness"
         )  # its Phase 2 name, still in older decision logs

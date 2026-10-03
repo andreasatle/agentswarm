@@ -86,6 +86,9 @@ class Worktree:
         """What HEAD changes relative to where it forked from `ref` (git diff ref...HEAD)."""
         return self._git.run(self.path, "diff", f"--unified={context_lines}", f"{ref}...HEAD")
 
+    def diff_between(self, base: str, head: str) -> str:
+        return self._git.run(self.path, "diff", base, head)
+
     def merge_base(self, ref: str) -> str:
         """The commit where HEAD forked from `ref`: what `diff_against(ref)` measures against."""
         return self._git.run(self.path, "merge-base", ref, "HEAD")
@@ -168,11 +171,22 @@ class Repository:
         if not self.has_branch(artifact.branch):
             self.git.run(self.path, "branch", artifact.branch, self._ladder.base)
 
-    def diff_stat(self, artifact: Artifact) -> str:
-        """What the artifact's branch changes relative to where it forked from the base level."""
+    def diff_stat(self, artifact: Artifact, merge_commit: str | None = None) -> str:
+        """The artifact's own change: since it forked from the base level, or within its merge commit."""
+        if merge_commit is not None:
+            return self.git.run(self.path, "diff", "--stat", *self.merged_change(merge_commit))
         if not self.has_branch(artifact.branch):
             return ""
         return self.git.run(self.path, "diff", "--stat", f"{self._ladder.base}...{artifact.branch}")
+
+    @staticmethod
+    def merged_change(merge_commit: str) -> tuple[str, str]:
+        """The (base, head) of the change a merge commit brought in: its first and second parents."""
+        return f"{merge_commit}^1", f"{merge_commit}^2"
+
+    def checkout_merged(self, merge_commit: str, name: str) -> Worktree:
+        """A read-only look at an artifact after it joined a shared level: detached at its merge commit."""
+        return self.checkout_detached(merge_commit, name)
 
     def checkout(self, branch: str, name: str) -> Worktree:
         """A fresh worktree of `branch` at worktrees/<name>. Commits in it move the branch."""

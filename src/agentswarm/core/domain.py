@@ -160,6 +160,9 @@ class Promoted(Frozen):
     from_level: Level
     to_level: Level
     gate_decision: DecisionId | None  # link to the decision log; None for a gate without a judge
+    # The commit the target level points to afterwards: the merge commit when the artifact first joins a
+    # shared level (then merge^1...merge^2 is exactly its change), the new tip on later promotions.
+    commit: str | None = None
 
     @property
     def subject(self) -> ArtifactId:
@@ -221,7 +224,10 @@ class ArtifactContext(Frozen):
     artifact: Artifact
     history: tuple[Event, ...]  # this artifact's events, oldest first
     open_findings: tuple[Finding, ...]
-    diff_summary: str  # e.g. git diff --stat against the level the artifact was forked from
+    diff_summary: str  # git diff --stat of the artifact's own change
+    version: int  # BoardViews.version: changes exactly when the artifact does
+    signed_off_by: tuple[TeamName, ...]  # analyzer teams that signed off this version
+    merge_commit: str | None  # where it joined the first shared level; None while it is on its own branch
 
 
 class Instruction(Frozen):

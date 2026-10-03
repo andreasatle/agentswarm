@@ -47,6 +47,7 @@ class BoardViews:
     _histories: dict[ArtifactId, list[Envelope]] = field(default_factory=dict[ArtifactId, list[Envelope]])
     _last_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _unjudged: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
+    _merge_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
     _sign_offs: dict[ArtifactId, dict[TeamName, int]] = field(
         default_factory=dict[ArtifactId, dict[TeamName, int]]
@@ -85,6 +86,8 @@ class BoardViews:
                     f for f in self._findings.get(event.artifact, []) if f.level != event.from_level
                 ]
                 self._unjudged.pop(event.artifact, None)
+                if event.commit is not None:
+                    self._merge_commit.setdefault(event.artifact, event.commit)  # the first one: the merge
             case Rejected():
                 self._findings[event.artifact] = list(event.findings)
                 self._unjudged.pop(event.artifact, None)
@@ -105,6 +108,15 @@ class BoardViews:
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
+
+    def merge_commit(self, id: ArtifactId) -> str | None:
+        """The merge commit that brought the artifact into the first shared level, once it is there."""
+        return self._merge_commit.get(id)
+
+    def signed_off_by(self, id: ArtifactId) -> tuple[TeamName, ...]:
+        """The teams whose sign-off is for the artifact's current version."""
+        version = self.version(id)
+        return tuple(team for team, seen in self._sign_offs.get(id, {}).items() if seen == version)
 
     def signed_off(self, id: ArtifactId, team: TeamName) -> bool:
         """Whether `team` has signed off the artifact's current version."""

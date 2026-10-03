@@ -13,7 +13,6 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict
 
-from agentswarm.core.clock import Clock
 from agentswarm.core.config import GateConfig, JevMode
 from agentswarm.core.domain import (
     ArtifactContext,
@@ -25,55 +24,15 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.gating.checks import CheckSet, HardCheck
-from agentswarm.judging.deciders import Decider, DeciderError
-from agentswarm.judging.decisions import Decision, DecisionDraft, DecisionStore
-from agentswarm.judging.judges import Judge, JudgeState
-from agentswarm.judging.policy import Policy, QuestionVerdict, Verdict
+from agentswarm.judging.deciders import DeciderError
+from agentswarm.judging.decisions import Decision
+from agentswarm.judging.judgement import Judgement
+from agentswarm.judging.policy import QuestionVerdict, Verdict
 from agentswarm.workspace.git import Worktree
 
 
 class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-
-
-class GateJudgement:
-    """Asks a judge about an artifact, rules on the answers with the policy, and records the decision."""
-
-    def __init__(
-        self,
-        judge: Judge,
-        policy: Policy,
-        decider: Decider,
-        decisions: DecisionStore,
-        mode: JevMode,
-        clock: Clock,
-    ) -> None:
-        self._judge = judge
-        self._policy = policy
-        self._decider = decider
-        self._decisions = decisions
-        self.mode = mode
-        self._clock = clock
-
-    def judge(self, point: str, ctx: ArtifactContext, commit: str, base: str, diff: str) -> Decision:
-        """Ask, rule and record. Raises DeciderError if the decider gives no answers."""
-        state = JudgeState.of(ctx, diff)
-        answered = self._decider.decide(state, self._judge.spec)
-        return self._decisions.record(
-            DecisionDraft(
-                point=point,
-                artifact=ctx.artifact.id,
-                commit=commit,
-                base=base,
-                mode=self.mode,
-                judge=self._judge.name,
-                state=state,
-                answers=answered.answers.model_dump(mode="json"),
-                ruling=self._policy.rule(answered.answers),
-                model=answered.model,
-                at=self._clock.now(),
-            )
-        )
 
 
 class GateOutcome(Frozen):
@@ -93,9 +52,13 @@ class Gate:
         from_level: Level,
         to_level: Level,
         checks: Sequence[HardCheck],
-        judgement: GateJudgement | None = None,  # None: hard checks only
+        judgement: Judgement | None = None,  # None: hard checks only
         requires_human: bool = False,
     ) -> None:
+        if judgement is not None and not judgement.judge.can_reject():
+            raise ValueError(
+                f"gate judge {judgement.judge.name} must say what each failure means: Fails(...)"
+            )
         self.from_level = from_level
         self.to_level = to_level
         self._checks = tuple(checks)
@@ -103,7 +66,7 @@ class Gate:
         self._requires_human = requires_human
 
     @classmethod
-    def from_config(cls, gate: GateConfig, checks: CheckSet, judgement: GateJudgement | None) -> Self:
+    def from_config(cls, gate: GateConfig, checks: CheckSet, judgement: Judgement | None) -> Self:
         return cls(
             gate.from_level,
             gate.to_level,
@@ -136,7 +99,7 @@ class Gate:
         if self._judgement is None:
             return self._unless_human(GateOutcome(verdict=Verdict.PROMOTE, decision=None))
         try:
-            decision = self._judgement.judge(
+            decision = self._judgement.ask(
                 self.name,
                 ctx,
                 worktree.head(),

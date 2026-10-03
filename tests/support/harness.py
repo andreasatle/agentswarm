@@ -13,10 +13,11 @@ from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import CheckConfig, JevMode, LevelLadder
 from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, CommitPushed, FindingKind
 from agentswarm.gating.checks import CommandCheck, HardCheck
-from agentswarm.gating.gate import Gate, GateJudgement
+from agentswarm.gating.gate import Gate
 from agentswarm.gating.promotion import Promoter
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
+from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.judges import ChangeReadiness, Judge
 from agentswarm.judging.policy import Policy
 from agentswarm.teams.runner import Team, TeamRunner
@@ -64,7 +65,7 @@ class Harness:
         judgement = None
         if answers is not None:
             judge = Judge(ChangeReadiness)
-            judgement = GateJudgement(judge, Policy(judge), self.decider, self.decisions, mode, self.clock)
+            judgement = Judgement(judge, Policy(judge), self.decider, self.decisions, mode, self.clock)
         self.gate = Gate(Samples.RAW, Samples.EXPERIMENTAL, checks, judgement)
         self.promoter = Promoter(
             self.gate,

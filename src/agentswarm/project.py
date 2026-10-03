@@ -14,11 +14,12 @@ from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, ProjectId, TeamName
 from agentswarm.gating.checks import CheckSet
-from agentswarm.gating.gate import Gate, GateJudgement
+from agentswarm.gating.gate import Gate
 from agentswarm.gating.promotion import Promoter
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.deciders import Decider, JevDecider
 from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
+from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.policy import Policy
 from agentswarm.llm.models import ChatModels
@@ -106,7 +107,7 @@ class Project:
             if gate.judge is not None and decider is not None:
                 judge = services.judges.get(gate.judge)
                 policy = Policy(judge, gate.thresholds)
-                judgement = GateJudgement(judge, policy, decider, decisions, config.jev.mode, clock)
+                judgement = Judgement(judge, policy, decider, decisions, config.jev.mode, clock)
             promoters.append(
                 Promoter(
                     Gate.from_config(gate, checks, judgement),

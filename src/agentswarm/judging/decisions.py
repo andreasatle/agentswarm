@@ -63,6 +63,7 @@ class OutcomeSource(StrEnum):
     PLANTED = "planted"  # a fault was planted on purpose, so the truth is known by construction
     HIDDEN_TESTS = "hidden_tests"  # acceptance tests the executor never saw
     MUTATION = "mutation"  # mutation testing of the change's own tests
+    TEAM_RESULT = "team_result"  # a relevance filter's truth: did the team's work find anything?
 
     @property
     def strength(self) -> int:
@@ -72,7 +73,7 @@ class OutcomeSource(StrEnum):
                 return 3
             case OutcomeSource.PLANTED:
                 return 2
-            case OutcomeSource.HIDDEN_TESTS | OutcomeSource.MUTATION:
+            case OutcomeSource.HIDDEN_TESTS | OutcomeSource.MUTATION | OutcomeSource.TEAM_RESULT:
                 return 1
 
 

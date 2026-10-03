@@ -101,7 +101,11 @@ class TeamRunner:
         if claim is None:
             return False  # another team got it first; look again next step
         try:
-            worktree = self._repository.checkout_artifact(artifact)
+            worktree = (
+                self._repository.checkout_artifact(artifact)
+                if ctx.merge_commit is None
+                else self._repository.checkout_merged(ctx.merge_commit, artifact.id)
+            )
             try:
                 events = await self._team.act(ctx, worktree)
             finally:

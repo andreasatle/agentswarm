@@ -52,7 +52,11 @@ class CommandCheck:
         return self._config.kind
 
     def run(self, cwd: Path) -> CheckResult:
-        result = self._sandbox.run(self._config.command, cwd, self._config.timeout_s)
+        return self.run_on(cwd, ())
+
+    def run_on(self, cwd: Path, paths: Sequence[str]) -> CheckResult:
+        """Run the check's command on specific paths (appended as arguments), e.g. one test file."""
+        result = self._sandbox.run((*self._config.command, *paths), cwd, self._config.timeout_s)
         return CheckResult(name=self._name, passed=result.passed, output=result.output[-self.OUTPUT_LIMIT :])
 
 

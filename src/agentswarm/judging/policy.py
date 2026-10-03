@@ -85,7 +85,7 @@ class Policy:
                 raise TypeError(f"{self._judge.name}.{question.field} is not a Noul answer")
             ruling = self.rule_question(question.field, answer.noul, self._thresholds[question.field])
             rulings.append(ruling)
-            if ruling.verdict is QuestionVerdict.FAIL:
+            if ruling.verdict is QuestionVerdict.FAIL and question.fails is not None:
                 failures.append(
                     Failure(
                         field=question.field,

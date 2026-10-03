@@ -115,3 +115,14 @@ class TestPromoter:
         last = h.board.current().history(artifact.id)[-2]  # followed by the gate's Released
         assert isinstance(last, Rejected)
         assert last.gate_decision is None
+
+    def test_after_promotion_the_artifact_still_shows_its_own_change(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+        artifact = h.create()
+        h.push(artifact, {"a.txt": "a\n"})
+        h.promoter.step()
+        views = h.board.current()
+        assert views.merge_commit(artifact.id) == h.repository.tip("experimental")
+        ctx = h.contexts.build(artifact.id)
+        assert ctx.merge_commit == h.repository.tip("experimental")
+        assert "a.txt" in ctx.diff_summary  # not empty, although the branch is now inside the level

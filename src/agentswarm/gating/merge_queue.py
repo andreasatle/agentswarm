@@ -78,4 +78,5 @@ class MergeQueue:
             from_level=self._gate.from_level,
             to_level=self._gate.to_level,
             gate_decision=request.decision,
+            commit=worktree.head(),
         )

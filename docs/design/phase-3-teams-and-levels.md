@@ -165,6 +165,22 @@ that the preset YAML ships in the built wheel.
   would make every other analyzer re-examine an unchanged artifact. `SignedOff` records the version it
   saw, and `signed_off(artifact, team)` is true only for the current version.
 
+**Step 3 (analyzer base, relevance filters).**
+- **Merge commits are recorded.** Once an artifact is merged, `level...branch` is empty (the level
+  contains the branch). `Promoted.commit` records the merge commit; the artifact's change is then
+  `merge^1...merge^2`, and analyzers examine a detached checkout of the merge commit. Views keep the
+  first one (`merge_commit`); `ArtifactContext` gains `version`, `signed_off_by` and `merge_commit`.
+- `GateJudgement` became `judging/judgement.py:Judgement` (method `ask`), shared by gates and relevance
+  filters. `Fails(...)` is optional on judge questions; a gate refuses a judge whose questions lack it.
+- Two relevance judges, `IntegrationRelevance` and `AdversarialRelevance`, one question (`relevant`)
+  each. The relevance check runs inside `act()`, not `relevant()`: a clear "no" in active mode must still
+  sign off, which only `act()` can do. An unreachable decider means the team works (a filter may save
+  effort, never block it). Outcome source `team_result`: the change was relevant if the work found
+  something.
+- **Evidence filter:** a reported problem must name a test the analyzer ran through `run_test` that
+  failed; others are dropped (and logged). The finding's detail includes the failing test's source.
+- Analyzer test files live in `_analysis/` of a detached, throwaway checkout: never committed.
+
 ## Steps (one commit each)
 
 **3a**
