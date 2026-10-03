@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Self
+from typing import Protocol, Self
 
 from agentswarm.blackboard import Blackboard, BoardViews
 from agentswarm.catalog import TeamCatalog, TeamResources
@@ -13,7 +13,7 @@ from agentswarm.clock import Clock, SystemClock
 from agentswarm.config import ProjectConfig
 from agentswarm.context import ContextBuilder
 from agentswarm.deciders import Decider, JevDecider
-from agentswarm.decisions import DecisionStore, InMemoryDecisions
+from agentswarm.decisions import DecisionStore, SqliteDecisions
 from agentswarm.domain import Artifact, ArtifactCreated, ArtifactId, ProjectId, TeamName
 from agentswarm.eventlog import ConcurrencyConflict, SqliteEventLog
 from agentswarm.gates import CheckSet, Gate, GateJudgement
@@ -28,6 +28,10 @@ from agentswarm.teams import TeamRunner
 from agentswarm.workers import LangChainWorkers, WorkerProvider
 
 
+class Closeable(Protocol):
+    def close(self) -> None: ...
+
+
 @dataclass(frozen=True)
 class ProjectServices:
     """The collaborators a project is built from. Defaults are the real ones; tests replace what they need."""
@@ -36,33 +40,31 @@ class ProjectServices:
     judges: JudgeCatalog = field(default_factory=JudgeCatalog.standard)
     workers: WorkerProvider | None = None  # None: the configured models, through LangChain
     decider: Decider | None = None  # None: Jev, built only if some gate has a judge
-    decisions: DecisionStore = field(default_factory=InMemoryDecisions)
+    decisions: DecisionStore | None = None  # None: decisions.sqlite in the project root
     clock: Clock = field(default_factory=SystemClock)
     lease: timedelta = timedelta(minutes=10)
 
 
 class Project:
-    """Layout on disk under `root`: blackboard.sqlite, repo/ and worktrees/."""
+    """Layout on disk under `root`: blackboard.sqlite, decisions.sqlite, repo/ and worktrees/."""
 
     def __init__(
         self,
         config: ProjectConfig,
-        log: SqliteEventLog,
         board: Blackboard,
         repository: Repository,
         runners: list[TeamRunner],
         promoters: list[Promoter],
         decisions: DecisionStore,
-        jev: JevClient | None,
+        owned: list[Closeable],
     ) -> None:
         self.config = config
-        self._log = log
         self.board = board
         self.repository = repository
         self._runners = runners
         self._promoters = promoters
         self.decisions = decisions
-        self._jev = jev
+        self._owned = owned  # resources this project opened, closed with it
 
     @classmethod
     def open(cls, config: ProjectConfig, root: Path, services: ProjectServices | None = None) -> Self:
@@ -87,10 +89,15 @@ class Project:
             for team in config.teams
         ]
 
-        jev: JevClient | None = None
+        owned: list[Closeable] = [log]
+        decisions = services.decisions
+        if decisions is None:
+            decisions = SqliteDecisions(root / "decisions.sqlite")
+            owned.append(decisions)
         decider = services.decider
         if decider is None and any(gate.judge for gate in config.gates):
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
+            owned.append(jev)
             decider = JevDecider(jev)
         promoters: list[Promoter] = []
         for gate in config.gates:
@@ -98,7 +105,7 @@ class Project:
             if gate.judge is not None and decider is not None:
                 judge = services.judges.get(gate.judge)
                 policy = Policy(judge, gate.thresholds)
-                judgement = GateJudgement(judge, policy, decider, services.decisions, config.jev.mode, clock)
+                judgement = GateJudgement(judge, policy, decider, decisions, config.jev.mode, clock)
             promoters.append(
                 Promoter(
                     Gate.from_config(gate, checks, judgement),
@@ -110,7 +117,7 @@ class Project:
                     lease,
                 )
             )
-        return cls(config, log, board, repository, runners, promoters, services.decisions, jev)
+        return cls(config, board, repository, runners, promoters, decisions, owned)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
         """Put a new artifact on the board at the lowest level, with the next free id."""
@@ -150,9 +157,8 @@ class Project:
         return self.board.current()
 
     def close(self) -> None:
-        self._log.close()
-        if self._jev is not None:
-            self._jev.close()
+        for resource in reversed(self._owned):
+            resource.close()
 
     @staticmethod
     def slug(task: str, max_length: int = 40) -> str:

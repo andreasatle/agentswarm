@@ -10,6 +10,7 @@ from agentswarm.blackboard import Blackboard
 from agentswarm.clock import FakeClock
 from agentswarm.config import ProjectConfig
 from agentswarm.deciders import FakeDecider
+from agentswarm.decisions import InMemoryDecisions
 from agentswarm.domain import ArtifactCreated, Claimed, CommitPushed, ProjectId, Promoted, Rejected, Released
 from agentswarm.eventlog import SqliteEventLog
 from agentswarm.executor import ExecutorReport, WorktreeToolbox
@@ -46,21 +47,29 @@ class Projects:
     }
 
     @classmethod
-    def open(cls, root: Path, judged: Sequence[RawToExperimental] | None = None) -> Project:
+    def open(
+        cls, root: Path, judged: Sequence[RawToExperimental] | None = None, persistent_decisions: bool = False
+    ) -> Project:
         """Without `judged`, the gate has hard checks only; with it, an active judge answering in turn."""
         config = cls.CONFIG
         if judged is not None:
             gate = config["gates"][0] | {"judge": "RawToExperimental"}
             config = config | {"gates": [gate], "jev": {"mode": "active"}}
-        return cls.open_config(ProjectConfig.model_validate(config), root, judged)
+        return cls.open_config(ProjectConfig.model_validate(config), root, judged, persistent_decisions)
 
     @staticmethod
     def open_config(
-        config: ProjectConfig, root: Path, judged: Sequence[RawToExperimental] | None = None
+        config: ProjectConfig,
+        root: Path,
+        judged: Sequence[RawToExperimental] | None = None,
+        persistent_decisions: bool = False,
     ) -> Project:
-        return Project.open(
-            config, root, ProjectServices(decider=FakeDecider(judged or ()), clock=FakeClock(Samples.AT))
+        """By default decisions stay in memory; `persistent_decisions` uses the real decisions.sqlite."""
+        decisions = None if persistent_decisions else InMemoryDecisions()
+        services = ProjectServices(
+            decider=FakeDecider(judged or ()), decisions=decisions, clock=FakeClock(Samples.AT)
         )
+        return Project.open(config, root, services)
 
 
 class TestProject:

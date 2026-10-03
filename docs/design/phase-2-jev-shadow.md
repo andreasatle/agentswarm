@@ -41,7 +41,6 @@ Gate.evaluate
 | `JudgeState` | `judges.py` | What Jev sees: north star, task, open findings, diff (truncated to a character budget). |
 | `DecisionLog` | `decisions.py` | A `decisions` table (plus a `states` table keyed by hash) in the project's SQLite file. Records every decision; outcomes are filled in later. |
 | `Outcome` | `decisions.py` | The ground truth for **one question** of one decision: the true answer, and its source (`hidden_tests`, `mutation`, `planted`, `merge_queue`, `human`). |
-| `OutcomeRecorder` | `decisions.py` | Attaches outcomes to logged decisions; never overwrites an automatic outcome with a weaker one. |
 | `EvalTask`, `TaskSuite` | `evaluation/suite.py` | Small tasks on a seed project, each with **hidden acceptance tests** the executor never sees, and optionally a **planted fault**. |
 | `MutationCheck` | `evaluation/mutation.py` | Breaks the changed code in known ways and reruns the executor's tests in the sandbox. Tests that still pass don't exercise the behaviour. |
 | `FaultyExecutor` | `evaluation/faults.py` | Wraps an executor: does the task, then makes a known out-of-scope edit (and variants: drops part of the task, writes a trivially passing test). The fault is the label. |
@@ -64,7 +63,6 @@ no human:
 | `complete` | **hidden acceptance tests** | Each suite task carries tests the executor never sees. Run them in the sandbox on the gated commit: pass ⇒ complete. |
 | `tests_relevant` | **mutation testing** | Apply known mutations to the code the change added; rerun the change's own tests. Most mutants caught ⇒ relevant. |
 | `in_scope` | **planted faults** | `FaultyExecutor` adds a known unrelated edit to some runs; clean runs are in scope. Known by construction. |
-| any (pass) | **merge queue** | Jev said pass but the checks failed on the merged result ⇒ wrong on that point (rare; a bonus signal). |
 | any | **human** (`agentswarm label`) | Only a spot check of about 20 decisions, to confirm the automatic sources agree with human judgement. |
 
 Two consequences:
@@ -129,6 +127,21 @@ concrete to fix. `Verdict` moved to `policy.py`. Threshold YAML keys stay `pass`
   a judge and no decider is given, Jev is built from the environment at open time, so a missing key
   fails before any work starts.
 - The project config's `jev_mode` became a `jev:` section (`model`, `mode`, `timeout_s`).
+
+**Step 4 (decision log).**
+- `SqliteDecisions` keeps the log in `decisions.sqlite` next to the blackboard (a separate file: the
+  log is not part of the blackboard, and §6 puts it in the shared layer later). Each decision is one row
+  with indexed columns (id, point, artifact, mode, verdict, state hash) plus the full JSON. The full
+  state (with its diff) is stored inline rather than in a separate table keyed by hash: each decision
+  judges a different commit, so de-duplication would rarely save anything. The hash is still stored.
+- Outcomes are never overwritten. Every outcome is kept; `Outcomes.strongest` picks per question by
+  source strength (human > planted > hidden tests = mutation), then the latest. This replaces the
+  planned `OutcomeRecorder`, which is not needed.
+- An outcome must name a stored decision and one of its judge's questions.
+- Dropped the "merge queue failed after a pass" signal: failing checks on the merged result say the
+  change conflicts with other work, not which question Jev got wrong, so it is not ground truth for any
+  single question.
+- `Project` owns and closes what it opened (log, decision log, Jev client).
 
 ## Questions for review
 

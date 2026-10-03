@@ -3,14 +3,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agentswarm.config import JevMode, ProjectConfig
+from agentswarm.config import ProjectConfig
 from agentswarm.deciders import DeciderError, FakeDecider, JevDecider
-from agentswarm.decisions import DecisionDraft, InMemoryDecisions
 from agentswarm.jev.client import JevClient, JevError
-from agentswarm.judges import Judge, JudgeState, RawToExperimental
-from agentswarm.policy import Policy
+from agentswarm.judges import JudgeState, RawToExperimental
 from agentswarm.project import Project
-from tests.samples import Judged, Samples
+from tests.samples import Judged
 from tests.test_project import Projects
 
 STATE = JudgeState(north_star="n", task="t", must_fix=(), diff="")
@@ -49,27 +47,6 @@ class TestJevDecider:
         decider = JevDecider(JevClient("jev-latest", "key", transport=transport))
         with pytest.raises(DeciderError, match="HTTP 503"):
             decider.decide(STATE, RawToExperimental)
-
-
-class TestInMemoryDecisions:
-    def test_assigns_ids_in_order_and_keeps_everything(self) -> None:
-        store = InMemoryDecisions()
-        judge = Judge(RawToExperimental)
-        draft = DecisionDraft(
-            point="gate:raw->experimental",
-            artifact=Samples.A,
-            commit="c0ffee",
-            mode=JevMode.SHADOW,
-            judge=judge.name,
-            state=STATE,
-            answers=Judged.passing().model_dump(mode="json"),
-            ruling=Policy(judge).rule(Judged.passing()),
-            model="fake",
-            at=Samples.AT,
-        )
-        first, second = store.record(draft), store.record(draft)
-        assert (first.id, second.id) == ("d-0001", "d-0002")
-        assert store.all() == [first, second]
 
 
 class TestProjectJudgeWiring:
