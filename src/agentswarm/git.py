@@ -60,9 +60,9 @@ class Git:
 class Worktree:
     """A checkout of one branch in its own directory, so teams never share a working directory."""
 
-    def __init__(self, path: Path, branch: str, repository: "Repository") -> None:
+    def __init__(self, path: Path, ref: str, repository: "Repository") -> None:
         self.path = path
-        self.branch = branch
+        self.ref = ref  # the branch checked out, or the commit for a detached worktree
         self._repository = repository
         self._git = repository.git
 
@@ -149,15 +149,26 @@ class Repository:
         return self.git.run(self.path, "diff", "--stat", f"{self._ladder.base}...{artifact.branch}")
 
     def checkout(self, branch: str, name: str) -> Worktree:
-        """A fresh worktree of `branch` at worktrees/<name>, replacing any stale one left by a crash."""
+        """A fresh worktree of `branch` at worktrees/<name>. Commits in it move the branch."""
+        path = self._fresh_worktree_path(name)
+        self.git.run(self.path, "worktree", "add", "--quiet", str(path), branch)
+        return Worktree(path, branch, self)
+
+    def checkout_detached(self, commit: str, name: str) -> Worktree:
+        """A fresh worktree at `commit` on a detached HEAD: nothing done in it moves any branch."""
+        path = self._fresh_worktree_path(name)
+        self.git.run(self.path, "worktree", "add", "--quiet", "--detach", str(path), commit)
+        return Worktree(path, commit, self)
+
+    def _fresh_worktree_path(self, name: str) -> Path:
+        """worktrees/<name>, with any stale worktree left there by a crash removed."""
         path = self._worktrees / name
         if path.exists():
             self.git.attempt(self.path, "worktree", "remove", "--force", str(path))
             shutil.rmtree(path, ignore_errors=True)
         self.git.run(self.path, "worktree", "prune")
         self._worktrees.mkdir(parents=True, exist_ok=True)
-        self.git.run(self.path, "worktree", "add", "--quiet", str(path), branch)
-        return Worktree(path, branch, self)
+        return path
 
     def checkout_artifact(self, artifact: Artifact) -> Worktree:
         self.ensure_branch(artifact)
