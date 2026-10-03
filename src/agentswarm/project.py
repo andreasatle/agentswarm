@@ -1,6 +1,7 @@
 """One project with its north star: the board, the repository, its teams and its gates, wired together."""
 
 import re
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Self
@@ -11,15 +12,33 @@ from agentswarm.claims import ClaimRegistry
 from agentswarm.clock import Clock, SystemClock
 from agentswarm.config import ProjectConfig
 from agentswarm.context import ContextBuilder
+from agentswarm.deciders import Decider, JevDecider
+from agentswarm.decisions import DecisionStore, InMemoryDecisions
 from agentswarm.domain import Artifact, ArtifactCreated, ArtifactId, ProjectId, TeamName
 from agentswarm.eventlog import ConcurrencyConflict, SqliteEventLog
-from agentswarm.gates import CheckSet, Decider, Gate
+from agentswarm.gates import CheckSet, Gate, GateJudgement
 from agentswarm.git import Git, Repository
+from agentswarm.jev.client import JevClient
+from agentswarm.judges import JudgeCatalog
 from agentswarm.models import ChatModels
+from agentswarm.policy import Policy
 from agentswarm.promotion import Promoter
 from agentswarm.sandbox import Sandboxes
 from agentswarm.teams import TeamRunner
 from agentswarm.workers import LangChainWorkers, WorkerProvider
+
+
+@dataclass(frozen=True)
+class ProjectServices:
+    """The collaborators a project is built from. Defaults are the real ones; tests replace what they need."""
+
+    teams: TeamCatalog = field(default_factory=TeamCatalog.standard)
+    judges: JudgeCatalog = field(default_factory=JudgeCatalog.standard)
+    workers: WorkerProvider | None = None  # None: the configured models, through LangChain
+    decider: Decider | None = None  # None: Jev, built only if some gate has a judge
+    decisions: DecisionStore = field(default_factory=InMemoryDecisions)
+    clock: Clock = field(default_factory=SystemClock)
+    lease: timedelta = timedelta(minutes=10)
 
 
 class Project:
@@ -33,6 +52,8 @@ class Project:
         repository: Repository,
         runners: list[TeamRunner],
         promoters: list[Promoter],
+        decisions: DecisionStore,
+        jev: JevClient | None,
     ) -> None:
         self.config = config
         self._log = log
@@ -40,24 +61,14 @@ class Project:
         self.repository = repository
         self._runners = runners
         self._promoters = promoters
+        self.decisions = decisions
+        self._jev = jev
 
     @classmethod
-    def open(
-        cls,
-        config: ProjectConfig,
-        root: Path,
-        catalog: TeamCatalog,
-        decider: Decider,
-        workers: WorkerProvider | None = None,
-        clock: Clock | None = None,
-        lease: timedelta = timedelta(minutes=10),
-    ) -> Self:
-        """Open the project at `root`, creating its log and repository on first use.
-
-        Teams get their models from `workers`; by default, the models in the configuration via LangChain.
-        """
-        clock = clock or SystemClock()
-        workers = workers or LangChainWorkers(ChatModels(config.models))
+    def open(cls, config: ProjectConfig, root: Path, services: ProjectServices | None = None) -> Self:
+        """Open the project at `root`, creating its log and repository on first use."""
+        services = services or ProjectServices()
+        clock, lease = services.clock, services.lease
         root.mkdir(parents=True, exist_ok=True)
         log = SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), clock)
         board = Blackboard(log)
@@ -67,24 +78,39 @@ class Project:
         )
         contexts = ContextBuilder(board, repository, config.north_star)
         checks = CheckSet(config.checks, Sandboxes.build(config.sandbox))
+        workers = services.workers or LangChainWorkers(ChatModels(config.models))
         resources = TeamResources(workers, checks)
         runners = [
-            TeamRunner(catalog.build(team, resources), board, claims, repository, contexts, clock, lease)
+            TeamRunner(
+                services.teams.build(team, resources), board, claims, repository, contexts, clock, lease
+            )
             for team in config.teams
         ]
-        promoters = [
-            Promoter(
-                Gate.from_config(gate, checks, decider),
-                board,
-                claims,
-                repository,
-                contexts,
-                clock,
-                lease,
+
+        jev: JevClient | None = None
+        decider = services.decider
+        if decider is None and any(gate.judge for gate in config.gates):
+            jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
+            decider = JevDecider(jev)
+        promoters: list[Promoter] = []
+        for gate in config.gates:
+            judgement = None
+            if gate.judge is not None and decider is not None:
+                judge = services.judges.get(gate.judge)
+                policy = Policy(judge, gate.thresholds)
+                judgement = GateJudgement(judge, policy, decider, services.decisions, config.jev.mode, clock)
+            promoters.append(
+                Promoter(
+                    Gate.from_config(gate, checks, judgement),
+                    board,
+                    claims,
+                    repository,
+                    contexts,
+                    clock,
+                    lease,
+                )
             )
-            for gate in config.gates
-        ]
-        return cls(config, log, board, repository, runners, promoters)
+        return cls(config, log, board, repository, runners, promoters, services.decisions, jev)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
         """Put a new artifact on the board at the lowest level, with the next free id."""
@@ -125,6 +151,8 @@ class Project:
 
     def close(self) -> None:
         self._log.close()
+        if self._jev is not None:
+            self._jev.close()
 
     @staticmethod
     def slug(task: str, max_length: int = 40) -> str:

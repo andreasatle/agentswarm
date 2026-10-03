@@ -12,10 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from agentswarm.catalog import TeamCatalog
 from agentswarm.cli import Report
 from agentswarm.config import ProjectConfig, SandboxKind
-from agentswarm.gates import FakeDecider
 from agentswarm.project import Project
 from agentswarm.sandbox import DockerSandbox
 
@@ -39,7 +37,7 @@ class TestLiveGreeter:
             config = config.model_copy(update={"sandbox": local, "checks": {"unit_tests": tests}})
 
         # docker_workdir is under $HOME, which Colima and Docker Desktop share with containers by default.
-        project = Project.open(config, docker_workdir, TeamCatalog.standard(), FakeDecider())
+        project = Project.open(config, docker_workdir)
         artifact = project.create_artifact(TASK)
         await project.run_until_idle(max_rounds=10)
         print(Report.render(project.views()))

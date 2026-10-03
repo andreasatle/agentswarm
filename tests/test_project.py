@@ -7,16 +7,17 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from agentswarm.blackboard import Blackboard
-from agentswarm.catalog import TeamCatalog
 from agentswarm.clock import FakeClock
 from agentswarm.config import ProjectConfig
+from agentswarm.deciders import FakeDecider
 from agentswarm.domain import ArtifactCreated, Claimed, CommitPushed, ProjectId, Promoted, Rejected, Released
 from agentswarm.eventlog import SqliteEventLog
 from agentswarm.executor import ExecutorReport, WorktreeToolbox
-from agentswarm.gates import FakeDecider, Verdict
-from agentswarm.project import Project
+from agentswarm.judges import RawToExperimental
+from agentswarm.policy import Verdict
+from agentswarm.project import Project, ProjectServices
 from agentswarm.workers import FakeWorker, FakeWorkers, Toolbox
-from tests.samples import Samples
+from tests.samples import Judged, Samples
 
 
 class Projects:
@@ -45,13 +46,20 @@ class Projects:
     }
 
     @classmethod
-    def open(cls, root: Path, verdicts: Sequence[Verdict] = (Verdict.PROMOTE,)) -> Project:
+    def open(cls, root: Path, judged: Sequence[RawToExperimental] | None = None) -> Project:
+        """Without `judged`, the gate has hard checks only; with it, an active judge answering in turn."""
+        config = cls.CONFIG
+        if judged is not None:
+            gate = config["gates"][0] | {"judge": "RawToExperimental"}
+            config = config | {"gates": [gate], "jev": {"mode": "active"}}
+        return cls.open_config(ProjectConfig.model_validate(config), root, judged)
+
+    @staticmethod
+    def open_config(
+        config: ProjectConfig, root: Path, judged: Sequence[RawToExperimental] | None = None
+    ) -> Project:
         return Project.open(
-            ProjectConfig.model_validate(cls.CONFIG),
-            root,
-            TeamCatalog.standard(),
-            FakeDecider(verdicts),
-            clock=FakeClock(Samples.AT),
+            config, root, ProjectServices(decider=FakeDecider(judged or ()), clock=FakeClock(Samples.AT))
         )
 
 
@@ -86,7 +94,7 @@ class TestProject:
         project.close()
 
     async def test_rejection_is_fixed_by_the_executor_and_then_promoted(self, tmp_path: Path) -> None:
-        project = Projects.open(tmp_path, verdicts=[Verdict.REJECT, Verdict.PROMOTE])
+        project = Projects.open(tmp_path, judged=[Judged.incomplete(), Judged.passing()])
         artifact = project.create_artifact("Write the greeting")
         await project.run_until_idle()
         history = project.views().history(artifact.id)
@@ -94,7 +102,10 @@ class TestProject:
         assert [type(e) for e in history].count(CommitPushed) == 2
         assert project.views().artifact(artifact.id).level == Samples.EXPERIMENTAL
         merged = project.repository.git.run(project.repository.path, "show", "experimental:a-0001.md")
-        assert "fixed: Rejected by the fake decider" in merged
+        assert "fixed: The change does not address every part of the task (Jev: p(yes) = 0.05)" in merged
+        (rejecting, promoting) = project.decisions.all()
+        assert rejecting.ruling.verdict is Verdict.REJECT
+        assert promoting.ruling.verdict is Verdict.PROMOTE
         project.close()
 
     async def test_several_artifacts_all_reach_the_next_level(self, tmp_path: Path) -> None:
@@ -140,10 +151,7 @@ class TestProjectWithExecutorTeam:
         project = Project.open(
             ProjectConfig.model_validate(config),
             tmp_path,
-            TeamCatalog.standard(),
-            FakeDecider(),
-            workers=FakeWorkers({"coder": FakeWorker([work])}),
-            clock=FakeClock(Samples.AT),
+            ProjectServices(workers=FakeWorkers({"coder": FakeWorker([work])}), clock=FakeClock(Samples.AT)),
         )
         artifact = project.create_artifact("Write a greeting")
         await project.run_until_idle()

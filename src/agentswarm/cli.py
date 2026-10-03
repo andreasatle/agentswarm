@@ -20,8 +20,7 @@ from agentswarm.domain import (
     Rejected,
     Released,
 )
-from agentswarm.gates import FakeDecider
-from agentswarm.project import Project
+from agentswarm.project import Project, ProjectServices
 
 
 class Report:
@@ -74,8 +73,7 @@ class Cli:
     def dispatch(self, argv: Sequence[str]) -> int:
         args = self.parser().parse_args(argv)
         config = ProjectConfig.load(Path(args.config))
-        # Phase 1 has no judge yet: gates pass on their hard checks alone. Jev arrives in phase 2.
-        project = Project.open(config, Path(args.root).expanduser(), self._catalog, FakeDecider())
+        project = Project.open(config, Path(args.root).expanduser(), ProjectServices(teams=self._catalog))
         try:
             if args.command == "run":
                 for task in args.task:

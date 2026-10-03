@@ -83,7 +83,7 @@ class Promoter:
             outcome = self._gate.evaluate(ctx, worktree)
         finally:
             worktree.remove()
-        if outcome.verdict is Verdict.PROMOTE and outcome.decision is not None:
+        if outcome.verdict is Verdict.PROMOTE:
             self._queue.enqueue(MergeRequest(context=ctx, commit=commit, decision=outcome.decision))
             return True
         self._board.append([self._event(artifact, outcome)])

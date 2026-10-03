@@ -95,6 +95,41 @@ Two consequences:
 6. `MutationCheck` and `FaultyExecutor`: the other two automatic outcome sources.
 7. `CalibrationReport`, `agentswarm evaluate/calibrate/label`; run the suite to get 50+ decisions.
 
+## Decisions made during implementation
+
+Recorded as they happen, for the end-of-phase tutorial.
+
+**Step 1 (Jev client).** Ported as classes (`JevClient`, `QuestionSet`). Differences from the tutorial
+code: errors raise `JevError` instead of `SystemExit`; the state is always a Pydantic model (no plain
+text); `ChoiceQuestion` is not generic (same JSON; the option type is still checked on the answer); the
+model version is a constructor argument instead of `JEV_MODEL`.
+
+**Step 2 (judge and policy).** Questions are phrased so yes is good, and each carries `Fails(kind,
+message)`. A failed `tests_relevant` becomes an `INCOMPLETE` finding (no dedicated kind yet). A clear
+failure wins over an unsure question (reject, not escalate), because it gives the executor something
+concrete to fix. `Verdict` moved to `policy.py`. Threshold YAML keys stay `pass`/`fail`
+(`validation_alias`), and `fail < pass` is enforced.
+
+**Step 3 (gate wiring).**
+- `Decider.decide(state, spec) -> Answered[M]` replaces the verdict-returning decider. `JevDecider` maps
+  `JevError` to `DeciderError`; `FakeDecider` plays scripted answers.
+- `GateJudgement` = judge + policy + decider + decision store + mode. A `Gate` without one checks only.
+- The `Decision` record and a `DecisionStore` interface (`record`, `all`) arrived here, not in step 4,
+  because promotions link to decision ids; step 4 adds SQLite storage and outcomes behind it.
+- `Promoted.gate_decision` and `MergeRequest.decision` are optional: a gate without a judge has none.
+- The judge sees `JudgeState`: north star, task, open findings, and `git diff <to_level>...HEAD`
+  truncated to 60,000 characters with a note. History is left out to keep the state small.
+- Shadow mode: the decision is recorded and linked to the promotion, but the gate promotes as if it had
+  no judge. If the decider is unreachable, shadow mode logs a warning and promotes; active mode
+  escalates ("judge unavailable").
+- Active-mode rejections are `MAJOR`; hard-check rejections stay `BLOCKER`.
+- `requires_human` applies after everything else, in both modes.
+- `ProjectServices` bundles the injectable collaborators (team and judge catalogs, workers, decider,
+  decision store, clock, lease) so `Project.open(config, root, services)` stops growing. If a gate names
+  a judge and no decider is given, Jev is built from the environment at open time, so a missing key
+  fails before any work starts.
+- The project config's `jev_mode` became a `jev:` section (`model`, `mode`, `timeout_s`).
+
 ## Questions for review
 
 1. **Copy or depend?** Port the Jev client into `agentswarm/jev/` as classes (recommended), rather than

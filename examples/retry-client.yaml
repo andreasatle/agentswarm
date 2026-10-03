@@ -31,4 +31,4 @@ gates:
     requires_human: true
 
 budgets: {usd_per_day: 20, max_rounds_per_artifact: 8}
-jev_mode: shadow
+jev: {model: jev-latest, mode: shadow}

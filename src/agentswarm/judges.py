@@ -8,11 +8,11 @@ annotated with the finding a failure produces:
 """
 
 from dataclasses import dataclass
-from typing import Annotated, Self
+from typing import Annotated, ClassVar, Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from agentswarm.domain import FindingKind
+from agentswarm.domain import ArtifactContext, FindingKind
 from agentswarm.jev.api import NoulAnswer
 from agentswarm.jev.spec import Ask
 
@@ -78,6 +78,34 @@ class RawToExperimental(BaseModel):
         Ask("Does the change address every part of the task?"),
         Fails(FindingKind.INCOMPLETE, "The change does not address every part of the task"),
     ]
+
+
+class JudgeState(BaseModel):
+    """What a judge is shown about an artifact (§8.3): small, typed, and the diff instead of file names."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    DIFF_LIMIT: ClassVar[int] = 60_000  # characters; Jev's window is 32k tokens for state and questions
+
+    north_star: str
+    task: str
+    must_fix: tuple[str, ...]  # open findings the change was supposed to address
+    diff: str  # unified diff against the level the change goes into, truncated to DIFF_LIMIT
+
+    @classmethod
+    def of(cls, ctx: ArtifactContext, diff: str) -> Self:
+        return cls(
+            north_star=ctx.north_star,
+            task=ctx.artifact.task,
+            must_fix=tuple(f.detail for f in ctx.open_findings),
+            diff=cls.truncate(diff),
+        )
+
+    @classmethod
+    def truncate(cls, diff: str) -> str:
+        if len(diff) <= cls.DIFF_LIMIT:
+            return diff
+        return diff[: cls.DIFF_LIMIT] + f"\n[diff truncated: {len(diff) - cls.DIFF_LIMIT} more characters]"
 
 
 class JudgeCatalog:

@@ -79,6 +79,12 @@ class SandboxConfig(Strict):
     pids: int = Field(default=256, gt=0)
 
 
+class JevConfig(Strict):
+    model: str = "jev-latest"  # pin a concrete version (e.g. "jev-1.13.0") once thresholds are calibrated
+    mode: JevMode = JevMode.SHADOW  # shadow: judge and log only; active: gates act on the ruling
+    timeout_s: float = Field(default=30.0, gt=0)
+
+
 class CheckConfig(Strict):
     """A deterministic hard check: a command run in the sandbox on the artifact's files. Exit 0 passes."""
 
@@ -155,7 +161,7 @@ class ProjectConfig(Strict):
     teams: tuple[TeamConfig, ...] = ()
     gates: tuple[GateConfig, ...] = ()
     budgets: Budgets = Budgets()
-    jev_mode: JevMode = JevMode.SHADOW
+    jev: JevConfig = JevConfig()
 
     @field_validator("levels", mode="before")
     @classmethod

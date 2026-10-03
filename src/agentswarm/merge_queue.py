@@ -20,7 +20,7 @@ class MergeRequest(BaseModel):
 
     context: ArtifactContext
     commit: str  # the commit the gate judged, not whatever the branch points to now
-    decision: DecisionId
+    decision: DecisionId | None  # the gate's decision, if it has a judge
 
 
 class MergeQueue:

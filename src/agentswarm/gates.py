@@ -1,16 +1,22 @@
-"""Gates: hard checks first, then a judgement, then a verdict (proposal §11).
+"""Gates: hard checks first, then a judgement, then a verdict (proposal §11.2).
 
-Phase 0 has no policy layer: the decider returns a verdict directly. Jev, thresholds and per-field
-policy replace FakeDecider in phase 2 behind the same Decider interface.
+1. hard checks fail                        → REJECT, without asking the judge
+2. the judge answers, the policy rules     → recorded as a Decision
+3. shadow mode: act as if there were no judge (promote); active mode: act on the ruling
+4. requires_human turns a promotion into an escalation
 """
 
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, Self
 
 from pydantic import BaseModel, ConfigDict
 
-from agentswarm.config import CheckConfig, GateConfig
+from agentswarm.clock import Clock
+from agentswarm.config import CheckConfig, GateConfig, JevMode
+from agentswarm.deciders import Decider, DeciderError
+from agentswarm.decisions import Decision, DecisionDraft, DecisionStore
 from agentswarm.domain import (
     ArtifactContext,
     DecisionId,
@@ -21,7 +27,8 @@ from agentswarm.domain import (
     TeamName,
 )
 from agentswarm.git import Worktree
-from agentswarm.policy import Verdict
+from agentswarm.judges import Judge, JudgeState
+from agentswarm.policy import Policy, QuestionVerdict, Verdict
 from agentswarm.sandbox import Sandbox
 
 
@@ -81,42 +88,43 @@ class CheckSet:
         return [CommandCheck(name, self._configs[name], self._sandbox) for name in names]
 
 
-class Judgement(Frozen):
-    """What a decider concluded about one artifact at one decision point."""
+class GateJudgement:
+    """Asks a judge about an artifact, rules on the answers with the policy, and records the decision."""
 
-    decision: DecisionId
-    verdict: Verdict
-    findings: tuple[Finding, ...] = ()  # why, when the verdict is REJECT
+    def __init__(
+        self,
+        judge: Judge,
+        policy: Policy,
+        decider: Decider,
+        decisions: DecisionStore,
+        mode: JevMode,
+        clock: Clock,
+    ) -> None:
+        self._judge = judge
+        self._policy = policy
+        self._decider = decider
+        self._decisions = decisions
+        self.mode = mode
+        self._clock = clock
 
-
-class Decider(Protocol):
-    def judge(self, point: str, ctx: ArtifactContext) -> Judgement: ...
-
-
-class FakeDecider:
-    """Returns scripted verdicts in order, then repeats the last one. Records every call."""
-
-    def __init__(self, verdicts: Sequence[Verdict] = (Verdict.PROMOTE,)) -> None:
-        if not verdicts:
-            raise ValueError("FakeDecider needs at least one verdict")
-        self._verdicts = list(verdicts)
-        self.calls: list[tuple[str, ArtifactContext]] = []
-
-    def judge(self, point: str, ctx: ArtifactContext) -> Judgement:
-        self.calls.append((point, ctx))
-        verdict = self._verdicts.pop(0) if len(self._verdicts) > 1 else self._verdicts[0]
-        decision = DecisionId(f"d-{len(self.calls):04d}")
-        if verdict is not Verdict.REJECT:
-            return Judgement(decision=decision, verdict=verdict)
-        finding = Finding(
-            artifact=ctx.artifact.id,
-            level=ctx.artifact.level,
-            team=TeamName(point),
-            kind=FindingKind.INCOMPLETE,
-            severity=Severity.MAJOR,
-            detail="Rejected by the fake decider",
+    def judge(self, point: str, ctx: ArtifactContext, commit: str, diff: str) -> Decision:
+        """Ask, rule and record. Raises DeciderError if the decider gives no answers."""
+        state = JudgeState.of(ctx, diff)
+        answered = self._decider.decide(state, self._judge.spec)
+        return self._decisions.record(
+            DecisionDraft(
+                point=point,
+                artifact=ctx.artifact.id,
+                commit=commit,
+                mode=self.mode,
+                judge=self._judge.name,
+                state=state,
+                answers=answered.answers.model_dump(mode="json"),
+                ruling=self._policy.rule(answered.answers),
+                model=answered.model,
+                at=self._clock.now(),
+            )
         )
-        return Judgement(decision=decision, verdict=verdict, findings=(finding,))
 
 
 class GateOutcome(Frozen):
@@ -129,27 +137,29 @@ class GateOutcome(Frozen):
 class Gate:
     """The rule for moving an artifact from one level to the next."""
 
+    _log = logging.getLogger(__name__)
+
     def __init__(
         self,
         from_level: Level,
         to_level: Level,
         checks: Sequence[HardCheck],
-        decider: Decider,
+        judgement: GateJudgement | None = None,  # None: hard checks only
         requires_human: bool = False,
     ) -> None:
         self.from_level = from_level
         self.to_level = to_level
         self._checks = tuple(checks)
-        self._decider = decider
+        self._judgement = judgement
         self._requires_human = requires_human
 
     @classmethod
-    def from_config(cls, gate: GateConfig, checks: CheckSet, decider: Decider) -> Self:
+    def from_config(cls, gate: GateConfig, checks: CheckSet, judgement: GateJudgement | None) -> Self:
         return cls(
             gate.from_level,
             gate.to_level,
             checks.build(gate.hard_checks),
-            decider,
+            judgement,
             gate.requires_human,
         )
 
@@ -174,37 +184,68 @@ class Gate:
         findings = self.run_checks(worktree.path, ctx)
         if findings:
             return GateOutcome(verdict=Verdict.REJECT, decision=None, findings=findings)
-        judgement = self._decider.judge(self.name, ctx)
-        match judgement.verdict:
-            case Verdict.PROMOTE if self._requires_human:
-                return GateOutcome(
-                    verdict=Verdict.ESCALATE, decision=judgement.decision, reason="requires human approval"
+        if self._judgement is None:
+            return self._unless_human(GateOutcome(verdict=Verdict.PROMOTE, decision=None))
+        try:
+            decision = self._judgement.judge(
+                self.name, ctx, worktree.head(), worktree.diff_against(self.to_level)
+            )
+        except DeciderError as error:
+            if self._judgement.mode is JevMode.SHADOW:  # shadow mode never blocks: carry on unjudged
+                self._log.warning(
+                    "%s: judge unavailable for %s, continuing unjudged: %s", self.name, ctx.artifact.id, error
                 )
+                return self._unless_human(GateOutcome(verdict=Verdict.PROMOTE, decision=None))
+            return GateOutcome(
+                verdict=Verdict.ESCALATE, decision=None, reason=f"{self.name}: judge unavailable: {error}"
+            )
+        if decision.mode is JevMode.SHADOW:
+            return self._unless_human(GateOutcome(verdict=Verdict.PROMOTE, decision=decision.id))
+        return self._unless_human(self._acting_on(ctx, decision))
+
+    def _acting_on(self, ctx: ArtifactContext, decision: Decision) -> GateOutcome:
+        ruling = decision.ruling
+        match ruling.verdict:
             case Verdict.PROMOTE:
-                return GateOutcome(verdict=Verdict.PROMOTE, decision=judgement.decision)
+                return GateOutcome(verdict=Verdict.PROMOTE, decision=decision.id)
             case Verdict.REJECT:
-                findings = judgement.findings or (
-                    self._finding(ctx, FindingKind.INCOMPLETE, "Rejected without a stated reason"),
+                findings = tuple(
+                    self._finding(ctx, f.kind, f.detail, Severity.MAJOR) for f in ruling.failures
                 )
-                return GateOutcome(verdict=Verdict.REJECT, decision=judgement.decision, findings=findings)
+                return GateOutcome(verdict=Verdict.REJECT, decision=decision.id, findings=findings)
             case Verdict.ESCALATE:
+                unsure = ", ".join(
+                    f"{q.field} (p={q.p_yes:.2f})"
+                    for q in ruling.questions
+                    if q.verdict is QuestionVerdict.UNSURE
+                )
                 return GateOutcome(
                     verdict=Verdict.ESCALATE,
-                    decision=judgement.decision,
-                    reason=f"{self.name}: judgement unsure",
+                    decision=decision.id,
+                    reason=f"{self.name}: judge unsure on {unsure}",
                 )
+
+    def _unless_human(self, outcome: GateOutcome) -> GateOutcome:
+        """A gate that requires a human never promotes on its own."""
+        if outcome.verdict is Verdict.PROMOTE and self._requires_human:
+            return outcome.model_copy(
+                update={"verdict": Verdict.ESCALATE, "reason": "requires human approval"}
+            )
+        return outcome
 
     def conflict_finding(self, ctx: ArtifactContext) -> Finding:
         return self._finding(
             ctx, FindingKind.INCONSISTENT, f"Conflicts with {self.to_level}; rebase onto it and resolve"
         )
 
-    def _finding(self, ctx: ArtifactContext, kind: FindingKind, detail: str) -> Finding:
+    def _finding(
+        self, ctx: ArtifactContext, kind: FindingKind, detail: str, severity: Severity = Severity.BLOCKER
+    ) -> Finding:
         return Finding(
             artifact=ctx.artifact.id,
             level=self.from_level,
             team=self.team,
             kind=kind,
-            severity=Severity.BLOCKER,
+            severity=severity,
             detail=detail,
         )

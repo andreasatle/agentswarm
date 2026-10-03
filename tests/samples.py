@@ -14,6 +14,8 @@ from agentswarm.domain import (
     Severity,
     TeamName,
 )
+from agentswarm.jev.api import NoulAnswer
+from agentswarm.judges import RawToExperimental
 
 
 class Samples:
@@ -48,3 +50,29 @@ class Samples:
             severity=Severity.MAJOR,
             detail="Does not address every part of the task",
         )
+
+
+class Judged:
+    """Answers to the RawToExperimental judge, as p(yes) per question."""
+
+    @staticmethod
+    def answers(
+        in_scope: float = 0.95, tests_relevant: float = 0.95, complete: float = 0.95
+    ) -> RawToExperimental:
+        return RawToExperimental(
+            in_scope=NoulAnswer(noul=in_scope),
+            tests_relevant=NoulAnswer(noul=tests_relevant),
+            complete=NoulAnswer(noul=complete),
+        )
+
+    @classmethod
+    def passing(cls) -> RawToExperimental:
+        return cls.answers()
+
+    @classmethod
+    def incomplete(cls) -> RawToExperimental:
+        return cls.answers(complete=0.05)
+
+    @classmethod
+    def unsure(cls) -> RawToExperimental:
+        return cls.answers(tests_relevant=0.6)

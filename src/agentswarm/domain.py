@@ -126,7 +126,7 @@ class Promoted(Frozen):
     artifact: ArtifactId
     from_level: Level
     to_level: Level
-    gate_decision: DecisionId  # link to the decision log
+    gate_decision: DecisionId | None  # link to the decision log; None for a gate without a judge
 
     @property
     def subject(self) -> ArtifactId:

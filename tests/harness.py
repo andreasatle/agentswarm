@@ -8,12 +8,16 @@ from pathlib import Path
 from agentswarm.blackboard import Blackboard
 from agentswarm.claims import ClaimRegistry
 from agentswarm.clock import FakeClock
-from agentswarm.config import CheckConfig, LevelLadder
+from agentswarm.config import CheckConfig, JevMode, LevelLadder
 from agentswarm.context import ContextBuilder
+from agentswarm.deciders import FakeDecider
+from agentswarm.decisions import InMemoryDecisions
 from agentswarm.domain import Artifact, ArtifactCreated, ArtifactId, CommitPushed, FindingKind
 from agentswarm.eventlog import SqliteEventLog
-from agentswarm.gates import CommandCheck, FakeDecider, Gate, HardCheck, Verdict
+from agentswarm.gates import CommandCheck, Gate, GateJudgement, HardCheck
 from agentswarm.git import Git, Repository
+from agentswarm.judges import Judge, RawToExperimental
+from agentswarm.policy import Policy
 from agentswarm.promotion import Promoter
 from agentswarm.sandbox import LocalSandbox
 from agentswarm.teams import Team, TeamRunner
@@ -45,7 +49,8 @@ class Harness:
         self,
         root: Path,
         checks: Sequence[HardCheck] = (),
-        verdicts: Sequence[Verdict] = (Verdict.PROMOTE,),
+        answers: Sequence[RawToExperimental] | None = None,  # None: the gate has no judge
+        mode: JevMode = JevMode.ACTIVE,
     ) -> None:
         self.clock = FakeClock(Samples.AT)
         self.log = SqliteEventLog(root / "events.sqlite", Samples.PROJECT, self.clock)
@@ -53,8 +58,13 @@ class Harness:
         self.claims = ClaimRegistry(self.board, self.clock)
         self.repository = Repository.create(root / "repo", root / "worktrees", self.LADDER, Git())
         self.contexts = ContextBuilder(self.board, self.repository, self.NORTH_STAR)
-        self.decider = FakeDecider(verdicts)
-        self.gate = Gate(Samples.RAW, Samples.EXPERIMENTAL, checks, self.decider)
+        self.decider = FakeDecider(answers or ())
+        self.decisions = InMemoryDecisions()
+        judgement = None
+        if answers is not None:
+            judge = Judge(RawToExperimental)
+            judgement = GateJudgement(judge, Policy(judge), self.decider, self.decisions, mode, self.clock)
+        self.gate = Gate(Samples.RAW, Samples.EXPERIMENTAL, checks, judgement)
         self.promoter = Promoter(
             self.gate,
             self.board,

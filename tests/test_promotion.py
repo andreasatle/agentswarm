@@ -2,10 +2,9 @@ from datetime import timedelta
 from pathlib import Path
 
 from agentswarm.domain import DecisionId, FindingKind, Promoted, Rejected
-from agentswarm.gates import Verdict
 from agentswarm.merge_queue import MergeQueue, MergeRequest
 from tests.harness import Checks, Harness
-from tests.samples import Samples
+from tests.samples import Judged, Samples
 
 
 class TestMergeQueue:
@@ -80,7 +79,7 @@ class TestPromoter:
         assert h.decider.calls == []
 
     def test_judges_each_commit_only_once(self, tmp_path: Path) -> None:
-        h = Harness(tmp_path, verdicts=[Verdict.REJECT])
+        h = Harness(tmp_path, answers=[Judged.incomplete()])
         artifact = h.create()
         h.push(artifact, {"a.txt": "a\n"})
         assert h.promoter.step() == 1
