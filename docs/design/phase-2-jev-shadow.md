@@ -186,6 +186,21 @@ concrete to fix. `Verdict` moved to `policy.py`. Threshold YAML keys stay `pass`
   function, which no test covers, so its score can drop. The planted truth wins (planted > mutation).
 - The suite's `hidden_tests_command` became `test_command`, since mutation testing uses it too.
 
+**Step 7 (calibration, CLI).**
+- `CalibrationReport` (`judging/calibration.py`) ports `09_calibration.py` (ten bins, ECE, small-n
+  warning) and adds, per decision point and question: the Brier score, coverage and accuracy at the
+  policy thresholds (what Phase 4 tunes), which outcome sources the truths came from, and a warning when
+  every truth is the same. Each question uses its strongest outcome; questions without one are counted,
+  not guessed.
+- `SpotCheck` (`judging/labelling.py`) samples decisions that already have automatic outcomes and asks a
+  person each question **before** showing Jev's probability or the automatic truth, to avoid anchoring;
+  it then reports agreement with the automatic sources. The sample is reproducible (seeded).
+- CLI: `agentswarm evaluate SUITE --workdir DIR [--variant ...]` (prints one line per run, then the
+  calibration report; the log is `DIR/decisions.sqlite`), `agentswarm calibrate DECISIONS`, and
+  `agentswarm label DECISIONS [--limit N]`. `main` loads `.env` from the working directory without
+  overriding variables already set. Output goes through injected `show`/`ask`, so commands are tested.
+- Test helpers used by more than one test module live in `tests/support/` (no test imports another).
+
 ## Questions for review
 
 1. **Copy or depend?** Port the Jev client into `agentswarm/jev/` as classes (recommended), rather than

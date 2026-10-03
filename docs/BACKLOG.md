@@ -14,3 +14,5 @@ and when it is due. When an item is done, delete it here in the same commit.
 | **Per-item checks and the LLM explainer** (§11.6, sources 3 and 4) | Not needed for the first judge. | Phase 3 or 4 | Phase 2 design |
 | **Model-tier cascade** (§13.3) | One model per team is enough until routing is calibrated. | Phase 4 | Phase 1 plan |
 | **Async Jev calls** | Gates are synchronous today. | Phase 6 (scheduler) | Phase 2 design, Q5 |
+| **Faster test suite** | The suite-validation and mutation tests start ~60 pytest processes; the full run takes ~70 s. Mark them `slow` and run them in CI or on demand if this starts to hurt. | When the full run passes ~2 min | Phase 2 step 7 |
+| **`in_scope` truth for model-executor runs** | Only scripted runs have a known `in_scope`; model runs get it from spot checks only. A scope rule (allowed paths per task) could add a weak automatic source. | Phase 3 or 4 | Phase 2 step 6 |

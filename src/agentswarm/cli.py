@@ -3,10 +3,13 @@
 import argparse
 import asyncio
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from agentswarm.board.blackboard import BoardViews
+from agentswarm.core.clock import SystemClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import (
     ArtifactCreated,
@@ -19,6 +22,13 @@ from agentswarm.core.domain import (
     Rejected,
     Released,
 )
+from agentswarm.evaluation.faults import Variant
+from agentswarm.evaluation.run import EvaluationRun, TaskResult
+from agentswarm.evaluation.suite import EvalTask, TaskSuite
+from agentswarm.judging.calibration import CalibrationReport
+from agentswarm.judging.decisions import SqliteDecisions
+from agentswarm.judging.judges import JudgeCatalog
+from agentswarm.judging.labelling import SpotCheck
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.catalog import TeamCatalog
 
@@ -61,17 +71,49 @@ class Report:
 
 
 class Cli:
-    """`agentswarm run CONFIG --root DIR [--task TEXT]...` and `agentswarm status CONFIG --root DIR`."""
+    """The `agentswarm` command line.
 
-    def __init__(self, catalog: TeamCatalog | None = None) -> None:
+        run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
+        status CONFIG --root DIR                   every artifact's history
+        evaluate SUITE --workdir DIR               run a task suite; record outcomes; print calibration
+        calibrate DECISIONS                        the calibration report for a decision log
+        label DECISIONS [--limit N]                spot-check automatic outcomes by hand
+
+    A `.env` file in the working directory is loaded first (e.g. TYPESAFE_API_KEY for Jev).
+    """
+
+    def __init__(
+        self,
+        catalog: TeamCatalog | None = None,
+        show: Callable[[str], None] = print,
+        ask: Callable[[str], str] = input,
+        evaluation_services: Callable[[EvalTask], ProjectServices] | None = None,  # None: real models, Jev
+    ) -> None:
         self._catalog = catalog or TeamCatalog.standard()
+        self._show = show
+        self._ask = ask
+        self._evaluation_services = evaluation_services
 
     @classmethod
     def main(cls, argv: Sequence[str] | None = None) -> int:
+        load_dotenv(Path.cwd() / ".env")  # never overrides variables already set
         return cls().dispatch(sys.argv[1:] if argv is None else argv)
 
     def dispatch(self, argv: Sequence[str]) -> int:
         args = self.parser().parse_args(argv)
+        match args.command:
+            case "run" | "status":
+                return self.run(args)
+            case "evaluate":
+                return asyncio.run(self.evaluate(args))
+            case "calibrate":
+                return self.calibrate(args)
+            case "label":
+                return self.label(args)
+            case _:
+                raise ValueError(f"unknown command {args.command!r}")
+
+    def run(self, args: argparse.Namespace) -> int:
         config = ProjectConfig.load(Path(args.config))
         project = Project.open(config, Path(args.root).expanduser(), ProjectServices(teams=self._catalog))
         try:
@@ -79,10 +121,42 @@ class Cli:
                 for task in args.task:
                     project.create_artifact(task)
                 asyncio.run(project.run_until_idle(args.max_rounds))
-            print(Report.render(project.views()))
+            self._show(Report.render(project.views()))
         finally:
             project.close()
         return 0
+
+    async def evaluate(self, args: argparse.Namespace) -> int:
+        suite = TaskSuite.load(Path(args.suite))
+        workdir = Path(args.workdir).expanduser()
+        workdir.mkdir(parents=True, exist_ok=True)
+        variants = tuple(Variant(v) for v in args.variant) if args.variant else tuple(Variant)
+        with SqliteDecisions(workdir / "decisions.sqlite") as decisions:
+            run = EvaluationRun(suite, workdir, decisions, self._evaluation_services, variants)
+            for task in suite.tasks:
+                for variant in variants:
+                    result = await run.run_task(task, variant)
+                    self._show(EvaluationReport.line(result))
+            self._show("\n" + CalibrationReport.of(decisions).render())
+        return 0
+
+    def calibrate(self, args: argparse.Namespace) -> int:
+        with SqliteDecisions(self._existing(args.decisions)) as decisions:
+            self._show(CalibrationReport.of(decisions).render())
+        return 0
+
+    def label(self, args: argparse.Namespace) -> int:
+        with SqliteDecisions(self._existing(args.decisions)) as decisions:
+            check = SpotCheck(decisions, JudgeCatalog.standard(), self._ask, self._show, SystemClock())
+            self._show(check.run(args.limit).render())
+        return 0
+
+    @staticmethod
+    def _existing(path: str) -> Path:
+        decisions = Path(path).expanduser()
+        if not decisions.is_file():
+            raise SystemExit(f"no decision log at {decisions}")
+        return decisions
 
     @staticmethod
     def parser() -> argparse.ArgumentParser:
@@ -97,4 +171,35 @@ class Cli:
             )
         run.add_argument("--task", action="append", default=[], help="a task to add; may be repeated")
         run.add_argument("--max-rounds", type=int, default=50)
+
+        evaluate = commands.add_parser("evaluate", help="run a task suite and print the calibration report")
+        evaluate.add_argument("suite", help="the suite's YAML file")
+        evaluate.add_argument(
+            "--workdir", required=True, help="a new directory for this run's projects and log"
+        )
+        evaluate.add_argument(
+            "--variant",
+            action="append",
+            choices=[v.value for v in Variant],
+            help="run only these variants; may be repeated (default: all)",
+        )
+        calibrate = commands.add_parser("calibrate", help="the calibration report for a decision log")
+        calibrate.add_argument("decisions", help="a decisions.sqlite file")
+        label = commands.add_parser("label", help="spot-check automatic outcomes by hand")
+        label.add_argument("decisions", help="a decisions.sqlite file")
+        label.add_argument("--limit", type=int, default=20, help="how many decisions to show")
         return parser
+
+
+class EvaluationReport:
+    """One line per evaluation run."""
+
+    @staticmethod
+    def line(result: TaskResult) -> str:
+        hidden = ",".join("pass" if p else "fail" for p in result.hidden_tests_passed) or "-"
+        mutation = ",".join("-" if s is None else f"{s:.2f}" for s in result.mutation_scores) or "-"
+        note = f"  ({result.note[:80]})" if result.note else ""
+        return (
+            f"{result.task:20} {result.variant:14} {result.level:13} decisions={len(result.decisions)} "
+            f"hidden={hidden} mutation={mutation}{note}"
+        )

@@ -12,3 +12,15 @@ uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run pyright
 ```
+
+## Measuring the judge (Phase 2)
+
+```bash
+# Run the greeter task suite: every task through the model executor and three scripted variants,
+# judged by Jev in shadow mode, with automatic ground truth. Needs TYPESAFE_API_KEY (e.g. in .env),
+# Docker with the sandbox image, and the model in examples/greeter/project.yaml.
+uv run agentswarm evaluate examples/greeter/evaluation/suite.yaml --workdir ~/agentswarm-runs/eval-1
+
+uv run agentswarm calibrate ~/agentswarm-runs/eval-1/decisions.sqlite   # the report again
+uv run agentswarm label ~/agentswarm-runs/eval-1/decisions.sqlite        # spot-check ~20 by hand
+```
