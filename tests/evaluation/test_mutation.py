@@ -54,6 +54,15 @@ class TestMutantGenerator:
         assert {m.description for m in mutants} == {"Eq -> NotEq", "1 -> 2", "return value -> None"}
         assert all("x + 1" in m.source for m in mutants)  # line 9 untouched
 
+    def test_negates_if_conditions(self) -> None:
+        source = 'def f(name):\n    if not name:\n        raise ValueError("empty")\n    return name\n'
+        (negated,) = [
+            m
+            for m in MutantGenerator().mutants("m.py", source, {2})
+            if m.description == "if condition negated"
+        ]
+        assert "if name:" in negated.source
+
     def test_unparsable_source_has_no_mutants(self) -> None:
         assert MutantGenerator().mutants("m.py", "def (:", {1}) == []
 

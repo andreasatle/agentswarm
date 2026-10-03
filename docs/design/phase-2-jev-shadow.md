@@ -201,6 +201,19 @@ concrete to fix. `Verdict` moved to `policy.py`. Threshold YAML keys stay `pass`
   overriding variables already set. Output goes through injected `show`/`ask`, so commands are tested.
 - Test helpers used by more than one test module live in `tests/support/` (no test imports another).
 
+**First real run (scripted variants, 42 decisions) and what it changed.**
+- Jev separated the variants clearly: mean p(tests_relevant) 0.03 for trivial tests vs 0.91 otherwise;
+  mean p(in_scope) 0.13 for out-of-scope vs 0.75 for reference.
+- It also exposed a flaw in our ground truth: Jev rated the `trivial-tests` variant incomplete (mean
+  p(complete) 0.22), correctly, since every task says "Add tests". Hidden tests only check the code
+  part of a task. Fix: `trivial-tests` is now incomplete by construction (a planted truth, which
+  outranks hidden tests). For model-executor runs, the "add tests" part is covered by `tests_relevant`,
+  not by `complete`; that limitation stands.
+- Mutation testing had no operator for `if` conditions, so `empty-name-error`'s reference scored 0.00.
+  Added: negate an `if` condition (or remove its `not`).
+- Jev also rated trivial tests lower on `in_scope` (0.25) than the reference (0.75): the questions are
+  not fully independent. Sharpening the wording is Phase 4 work (`docs/BACKLOG.md`).
+
 ## Questions for review
 
 1. **Copy or depend?** Port the Jev client into `agentswarm/jev/` as classes (recommended), rather than

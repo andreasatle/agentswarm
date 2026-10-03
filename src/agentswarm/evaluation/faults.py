@@ -17,7 +17,9 @@ class Variant(StrEnum):
     EXECUTOR = "executor"  # the project's configured executor; truth only from hidden tests and mutation
     REFERENCE = "reference"  # reference solution, with the hidden tests as its unit tests
     OUT_OF_SCOPE = "out-of-scope"  # the same, plus an unrelated new file and an unrelated function
-    TRIVIAL_TESTS = "trivial-tests"  # reference solution, with a test that only asserts True
+    TRIVIAL_TESTS = (
+        "trivial-tests"  # reference solution, with a test that only asserts True (tasks ask for tests)
+    )
 
     @property
     def scripted(self) -> bool:
@@ -33,7 +35,9 @@ class Variant(StrEnum):
             case Variant.OUT_OF_SCOPE:
                 return {"in_scope": False, "tests_relevant": True}
             case Variant.TRIVIAL_TESTS:
-                return {"in_scope": True, "tests_relevant": False}
+                # Every task asks for tests; a test that only asserts True leaves that part undone, which the
+                # hidden tests (they check the code) cannot see.
+                return {"in_scope": True, "tests_relevant": False, "complete": False}
 
 
 class ScriptedExecutor(Executor):

@@ -142,6 +142,16 @@ class Mutator(ast.NodeTransformer):
             return ast.copy_location(ast.Constant(node.value + 1), node)
         return node
 
+    def visit_If(self, node: ast.If) -> ast.AST:
+        self.generic_visit(node)
+        if self._take(node, "if condition negated"):
+            node.test = (
+                node.test.operand
+                if isinstance(node.test, ast.UnaryOp) and isinstance(node.test.op, ast.Not)
+                else ast.UnaryOp(ast.Not(), node.test)
+            )
+        return node
+
     def visit_Return(self, node: ast.Return) -> ast.AST:
         self.generic_visit(node)
         if node.value is not None and self._take(node, "return value -> None"):

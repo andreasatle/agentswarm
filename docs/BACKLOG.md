@@ -16,3 +16,4 @@ and when it is due. When an item is done, delete it here in the same commit.
 | **Async Jev calls** | Gates are synchronous today. | Phase 6 (scheduler) | Phase 2 design, Q5 |
 | **Faster test suite** | The suite-validation and mutation tests start ~60 pytest processes; the full run takes ~70 s. Mark them `slow` and run them in CI or on demand if this starts to hurt. | When the full run passes ~2 min | Phase 2 step 7 |
 | **`in_scope` truth for model-executor runs** | Only scripted runs have a known `in_scope`; model runs get it from spot checks only. A scope rule (allowed paths per task) could add a weak automatic source. | Phase 3 or 4 | Phase 2 step 6 |
+| **Sharpen the judge's question wording** | First real run: Jev lowers p(in_scope) for trivial tests, mixing two questions. §12.2 asks for one narrow property per question. Tune with calibration data. | Phase 4 | Phase 2, first real run |

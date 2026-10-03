@@ -135,6 +135,10 @@ class TestScriptedVariants:
         assert truths[Variant.REFERENCE]["in_scope"] == (True, OutcomeSource.PLANTED)
         assert truths[Variant.OUT_OF_SCOPE]["in_scope"] == (False, OutcomeSource.PLANTED)
         assert truths[Variant.TRIVIAL_TESTS]["tests_relevant"] == (False, OutcomeSource.PLANTED)
+        assert truths[Variant.TRIVIAL_TESTS]["complete"] == (
+            False,
+            OutcomeSource.PLANTED,
+        )  # tests were asked for
         # Mutation testing reaches the same verdicts on its own:
         by_variant = {r.variant: r for r in results}
         assert (by_variant[Variant.REFERENCE].mutation_scores[0] or 0) >= MutationTesting.MIN_SCORE
