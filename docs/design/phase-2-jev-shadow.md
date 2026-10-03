@@ -43,7 +43,7 @@ Gate.evaluate
 | `Outcome` | `judging/decisions.py` | The ground truth for **one question** of one decision: the true answer, and its source (`hidden_tests`, `mutation`, `planted`, `human`). |
 | `EvalTask`, `TaskSuite` | `evaluation/suite.py` | Small tasks on a seed project, each with **hidden acceptance tests** the executor never sees, and optionally a **planted fault**. |
 | `MutationCheck` | `evaluation/mutation.py` | Breaks the changed code in known ways and reruns the executor's tests in the sandbox. Tests that still pass don't exercise the behaviour. |
-| `FaultyExecutor` | `evaluation/faults.py` | Wraps an executor: does the task, then makes a known out-of-scope edit (and variants: drops part of the task, writes a trivially passing test). The fault is the label. |
+| `Variant`, `ScriptedExecutor` | `evaluation/faults.py` | Scripted runs that write a task's reference solution, cleanly or with a planted fault (out-of-scope edits, trivial tests). The variant is the label. (Planned as `FaultyExecutor` wrapping the model executor; see step 6.) |
 | `EvaluationRun` | `evaluation/run.py` | Runs every task in the suite through a fresh project (executor → gate with Jev in shadow), then computes and records the outcomes. |
 | `CalibrationReport` | `judging/calibration.py` | Per decision point and question: reliability bins, ECE, sample size, a warning when n is small, and **which outcome source** the numbers rest on. Port of your `09_calibration.py`, text output. |
 | CLI | `cli.py` | `agentswarm evaluate` (run the suite), `agentswarm calibrate`, `agentswarm label` (spot checks only). |
@@ -62,7 +62,7 @@ no human:
 | --- | --- | --- |
 | `complete` | **hidden acceptance tests** | Each suite task carries tests the executor never sees. Run them in the sandbox on the gated commit: pass ⇒ complete. |
 | `tests_relevant` | **mutation testing** | Apply known mutations to the code the change added; rerun the change's own tests. Most mutants caught ⇒ relevant. |
-| `in_scope` | **planted faults** | `FaultyExecutor` adds a known unrelated edit to some runs; clean runs are in scope. Known by construction. |
+| `in_scope` | **planted faults** | Scripted runs write the reference solution, with or without an unrelated edit. Known by construction. |
 | any | **human** (`agentswarm label`) | Only a spot check of about 20 decisions, to confirm the automatic sources agree with human judgement. |
 
 Two consequences:
@@ -161,6 +161,30 @@ concrete to fix. `Verdict` moved to `policy.py`. Threshold YAML keys stay `pass`
   would silently corrupt the ground truth.
 - Five tasks are deliberately multi-part or have edge cases (`farewell-and-shout`, `robust-hello`,
   `languages`, `hello-many`, `empty-name-error`) so that `complete` is not trivially true.
+
+**Step 6 (mutation testing and planted faults).**
+- **Changed from the design: faults are planted on reference solutions, not on the model's output.**
+  "Clean model runs are in scope" would be an assumption, not ground truth: the model can wander on its
+  own. So each task also runs through `ScriptedExecutor` in three variants: `reference` (in scope,
+  relevant tests), `out-of-scope` (adds `scratch/notes.py` and an unrelated function), and
+  `trivial-tests` (a test that only asserts `True`). Their truths are known by construction. The model
+  executor's run (`executor` variant) gets `complete` from hidden tests and `tests_relevant` from
+  mutation testing; its `in_scope` stays unknown. 14 tasks × 4 variants = 56 decisions, with true and
+  false examples for every question.
+- In scripted runs the hidden tests double as the change's unit tests (they test the behaviour by
+  definition), so they do appear in those repositories. Model-executor runs never see them.
+- **Bug found and fixed: decisions now record their `base`** (the merge base with the target level at
+  judging time). Outcomes are computed after the run, when the gate may already have merged the change
+  into the level; diffing against the level then shows nothing. Mutation testing now diffs against the
+  recorded base.
+- Mutation testing (`evaluation/mutation.py`) is Python-only and small on purpose: comparison and
+  arithmetic swaps, flipped booleans, changed strings and integers, `return x` → `return None`, on
+  changed lines of changed non-test files, at most 12 mutants per file. Only the change's own test files
+  run; they must pass unmutated first, or there is no answer. `tests_relevant` is true when the change
+  added tests and they kill at least half the mutants. A change with no tests is not relevant.
+- Known disagreement: in the `out-of-scope` variant, mutation testing also mutates the planted unrelated
+  function, which no test covers, so its score can drop. The planted truth wins (planted > mutation).
+- The suite's `hidden_tests_command` became `test_command`, since mutation testing uses it too.
 
 ## Questions for review
 

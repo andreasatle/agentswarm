@@ -2,7 +2,7 @@
 
     project: ../project.yaml                 # the project configuration each task runs in
     judge: RawToExperimental                 # asked at the gate out of the lowest level, in shadow mode
-    hidden_tests_command: [python, -m, pytest, -q, -p, no:cacheprovider]
+    test_command: [python, -m, pytest, -q, -p, no:cacheprovider]
     tasks:
       - id: farewell
         task: Add a function farewell(name) ...
@@ -32,13 +32,17 @@ class EvalTask(Frozen):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
     task: str  # precise enough that the hidden tests follow from it
     hidden_tests: tuple[Path, ...] = Field(min_length=1)
+    reference: dict[str, Path] = Field(default_factory=dict[str, Path])  # project path -> reference source
+
+    def files(self) -> tuple[Path, ...]:
+        return (*self.hidden_tests, *self.reference.values())
 
 
 class TaskSuite(Frozen):
     project: Path
     judge: str = "RawToExperimental"
-    hidden_tests_command: tuple[str, ...] = ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider")
-    hidden_tests_timeout_s: float = 120.0
+    test_command: tuple[str, ...] = ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider")
+    test_timeout_s: float = 120.0
     tasks: tuple[EvalTask, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -58,14 +62,19 @@ class TaskSuite(Frozen):
             update={
                 "project": (base / suite.project).resolve(),
                 "tasks": tuple(
-                    t.model_copy(update={"hidden_tests": tuple((base / h).resolve() for h in t.hidden_tests)})
+                    t.model_copy(
+                        update={
+                            "hidden_tests": tuple((base / h).resolve() for h in t.hidden_tests),
+                            "reference": {target: (base / r).resolve() for target, r in t.reference.items()},
+                        }
+                    )
                     for t in suite.tasks
                 ),
             }
         )
         missing = [
             str(p)
-            for p in (resolved.project, *(h for t in resolved.tasks for h in t.hidden_tests))
+            for p in (resolved.project, *(f for t in resolved.tasks for f in t.files()))
             if not p.is_file()
         ]
         if missing:

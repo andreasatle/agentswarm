@@ -82,9 +82,13 @@ class Worktree:
         out = self._git.run(self.path, "ls-files", "--cached", "--others", "--exclude-standard")
         return sorted({line for line in out.splitlines() if (self.path / line).is_file()})
 
-    def diff_against(self, ref: str) -> str:
+    def diff_against(self, ref: str, context_lines: int = 3) -> str:
         """What HEAD changes relative to where it forked from `ref` (git diff ref...HEAD)."""
-        return self._git.run(self.path, "diff", f"{ref}...HEAD")
+        return self._git.run(self.path, "diff", f"--unified={context_lines}", f"{ref}...HEAD")
+
+    def merge_base(self, ref: str) -> str:
+        """The commit where HEAD forked from `ref`: what `diff_against(ref)` measures against."""
+        return self._git.run(self.path, "merge-base", ref, "HEAD")
 
     def has_changes(self) -> bool:
         return self._git.run(self.path, "status", "--porcelain") != ""

@@ -55,7 +55,7 @@ class GateJudgement:
         self.mode = mode
         self._clock = clock
 
-    def judge(self, point: str, ctx: ArtifactContext, commit: str, diff: str) -> Decision:
+    def judge(self, point: str, ctx: ArtifactContext, commit: str, base: str, diff: str) -> Decision:
         """Ask, rule and record. Raises DeciderError if the decider gives no answers."""
         state = JudgeState.of(ctx, diff)
         answered = self._decider.decide(state, self._judge.spec)
@@ -64,6 +64,7 @@ class GateJudgement:
                 point=point,
                 artifact=ctx.artifact.id,
                 commit=commit,
+                base=base,
                 mode=self.mode,
                 judge=self._judge.name,
                 state=state,
@@ -136,7 +137,11 @@ class Gate:
             return self._unless_human(GateOutcome(verdict=Verdict.PROMOTE, decision=None))
         try:
             decision = self._judgement.judge(
-                self.name, ctx, worktree.head(), worktree.diff_against(self.to_level)
+                self.name,
+                ctx,
+                worktree.head(),
+                worktree.merge_base(self.to_level),
+                worktree.diff_against(self.to_level),
             )
         except DeciderError as error:
             if self._judgement.mode is JevMode.SHADOW:  # shadow mode never blocks: carry on unjudged

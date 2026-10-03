@@ -8,10 +8,12 @@ import pytest
 import yaml
 
 from agentswarm.core.config import JevMode
+from agentswarm.evaluation.faults import Variant
+from agentswarm.evaluation.mutation import MutationTesting
 from agentswarm.evaluation.run import EvaluationRun
 from agentswarm.evaluation.suite import EvalTask, HiddenTests, TaskSuite
 from agentswarm.judging.deciders import FakeDecider
-from agentswarm.judging.decisions import InMemoryDecisions, OutcomeSource
+from agentswarm.judging.decisions import InMemoryDecisions, Outcomes, OutcomeSource
 from agentswarm.llm.workers import FakeWorker, FakeWorkers, Toolbox
 from agentswarm.project import ProjectServices
 from agentswarm.teams.executor import ExecutorReport, WorktreeToolbox
@@ -21,6 +23,7 @@ from tests.support.samples import Judged
 
 EXAMPLES = RepoPaths.GREETER
 GREETER_SUITE = EXAMPLES / "evaluation" / "suite.yaml"
+EXECUTOR_ONLY = (Variant.EXECUTOR,)
 PYTEST = (sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider")
 
 
@@ -109,7 +112,7 @@ class TinySuite:
         farewell = GreeterSuite.task("farewell")
         suite = {
             "project": "project.yaml",
-            "hidden_tests_command": list(PYTEST),
+            "test_command": list(PYTEST),
             "tasks": [
                 {"id": "done", "task": farewell.task, "hidden_tests": [str(farewell.hidden_tests[0])]},
                 {"id": "half-done", "task": farewell.task, "hidden_tests": [str(farewell.hidden_tests[0])]},
@@ -141,21 +144,35 @@ class TestEvaluationRun:
     async def test_hidden_tests_become_outcomes_for_complete(self, tmp_path: Path) -> None:
         suite = TinySuite.write(tmp_path)
         decisions = InMemoryDecisions()
-        done, half = await EvaluationRun(suite, tmp_path / "run", decisions, TinySuite.services).run()
+        done, half = await EvaluationRun(
+            suite, tmp_path / "run", decisions, TinySuite.services, EXECUTOR_ONLY
+        ).run()
 
         assert (done.task, done.level, done.hidden_tests_passed) == ("done", "experimental", (True,))
         assert (half.task, half.level, half.hidden_tests_passed) == ("half-done", "experimental", (False,))
         first, second = decisions.all()
         assert first.mode is JevMode.SHADOW
-        (truth,) = decisions.outcomes(first.id)
-        assert (truth.field, truth.truth, truth.source) == ("complete", True, OutcomeSource.HIDDEN_TESTS)
+        complete, relevant = decisions.outcomes(first.id)
+        assert (complete.field, complete.truth, complete.source) == (
+            "complete",
+            True,
+            OutcomeSource.HIDDEN_TESTS,
+        )
+        # The scripted executor in this test adds no tests, so mutation testing finds them not relevant.
+        assert (relevant.field, relevant.truth, relevant.source) == (
+            "tests_relevant",
+            False,
+            OutcomeSource.MUTATION,
+        )
         assert decisions.outcomes(second.id)[0].truth is False
 
     async def test_hidden_tests_never_reach_the_repository(self, tmp_path: Path) -> None:
         suite = TinySuite.write(tmp_path)
-        await EvaluationRun(suite, tmp_path / "run", InMemoryDecisions(), TinySuite.services).run()
+        await EvaluationRun(
+            suite, tmp_path / "run", InMemoryDecisions(), TinySuite.services, EXECUTOR_ONLY
+        ).run()
         for task in ("done", "half-done"):
-            repo = tmp_path / "run" / task / "repo"
+            repo = tmp_path / "run" / task / "executor" / "repo"
             tracked = subprocess.run(
                 [
                     "git",
@@ -175,6 +192,70 @@ class TestEvaluationRun:
 
     async def test_a_used_workdir_is_refused(self, tmp_path: Path) -> None:
         suite = TinySuite.write(tmp_path)
-        (tmp_path / "run" / "done").mkdir(parents=True)
+        (tmp_path / "run" / "done" / "executor").mkdir(parents=True)
         with pytest.raises(FileExistsError, match="new workdir"):
-            await EvaluationRun(suite, tmp_path / "run", InMemoryDecisions(), TinySuite.services).run()
+            await EvaluationRun(
+                suite, tmp_path / "run", InMemoryDecisions(), TinySuite.services, EXECUTOR_ONLY
+            ).run()
+
+
+class FarewellSuite:
+    """The greeter suite's farewell task alone, run on the host, with its reference solution."""
+
+    @staticmethod
+    def write(tmp_path: Path) -> TaskSuite:
+        TinySuite.write(tmp_path)  # for project.yaml
+        farewell = GreeterSuite.task("farewell")
+        suite = {
+            "project": "project.yaml",
+            "test_command": list(PYTEST),
+            "tasks": [
+                {
+                    "id": "farewell",
+                    "task": farewell.task,
+                    "hidden_tests": [str(p) for p in farewell.hidden_tests],
+                    "reference": {k: str(v) for k, v in farewell.reference.items()},
+                }
+            ],
+        }
+        (tmp_path / "suite.yaml").write_text(yaml.safe_dump(suite))
+        return TaskSuite.load(tmp_path / "suite.yaml")
+
+    @staticmethod
+    def services(task: EvalTask) -> ProjectServices:
+        return ProjectServices(decider=FakeDecider([Judged.passing()]))
+
+
+class TestScriptedVariants:
+    async def test_known_truths_and_mutation_agree_with_the_construction(self, tmp_path: Path) -> None:
+        suite = FarewellSuite.write(tmp_path)
+        decisions = InMemoryDecisions()
+        variants = (Variant.REFERENCE, Variant.OUT_OF_SCOPE, Variant.TRIVIAL_TESTS)
+        results = await EvaluationRun(
+            suite, tmp_path / "run", decisions, FarewellSuite.services, variants
+        ).run()
+
+        truths: dict[Variant, dict[str, tuple[bool, OutcomeSource]]] = {}
+        for result in results:
+            (decision,) = result.decisions
+            outcomes = decisions.outcomes(decision)
+            truths[result.variant] = {
+                field: (best.truth, best.source)
+                for field in ("complete", "in_scope", "tests_relevant")
+                if (best := Outcomes.strongest(outcomes, field)) is not None
+            }
+            assert result.hidden_tests_passed == (True,)  # every variant writes the reference solution
+
+        assert truths[Variant.REFERENCE]["in_scope"] == (True, OutcomeSource.PLANTED)
+        assert truths[Variant.OUT_OF_SCOPE]["in_scope"] == (False, OutcomeSource.PLANTED)
+        assert truths[Variant.TRIVIAL_TESTS]["tests_relevant"] == (False, OutcomeSource.PLANTED)
+        # Mutation testing reaches the same verdicts on its own:
+        by_variant = {r.variant: r for r in results}
+        assert (by_variant[Variant.REFERENCE].mutation_scores[0] or 0) >= MutationTesting.MIN_SCORE
+        assert by_variant[Variant.TRIVIAL_TESTS].mutation_scores == (0.0,)
+
+    def test_scripted_variants_need_reference_solutions(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="need reference solutions"):
+            EvaluationRun(
+                TinySuite.write(tmp_path), tmp_path / "run", InMemoryDecisions(), TinySuite.services
+            )

@@ -30,6 +30,7 @@ class DecisionDraft(Frozen):
     point: str  # the decision point, e.g. "gate:raw->experimental"
     artifact: ArtifactId
     commit: str  # the commit that was judged
+    base: str  # the commit it was compared with: where it forked from the target level, at judging time
     mode: JevMode  # shadow: logged only; active: the gate acted on the ruling
     judge: str  # the judge spec's name, e.g. "RawToExperimental"
     state: JudgeState  # exactly what the decider was shown

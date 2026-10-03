@@ -94,6 +94,7 @@ class TestGateJudgingActive:
         (decision,) = g.h.decisions.all()
         assert outcome.decision == decision.id
         assert decision.commit == g.commit
+        assert decision.base == g.h.repository.tip("experimental")  # where the change forked
         assert decision.mode is JevMode.ACTIVE
         assert decision.point == "gate:raw->experimental"
         assert decision.answers["complete"] == {"noul": 0.95}

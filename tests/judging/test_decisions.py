@@ -32,6 +32,7 @@ class Drafts:
             point="gate:raw->experimental",
             artifact=Samples.A,
             commit="c0ffee",
+            base="b45e",
             mode=JevMode.SHADOW,
             judge=cls.JUDGE.name,
             state=JudgeState(north_star="n", task="t", must_fix=(), diff=diff),
