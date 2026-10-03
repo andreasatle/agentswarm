@@ -3,6 +3,7 @@ from pathlib import Path
 from agentswarm.config import CheckConfig
 from agentswarm.domain import FindingKind, Severity
 from agentswarm.gates import CommandCheck, FakeDecider, Gate, Verdict
+from agentswarm.sandbox import LocalSandbox
 from tests.harness import Checks, Harness
 from tests.samples import Samples
 
@@ -19,13 +20,13 @@ class TestCommandCheck:
         assert not Checks.no_file_named("marker").run(tmp_path).passed
 
     def test_timeout_fails(self, tmp_path: Path) -> None:
-        check = CommandCheck("slow", CheckConfig(command=("sleep", "5"), timeout_s=0.1))
+        check = CommandCheck("slow", CheckConfig(command=("sleep", "5"), timeout_s=0.1), LocalSandbox())
         result = check.run(tmp_path)
         assert not result.passed
         assert "timed out" in result.output
 
     def test_missing_program_fails(self, tmp_path: Path) -> None:
-        check = CommandCheck("missing", CheckConfig(command=("no-such-program-xyz",)))
+        check = CommandCheck("missing", CheckConfig(command=("no-such-program-xyz",)), LocalSandbox())
         assert not check.run(tmp_path).passed
 
 

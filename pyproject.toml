@@ -8,8 +8,22 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "langchain>=1.4.3",
+    "langchain-core>=1.6.6",
+    "langgraph>=1.2.12",
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",
+]
+
+[project.optional-dependencies]
+ollama = [
+    "langchain-ollama>=1.1.0",
+]
+openai = [
+    "langchain-openai>=1.6.7",
+]
+anthropic = [
+    "langchain-anthropic>=1.7.5",
 ]
 
 [build-system]
@@ -53,3 +67,7 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "docker: needs a running Docker daemon (skipped otherwise)",
+    "live: calls a real model (skipped unless AGENTSWARM_LIVE_MODEL is set)",
+]

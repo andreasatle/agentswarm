@@ -25,6 +25,7 @@ class Projects:
         "domain": "software",
         "north_star": "A small demo project",
         "levels": ["raw", "experimental"],
+        "sandbox": {"kind": "local"},
         "checks": {
             # Every markdown file in the tree must be non-empty.
             "non_empty": {

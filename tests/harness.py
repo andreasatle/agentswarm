@@ -15,6 +15,7 @@ from agentswarm.eventlog import SqliteEventLog
 from agentswarm.gates import CommandCheck, FakeDecider, Gate, HardCheck, Verdict
 from agentswarm.git import Git, Repository
 from agentswarm.promotion import Promoter
+from agentswarm.sandbox import LocalSandbox
 from agentswarm.teams import Team, TeamRunner
 from tests.samples import Samples
 
@@ -24,7 +25,8 @@ class Checks:
 
     @staticmethod
     def python(name: str, code: str, kind: FindingKind = FindingKind.TEST_FAILURE) -> CommandCheck:
-        return CommandCheck(name, CheckConfig(command=(sys.executable, "-c", code), timeout_s=30, kind=kind))
+        config = CheckConfig(command=(sys.executable, "-c", code), timeout_s=30, kind=kind)
+        return CommandCheck(name, config, LocalSandbox())
 
     @classmethod
     def no_file_named(cls, filename: str) -> CommandCheck:

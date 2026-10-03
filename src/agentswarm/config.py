@@ -63,8 +63,24 @@ class JevMode(StrEnum):
     ACTIVE = "active"
 
 
+class SandboxKind(StrEnum):
+    DOCKER = "docker"  # the default: anything a model wrote runs isolated
+    LOCAL = "local"  # on the host; only for tests and trusted checks
+
+
+class SandboxConfig(Strict):
+    """Where hard checks and the executor's test runs execute (proposal §13.4)."""
+
+    kind: SandboxKind = SandboxKind.DOCKER
+    image: str = "agentswarm/sandbox-python:3.13"  # built from docker/sandbox-python.Dockerfile
+    network: bool = False
+    cpus: float = Field(default=2.0, gt=0)
+    memory: str = "2g"
+    pids: int = Field(default=256, gt=0)
+
+
 class CheckConfig(Strict):
-    """A deterministic hard check: a command run in the artifact's worktree. Exit code 0 passes."""
+    """A deterministic hard check: a command run in the sandbox on the artifact's files. Exit 0 passes."""
 
     command: tuple[str, ...] = Field(min_length=1)
     timeout_s: float = 600.0
@@ -102,6 +118,7 @@ class ProjectConfig(Strict):
     domain: Domain
     north_star: str
     levels: LevelLadder
+    sandbox: SandboxConfig = SandboxConfig()
     checks: dict[str, CheckConfig] = Field(default_factory=dict[str, CheckConfig])
     teams: tuple[TeamConfig, ...] = ()
     gates: tuple[GateConfig, ...] = ()

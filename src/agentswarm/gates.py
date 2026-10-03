@@ -4,7 +4,6 @@ Phase 0 has no policy layer: the decider returns a verdict directly. Jev, thresh
 policy replace FakeDecider in phase 2 behind the same Decider interface.
 """
 
-import subprocess
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
@@ -23,6 +22,7 @@ from agentswarm.domain import (
     TeamName,
 )
 from agentswarm.git import Worktree
+from agentswarm.sandbox import Sandbox
 
 
 class Frozen(BaseModel):
@@ -48,13 +48,14 @@ class HardCheck(Protocol):
 
 
 class CommandCheck:
-    """A hard check that runs a command; exit code 0 passes."""
+    """A hard check that runs a command in a sandbox; exit code 0 passes."""
 
-    OUTPUT_LIMIT = 4000  # characters of output kept for the finding
+    OUTPUT_LIMIT = 4000  # characters of output kept, from the end, for the finding
 
-    def __init__(self, name: str, config: CheckConfig) -> None:
+    def __init__(self, name: str, config: CheckConfig, sandbox: Sandbox) -> None:
         self._name = name
         self._config = config
+        self._sandbox = sandbox
 
     @property
     def name(self) -> str:
@@ -65,23 +66,8 @@ class CommandCheck:
         return self._config.kind
 
     def run(self, cwd: Path) -> CheckResult:
-        try:
-            result = subprocess.run(
-                self._config.command,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=self._config.timeout_s,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return CheckResult(
-                name=self._name, passed=False, output=f"timed out after {self._config.timeout_s}s"
-            )
-        except OSError as error:
-            return CheckResult(name=self._name, passed=False, output=f"could not run: {error}")
-        output = (result.stdout + result.stderr)[-self.OUTPUT_LIMIT :]
-        return CheckResult(name=self._name, passed=result.returncode == 0, output=output)
+        result = self._sandbox.run(self._config.command, cwd, self._config.timeout_s)
+        return CheckResult(name=self._name, passed=result.passed, output=result.output[-self.OUTPUT_LIMIT :])
 
 
 class Verdict(StrEnum):
@@ -153,11 +139,13 @@ class Gate:
         self._requires_human = requires_human
 
     @classmethod
-    def from_config(cls, gate: GateConfig, checks: dict[str, CheckConfig], decider: Decider) -> Self:
+    def from_config(
+        cls, gate: GateConfig, checks: dict[str, CheckConfig], decider: Decider, sandbox: Sandbox
+    ) -> Self:
         return cls(
             gate.from_level,
             gate.to_level,
-            [CommandCheck(name, checks[name]) for name in gate.hard_checks],
+            [CommandCheck(name, checks[name], sandbox) for name in gate.hard_checks],
             decider,
             gate.requires_human,
         )

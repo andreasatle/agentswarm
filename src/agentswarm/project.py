@@ -15,6 +15,7 @@ from agentswarm.eventlog import ConcurrencyConflict, SqliteEventLog
 from agentswarm.gates import Decider, Gate
 from agentswarm.git import Git, Repository
 from agentswarm.promotion import Promoter
+from agentswarm.sandbox import Sandboxes
 from agentswarm.teams import TeamCatalog, TeamRunner
 
 
@@ -55,13 +56,14 @@ class Project:
         claims = ClaimRegistry(board, clock)
         repository = Repository.open_or_create(root / "repo", root / "worktrees", config.levels, Git())
         contexts = ContextBuilder(board, repository, config.north_star)
+        sandbox = Sandboxes.build(config.sandbox)
         runners = [
             TeamRunner(catalog.build(team), board, claims, repository, contexts, clock, lease)
             for team in config.teams
         ]
         promoters = [
             Promoter(
-                Gate.from_config(gate, config.checks, decider),
+                Gate.from_config(gate, config.checks, decider, sandbox),
                 board,
                 claims,
                 repository,
