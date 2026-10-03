@@ -1,7 +1,8 @@
 # Phase 2: Jev in shadow mode
 
 Status: **in progress.** Decided: Q1 (port the client), Q2 (automatic outcomes; manual labels only
-where nothing else works). Step 1 used the recommendations for Q4 and Q5; Q3 is still open. Proposal sections: §11 (gates), §12 (Jev), §15 (decision log).
+where nothing else works), Q3 (relevance filters deferred to Phase 3, recorded in `docs/BACKLOG.md`).
+Step 1 used the recommendations for Q4 and Q5. Proposal sections: §11 (gates), §12 (Jev), §15 (decision log).
 
 **Exit criterion (§19):** 50+ logged gate decisions with outcomes, and a first calibration report.
 
@@ -99,7 +100,7 @@ Two consequences:
 1. **Copy or depend?** Port the Jev client into `agentswarm/jev/` as classes (recommended), rather than
    importing from `~/Projects/Jev`, which is a tutorial, not a package.
 2. ~~Outcomes from human labels~~ **Decided:** automatic outcome sources; human labels only for spot checks.
-3. **Defer relevance filters** to Phase 3?
+3. ~~Defer relevance filters~~ **Decided:** deferred to Phase 3; tracked in [`docs/BACKLOG.md`](../BACKLOG.md).
 4. **Key handling:** `TYPESAFE_API_KEY` and nothing else from the environment; the CLI loads a `.env`
    in the working directory (as in the Jev tutorial). The Jev model version goes in the project config.
 5. **Synchronous Jev calls** for now (gates are synchronous); async when the scheduler arrives (Phase 6).

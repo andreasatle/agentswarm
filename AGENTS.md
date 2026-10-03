@@ -21,6 +21,11 @@ The design is in [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md). Section numbers
 - **Provider agnostic.** Never hard-code a model provider. Models are chosen in the project config as
   `"<provider>:<model>"` and built with `init_chat_model`; provider packages are optional extras.
 
+## Deferred work
+
+Anything deliberately postponed goes in [docs/BACKLOG.md](docs/BACKLOG.md), with why and when it is due.
+Check it at the start of each phase; remove an item in the commit that does it.
+
 ## Commands
 
 ```bash
