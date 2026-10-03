@@ -9,7 +9,7 @@ from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
-from agentswarm.judging.judges import RawToExperimental
+from agentswarm.judging.judges import ChangeReadiness
 from agentswarm.project import Project, ProjectServices
 from tests.support.samples import Samples
 
@@ -41,12 +41,12 @@ class Projects:
 
     @classmethod
     def open(
-        cls, root: Path, judged: Sequence[RawToExperimental] | None = None, persistent_decisions: bool = False
+        cls, root: Path, judged: Sequence[ChangeReadiness] | None = None, persistent_decisions: bool = False
     ) -> Project:
         """Without `judged`, the gate has hard checks only; with it, an active judge answering in turn."""
         config = cls.CONFIG
         if judged is not None:
-            gate = config["gates"][0] | {"judge": "RawToExperimental"}
+            gate = config["gates"][0] | {"judge": "ChangeReadiness"}
             config = config | {"gates": [gate], "jev": {"mode": "active"}}
         return cls.open_config(ProjectConfig.model_validate(config), root, judged, persistent_decisions)
 
@@ -54,7 +54,7 @@ class Projects:
     def open_config(
         config: ProjectConfig,
         root: Path,
-        judged: Sequence[RawToExperimental] | None = None,
+        judged: Sequence[ChangeReadiness] | None = None,
         persistent_decisions: bool = False,
     ) -> Project:
         """By default decisions stay in memory; `persistent_decisions` uses the real decisions.sqlite."""

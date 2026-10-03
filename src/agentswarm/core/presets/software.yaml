@@ -1,0 +1,12 @@
+# Defaults for `domain: software`. A project's own top-level keys replace these key by key
+# (a project that lists `gates` replaces all of them). See `agentswarm config CONFIG` for the result.
+levels: [raw, experimental, candidate, production]
+
+checks:
+  unit_tests: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300}
+
+teams:
+  - {use: executor, watches: raw, model: coder, checks: [unit_tests]}   # the project defines models.coder
+
+gates:
+  - {from: raw, to: experimental, hard_checks: [unit_tests], judge: ChangeReadiness}

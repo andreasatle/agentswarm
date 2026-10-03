@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+import yaml
 from dotenv import load_dotenv
 
 from agentswarm.board.blackboard import BoardViews
@@ -73,6 +74,7 @@ class Report:
 class Cli:
     """The `agentswarm` command line.
 
+        config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR               run a task suite; record outcomes; print calibration
@@ -102,6 +104,8 @@ class Cli:
     def dispatch(self, argv: Sequence[str]) -> int:
         args = self.parser().parse_args(argv)
         match args.command:
+            case "config":
+                return self.config(args)
             case "run" | "status":
                 return self.run(args)
             case "evaluate":
@@ -112,6 +116,11 @@ class Cli:
                 return self.label(args)
             case _:
                 raise ValueError(f"unknown command {args.command!r}")
+
+    def config(self, args: argparse.Namespace) -> int:
+        config = ProjectConfig.load(Path(args.config))
+        self._show(yaml.safe_dump(config.model_dump(mode="json", by_alias=True), sort_keys=False).rstrip())
+        return 0
 
     def run(self, args: argparse.Namespace) -> int:
         config = ProjectConfig.load(Path(args.config))
@@ -162,6 +171,8 @@ class Cli:
     def parser() -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(prog="agentswarm")
         commands = parser.add_subparsers(dest="command", required=True)
+        config = commands.add_parser("config", help="print the effective configuration (preset applied)")
+        config.add_argument("config", help="the project's YAML configuration")
         run = commands.add_parser("run", help="add tasks (optional) and run until idle")
         status = commands.add_parser("status", help="show every artifact's history")
         for command in (run, status):

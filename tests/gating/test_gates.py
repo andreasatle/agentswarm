@@ -6,7 +6,7 @@ from agentswarm.core.config import CheckConfig, JevMode
 from agentswarm.core.domain import FindingKind, Severity
 from agentswarm.gating.checks import CommandCheck
 from agentswarm.gating.gate import Gate, GateOutcome
-from agentswarm.judging.judges import JudgeState, RawToExperimental
+from agentswarm.judging.judges import ChangeReadiness, JudgeState
 from agentswarm.judging.policy import Verdict
 from agentswarm.workspace.sandbox import LocalSandbox
 from tests.support.harness import Checks, Harness
@@ -124,7 +124,7 @@ class TestGateJudgingActive:
         g = Gated(Harness(tmp_path, answers=[Judged.passing()]))
         g.evaluate()
         ((state, spec),) = g.h.decider.calls
-        assert spec is RawToExperimental
+        assert spec is ChangeReadiness
         assert isinstance(state, JudgeState)
         assert state.task == "Add a farewell function"
         assert "+def farewell(): ..." in state.diff

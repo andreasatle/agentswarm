@@ -37,7 +37,7 @@ class TestTaskSuite:
 
     def test_project_config_puts_the_judge_on_the_first_gate_in_shadow_mode(self) -> None:
         config = GreeterSuite.SUITE.project_config()
-        assert config.gates[0].judge == "RawToExperimental"
+        assert config.gates[0].judge == "ChangeReadiness"
         assert config.jev.mode is JevMode.SHADOW
 
     def test_missing_files_and_duplicate_ids_are_errors(self, tmp_path: Path) -> None:

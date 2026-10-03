@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agentswarm.core.config import Domain, LevelLadder, ProjectConfig
+from agentswarm.core.config import Domain, LevelLadder, Presets, ProjectConfig
 from agentswarm.core.domain import FindingKind, Level
 from tests.support.paths import RepoPaths
 
@@ -81,3 +81,30 @@ class TestProjectConfig:
     def test_rejects_inconsistent_configs(self, overrides: dict[str, Any]) -> None:
         with pytest.raises(ValidationError):
             ProjectConfig.model_validate(Configs.minimal(**overrides))
+
+
+class TestPresets:
+    def test_the_software_preset_fills_what_a_project_leaves_out(self) -> None:
+        config = ProjectConfig.model_validate(
+            {
+                "project": "p",
+                "domain": "software",
+                "north_star": "n",
+                "models": {"coder": {"model": "ollama:m"}},
+            }
+        )
+        assert config.levels.levels == ("raw", "experimental", "candidate", "production")
+        assert [t.use for t in config.teams] == ["executor"]
+        assert config.gates[0].judge == "ChangeReadiness"
+
+    def test_a_project_key_replaces_the_preset_key_whole(self) -> None:
+        config = ProjectConfig.model_validate(Configs.minimal())
+        assert config.levels.levels == ("raw", "experimental")  # not merged with the preset's four
+        assert [g.judge for g in config.gates] == [None]
+
+    def test_a_domain_without_a_preset_gets_nothing(self) -> None:
+        assert Presets.for_domain("document") == {}
+
+    def test_preset_teams_need_the_project_to_define_their_model(self) -> None:
+        with pytest.raises(ValidationError, match="undefined model 'coder'"):
+            ProjectConfig.model_validate({"project": "p", "domain": "software", "north_star": "n"})

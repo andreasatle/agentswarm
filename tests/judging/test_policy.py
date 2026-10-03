@@ -4,21 +4,21 @@ from pydantic import ValidationError
 from agentswarm.core.config import Threshold
 from agentswarm.core.domain import FindingKind
 from agentswarm.jev.api import NoulAnswer
-from agentswarm.judging.judges import Judge, RawToExperimental
+from agentswarm.judging.judges import ChangeReadiness, Judge
 from agentswarm.judging.policy import Policy, QuestionVerdict, Verdict
 
 
 class Answers:
     @staticmethod
-    def of(in_scope: float, tests_relevant: float, complete: float) -> RawToExperimental:
-        return RawToExperimental(
+    def of(in_scope: float, tests_relevant: float, complete: float) -> ChangeReadiness:
+        return ChangeReadiness(
             in_scope=NoulAnswer(noul=in_scope),
             tests_relevant=NoulAnswer(noul=tests_relevant),
             complete=NoulAnswer(noul=complete),
         )
 
 
-JUDGE = Judge(RawToExperimental)
+JUDGE = Judge(ChangeReadiness)
 
 
 class TestPolicy:
@@ -64,7 +64,7 @@ class TestPolicy:
             Policy(JUDGE, {"in_scpoe": Threshold(pass_at=0.9, fail_at=0.2)})
 
     def test_answers_to_another_judge_are_errors(self) -> None:
-        with pytest.raises(TypeError, match="expected answers to RawToExperimental"):
+        with pytest.raises(TypeError, match="expected answers to ChangeReadiness"):
             Policy(JUDGE).rule(NoulAnswer(noul=0.5))
 
 

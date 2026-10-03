@@ -3,7 +3,7 @@
 Ported from ~/Projects/Jev/jev.py. A spec is a model whose fields are answer types annotated with the
 question that produces them:
 
-    class RawToExperimental(BaseModel):
+    class ChangeReadiness(BaseModel):
         complete: Annotated[NoulAnswer, Ask("Does the change address every part of the task?")]
 """
 

@@ -32,7 +32,7 @@ class DecisionDraft(Frozen):
     commit: str  # the commit that was judged
     base: str  # the commit it was compared with: where it forked from the target level, at judging time
     mode: JevMode  # shadow: logged only; active: the gate acted on the ruling
-    judge: str  # the judge spec's name, e.g. "RawToExperimental"
+    judge: str  # the judge spec's name, e.g. "ChangeReadiness"
     state: JudgeState  # exactly what the decider was shown
     answers: dict[str, Any]  # the decider's answers as JSON; spans judge specs, so generic (§15.1)
     ruling: Ruling

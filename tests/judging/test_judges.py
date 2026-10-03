@@ -6,12 +6,12 @@ from pydantic import BaseModel
 from agentswarm.core.domain import FindingKind
 from agentswarm.jev.api import NoulAnswer, ScoreAnswer
 from agentswarm.jev.spec import Ask, QuestionSet
-from agentswarm.judging.judges import Fails, Judge, JudgeCatalog, RawToExperimental
+from agentswarm.judging.judges import ChangeReadiness, Fails, Judge, JudgeCatalog
 
 
 class TestJudge:
     def test_raw_to_experimental_asks_the_three_questions_of_the_proposal(self) -> None:
-        judge = Judge(RawToExperimental)
+        judge = Judge(ChangeReadiness)
         assert judge.fields() == ("in_scope", "tests_relevant", "complete")
         assert [q.fails.kind for q in judge.questions] == [
             FindingKind.OUT_OF_SCOPE,
@@ -20,7 +20,7 @@ class TestJudge:
         ]
 
     def test_the_spec_is_also_a_valid_jev_spec(self) -> None:
-        questions = QuestionSet.of(RawToExperimental).model_dump(mode="json", exclude_none=True)
+        questions = QuestionSet.of(ChangeReadiness).model_dump(mode="json", exclude_none=True)
         assert questions["complete"] == {
             "type": "noul",
             "instructions": "Does the change address every part of the task?",
@@ -54,11 +54,15 @@ class TestJudge:
 
 class TestJudgeCatalog:
     def test_standard_catalog_knows_raw_to_experimental(self) -> None:
-        assert JudgeCatalog.standard().get("RawToExperimental").spec is RawToExperimental
+        assert JudgeCatalog.standard().get("ChangeReadiness").spec is ChangeReadiness
+
+    def test_the_phase_2_name_still_finds_the_judge(self) -> None:
+        catalog = JudgeCatalog.standard()
+        assert catalog.get("RawToExperimental") is catalog.get("ChangeReadiness")
 
     def test_unknown_and_duplicate_judges_are_errors(self) -> None:
         catalog = JudgeCatalog.standard()
         with pytest.raises(ValueError, match="unknown judge"):
             catalog.get("Nope")
         with pytest.raises(ValueError, match="already registered"):
-            catalog.register(RawToExperimental)
+            catalog.register(ChangeReadiness)

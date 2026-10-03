@@ -15,7 +15,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.jev.api import NoulAnswer
-from agentswarm.judging.judges import RawToExperimental
+from agentswarm.judging.judges import ChangeReadiness
 
 
 class Samples:
@@ -53,26 +53,26 @@ class Samples:
 
 
 class Judged:
-    """Answers to the RawToExperimental judge, as p(yes) per question."""
+    """Answers to the ChangeReadiness judge, as p(yes) per question."""
 
     @staticmethod
     def answers(
         in_scope: float = 0.95, tests_relevant: float = 0.95, complete: float = 0.95
-    ) -> RawToExperimental:
-        return RawToExperimental(
+    ) -> ChangeReadiness:
+        return ChangeReadiness(
             in_scope=NoulAnswer(noul=in_scope),
             tests_relevant=NoulAnswer(noul=tests_relevant),
             complete=NoulAnswer(noul=complete),
         )
 
     @classmethod
-    def passing(cls) -> RawToExperimental:
+    def passing(cls) -> ChangeReadiness:
         return cls.answers()
 
     @classmethod
-    def incomplete(cls) -> RawToExperimental:
+    def incomplete(cls) -> ChangeReadiness:
         return cls.answers(complete=0.05)
 
     @classmethod
-    def unsure(cls) -> RawToExperimental:
+    def unsure(cls) -> ChangeReadiness:
         return cls.answers(tests_relevant=0.6)

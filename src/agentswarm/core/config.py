@@ -1,9 +1,10 @@
 """Project configuration: one YAML file per project, validated on load (proposal §17)."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
+from importlib.resources import files
 from pathlib import Path
-from typing import Self, cast
+from typing import Any, Self, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -149,6 +150,26 @@ class Budgets(Strict):
     max_rounds_per_artifact: int | None = None
 
 
+class Presets:
+    """Domain presets shipped with the package (agentswarm/core/presets/<domain>.yaml)."""
+
+    PACKAGE = "agentswarm.core.presets"
+
+    @classmethod
+    def for_domain(cls, domain: str) -> dict[str, Any]:
+        resource = files(cls.PACKAGE) / f"{domain}.yaml"
+        if not resource.is_file():
+            return {}
+        return cast(dict[str, Any], yaml.safe_load(resource.read_text()))
+
+    @classmethod
+    def apply(cls, data: Mapping[str, Any]) -> dict[str, Any]:
+        """The preset for data's domain, with data's own top-level keys replacing the preset's."""
+        domain = data.get("domain")
+        preset = cls.for_domain(str(domain)) if domain is not None else {}
+        return preset | dict(data)
+
+
 class ProjectConfig(Strict):
     project: str
     domain: Domain
@@ -162,6 +183,13 @@ class ProjectConfig(Strict):
     gates: tuple[GateConfig, ...] = ()
     budgets: Budgets = Budgets()
     jev: JevConfig = JevConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _with_preset(cls, value: object) -> object:
+        if isinstance(value, Mapping):
+            return Presets.apply(cast(Mapping[str, Any], value))
+        return value
 
     @field_validator("levels", mode="before")
     @classmethod

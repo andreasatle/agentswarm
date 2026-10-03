@@ -1,7 +1,7 @@
 """A task suite: small tasks with hidden acceptance tests, for measuring the judge (Phase 2 design, step 5).
 
     project: ../project.yaml                 # the project configuration each task runs in
-    judge: RawToExperimental                 # asked at the gate out of the lowest level, in shadow mode
+    judge: ChangeReadiness                 # asked at the gate out of the lowest level, in shadow mode
     test_command: [python, -m, pytest, -q, -p, no:cacheprovider]
     tasks:
       - id: farewell
@@ -40,7 +40,7 @@ class EvalTask(Frozen):
 
 class TaskSuite(Frozen):
     project: Path
-    judge: str = "RawToExperimental"
+    judge: str = "ChangeReadiness"
     test_command: tuple[str, ...] = ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider")
     test_timeout_s: float = 120.0
     tasks: tuple[EvalTask, ...] = Field(min_length=1)

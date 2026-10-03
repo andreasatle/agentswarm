@@ -144,6 +144,16 @@ A deterministic loop per project, run every step like the promoters:
   `EscalationResolved`. Retry clears the escalation so teams pick the artifact up again; accept lets a
   human promote it past the gate; drop retires the artifact.
 
+## Decisions made during implementation
+
+**Step 1 (judge name, presets).** `ChangeReadiness` replaces `RawToExperimental` everywhere, with the old
+name kept as a catalog alias for older decision logs. Presets are applied by a `ProjectConfig`
+"before" validator, so every way of building a config gets them (YAML, dicts, tests), not only
+`load`. The software preset sets levels, a `unit_tests` check, the executor (which expects the project
+to define `models.coder`; a preset never picks a provider) and the first gate with `ChangeReadiness`.
+Gates above `experimental` join the preset in step 6, once release-train promotion exists. Verified
+that the preset YAML ships in the built wheel.
+
 ## Steps (one commit each)
 
 **3a**

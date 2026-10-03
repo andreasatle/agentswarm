@@ -60,8 +60,11 @@ class Judge:
         return JudgeQuestion(name, ask, fails)
 
 
-class RawToExperimental(BaseModel):
-    """The raw → experimental gate (§11.3)."""
+class ChangeReadiness(BaseModel):
+    """Is this change ready to join the shared level: in scope, tested, and complete? (§11.3)
+
+    Named for what it asks, not for a pair of levels, so any project can use it at its first gate.
+    """
 
     in_scope: Annotated[
         NoulAnswer,
@@ -109,7 +112,7 @@ class JudgeState(BaseModel):
 
 
 class JudgeCatalog:
-    """Judges by name, since project configurations refer to them as `judge: RawToExperimental`."""
+    """Judges by name, since project configurations refer to them as `judge: ChangeReadiness`."""
 
     def __init__(self) -> None:
         self._judges: dict[str, Judge] = {}
@@ -117,7 +120,10 @@ class JudgeCatalog:
     @classmethod
     def standard(cls) -> Self:
         catalog = cls()
-        catalog.register(RawToExperimental)
+        catalog.register(ChangeReadiness)
+        catalog.alias(
+            "RawToExperimental", "ChangeReadiness"
+        )  # its Phase 2 name, still in older decision logs
         return catalog
 
     def register(self, spec: type[BaseModel]) -> Judge:
@@ -126,6 +132,12 @@ class JudgeCatalog:
             raise ValueError(f"judge {judge.name!r} is already registered")
         self._judges[judge.name] = judge
         return judge
+
+    def alias(self, old: str, name: str) -> None:
+        """Make `old` another name for an already registered judge."""
+        if old in self._judges:
+            raise ValueError(f"judge {old!r} is already registered")
+        self._judges[old] = self.get(name)
 
     def get(self, name: str) -> Judge:
         judge = self._judges.get(name)

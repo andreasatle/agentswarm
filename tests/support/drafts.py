@@ -2,16 +2,16 @@
 
 from agentswarm.core.config import JevMode
 from agentswarm.judging.decisions import Decision, DecisionDraft, Outcome, OutcomeSource
-from agentswarm.judging.judges import Judge, JudgeState, RawToExperimental
+from agentswarm.judging.judges import ChangeReadiness, Judge, JudgeState
 from agentswarm.judging.policy import Policy
 from tests.support.samples import Judged, Samples
 
 
 class Drafts:
-    JUDGE = Judge(RawToExperimental)
+    JUDGE = Judge(ChangeReadiness)
 
     @classmethod
-    def make(cls, answers: RawToExperimental | None = None, diff: str = "+x") -> DecisionDraft:
+    def make(cls, answers: ChangeReadiness | None = None, diff: str = "+x") -> DecisionDraft:
         answers = answers or Judged.passing()
         return DecisionDraft(
             point="gate:raw->experimental",

@@ -17,7 +17,7 @@ from agentswarm.gating.gate import Gate, GateJudgement
 from agentswarm.gating.promotion import Promoter
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
-from agentswarm.judging.judges import Judge, RawToExperimental
+from agentswarm.judging.judges import ChangeReadiness, Judge
 from agentswarm.judging.policy import Policy
 from agentswarm.teams.runner import Team, TeamRunner
 from agentswarm.workspace.git import Git, Repository
@@ -50,7 +50,7 @@ class Harness:
         self,
         root: Path,
         checks: Sequence[HardCheck] = (),
-        answers: Sequence[RawToExperimental] | None = None,  # None: the gate has no judge
+        answers: Sequence[ChangeReadiness] | None = None,  # None: the gate has no judge
         mode: JevMode = JevMode.ACTIVE,
     ) -> None:
         self.clock = FakeClock(Samples.AT)
@@ -63,7 +63,7 @@ class Harness:
         self.decisions = InMemoryDecisions()
         judgement = None
         if answers is not None:
-            judge = Judge(RawToExperimental)
+            judge = Judge(ChangeReadiness)
             judgement = GateJudgement(judge, Policy(judge), self.decider, self.decisions, mode, self.clock)
         self.gate = Gate(Samples.RAW, Samples.EXPERIMENTAL, checks, judgement)
         self.promoter = Promoter(

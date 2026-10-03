@@ -2,7 +2,7 @@
 # Hidden tests give the ground truth for the judge's `complete` question; the executor never sees them.
 # Each task's reference solution (reference/) is what the scripted variants write (evaluation/faults.py).
 project: ../project.yaml
-judge: RawToExperimental
+judge: ChangeReadiness
 test_command:
 - python
 - -m

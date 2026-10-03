@@ -19,7 +19,7 @@ gates:
   - from: raw
     to: experimental
     hard_checks: [build, unit_tests]
-    judge: RawToExperimental
+    judge: ChangeReadiness
     thresholds:
       in_scope: {pass: 0.9, fail: 0.2}
       tests_relevant: {pass: 0.9, fail: 0.2}

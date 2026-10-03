@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 from agentswarm.cli import Cli
+from agentswarm.core.config import ProjectConfig
 from tests.support.samples import Samples
 from tests.support.suites import FarewellSuite
 
@@ -51,6 +52,27 @@ class TestCli:
         Cli.main(["run", str(config), "--root", str(root), "--task", "Write a note"])
         files = (root / "repo" / "README.md").read_text()
         assert files == "seed\n"
+
+
+class TestCliConfig:
+    def test_prints_the_effective_configuration_which_loads_again(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        path = tmp_path / "p.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "project": "p",
+                    "domain": "software",
+                    "north_star": "n",
+                    "models": {"coder": {"model": "ollama:m"}},
+                }
+            )
+        )
+        assert Cli.main(["config", str(path)]) == 0
+        printed = capsys.readouterr().out
+        assert "ChangeReadiness" in printed
+        assert ProjectConfig.model_validate(yaml.safe_load(printed)).levels.levels[-1] == "production"
 
 
 class TestCliEvaluation:
