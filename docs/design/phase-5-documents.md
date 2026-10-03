@@ -1,6 +1,6 @@
 # Phase 5: A second domain, documents
 
-Status: **planned** (decided on the recommendations, as for Phases 3 and 4). Proposal sections: §3 G2
+Status: **in progress** (decided on the recommendations, as for Phases 3 and 4). Proposal sections: §3 G2
 (domains are configuration), §9 (documents in git), §10.3 (document teams), §17.
 
 **Exit criterion (§19):** the same engine produces a multi-section document through all levels.
@@ -62,3 +62,10 @@ project with its seed and checker.
 6. A live run.
 
 ## Decisions made during implementation
+
+**Step 1 (evidence strategies).** `Analyzer` keeps relevance, sign-off, escalation and the relevance
+outcome; subclasses implement `examine` and decide the evidence. `ProbingAnalyzer` (code): scratch tests,
+a problem needs a failing one. `ReviewingAnalyzer` (text): a read-only toolbox, and a problem needs a
+quote of at least 12 characters found verbatim (whitespace runs normalised) in the file it names; invented,
+too short or misattributed quotes are dropped. Named `ProbingAnalyzer`, not `TestingAnalyzer`, because
+pytest collects any imported class whose name starts with `Test`.

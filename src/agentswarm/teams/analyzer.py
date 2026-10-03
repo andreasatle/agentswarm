@@ -10,7 +10,7 @@ and ran that fails. Problems without such a test are dropped, so a weak claim ne
 
 import logging
 import re
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from typing import ClassVar, Literal
 
@@ -113,25 +113,32 @@ class AnalysisRequest(Frozen):
     diff: str  # the change, truncated like the judge's (JudgeState.DIFF_LIMIT)
 
 
+class Examination(Frozen):
+    """What an analyzer's model produced: findings backed by evidence, and how many claims were dropped."""
+
+    findings: tuple[Finding, ...]
+    dropped: int
+
+
 class Analyzer(ABC):
-    """Examines each artifact at its level once per version; subclasses set the instructions and kind."""
+    """Examines each artifact at its level once per version, then signs off.
+
+    The base handles what every analyzer shares: the deterministic relevance rule, the Jev relevance filter,
+    the sign-off, escalating when the model fails, and the relevance outcome. Subclasses decide what the
+    model may use and what counts as evidence (`examine`): failing tests for code (`ProbingAnalyzer`),
+    verbatim quotes for prose (`ReviewingAnalyzer`).
+    """
 
     INSTRUCTIONS: ClassVar[str]
     KIND: ClassVar[FindingKind]
     _log = logging.getLogger(__name__)
 
     def __init__(
-        self,
-        name: TeamName,
-        watches: Level,
-        worker: Worker,
-        runner: CommandCheck,
-        relevance: RelevanceFilter | None = None,
+        self, name: TeamName, watches: Level, worker: Worker, relevance: RelevanceFilter | None = None
     ) -> None:
         self._name = name
         self._watches = watches
         self._worker = worker
-        self._runner = runner
         self._relevance = relevance
 
     @property
@@ -164,43 +171,148 @@ class Analyzer(ABC):
         )
         if not check.work:
             return [sign_off]
-
-        toolbox = AnalysisToolbox(worktree, diff, self._runner)
         request = AnalysisRequest(
             north_star=ctx.north_star, task=ctx.artifact.task, diff=JudgeState.truncate(diff)
         )
         try:
-            report = await self._worker.run(self.INSTRUCTIONS, request, AnalysisReport, toolbox)
+            examination = await self.examine(ctx, worktree, diff, request)
         except WorkerError as error:
             return [Escalated(artifact=ctx.artifact.id, reason=f"{self._name} failed: {error}")]
-
-        findings = [self._finding(ctx, p, toolbox) for p in report.problems if toolbox.failed(p.test)]
-        dropped = len(report.problems) - len(findings)
-        if dropped:
+        if examination.dropped:
             self._log.info(
-                "%s: dropped %d problem(s) on %s without a failing test", self._name, dropped, ctx.artifact.id
+                "%s: dropped %d problem(s) on %s without evidence",
+                self._name,
+                examination.dropped,
+                ctx.artifact.id,
             )
         if self._relevance is not None:
-            self._relevance.record_result(
-                check, bool(findings), f"{len(findings)} finding(s), {dropped} dropped"
-            )
-        return [*(FindingAdded(finding=f) for f in findings), sign_off]
+            summary = f"{len(examination.findings)} finding(s), {examination.dropped} dropped"
+            self._relevance.record_result(check, bool(examination.findings), summary)
+        return [*(FindingAdded(finding=f) for f in examination.findings), sign_off]
 
-    def _finding(self, ctx: ArtifactContext, problem: ReportedProblem, toolbox: AnalysisToolbox) -> Finding:
+    @abstractmethod
+    async def examine(
+        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest
+    ) -> Examination:
+        """Let the model look, keep only problems backed by evidence. May raise WorkerError."""
+
+    def finding(self, ctx: ArtifactContext, severity: Literal["major", "minor"], detail: str) -> Finding:
         return Finding(
             artifact=ctx.artifact.id,
             level=self._watches,
             team=self._name,
             kind=self.KIND,
-            severity=Severity.MAJOR if problem.severity == "major" else Severity.MINOR,
-            detail=(
-                f"{problem.title}: {problem.detail}\n\n"
-                f"Failing test ({problem.test}):\n{toolbox.test_source(problem.test)}"
-            ),
+            severity=Severity.MAJOR if severity == "major" else Severity.MINOR,
+            detail=detail,
         )
 
 
-class IntegrationTester(Analyzer):
+class ProbingAnalyzer(Analyzer):
+    """Evidence is a failing test: the model writes and runs scratch tests (AnalysisToolbox)."""
+
+    def __init__(
+        self,
+        name: TeamName,
+        watches: Level,
+        worker: Worker,
+        runner: CommandCheck,
+        relevance: RelevanceFilter | None = None,
+    ) -> None:
+        super().__init__(name, watches, worker, relevance)
+        self._runner = runner
+
+    async def examine(
+        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest
+    ) -> Examination:
+        toolbox = AnalysisToolbox(worktree, diff, self._runner)
+        report = await self._worker.run(self.INSTRUCTIONS, request, AnalysisReport, toolbox)
+        findings = tuple(
+            self.finding(
+                ctx,
+                p.severity,
+                f"{p.title}: {p.detail}\n\nFailing test ({p.test}):\n{toolbox.test_source(p.test)}",
+            )
+            for p in report.problems
+            if toolbox.failed(p.test)
+        )
+        return Examination(findings=findings, dropped=len(report.problems) - len(findings))
+
+
+class ReadingToolbox:
+    """Read-only tools for reviewers of text: list and read files, and see the change."""
+
+    READ_LIMIT = 100_000
+
+    def __init__(self, worktree: Worktree, diff: str) -> None:
+        self._worktree = worktree
+        self._diff = diff
+
+    def tools(self) -> Sequence[Callable[..., str]]:
+        return [self.list_files, self.read_file, self.show_change]
+
+    def list_files(self) -> str:
+        """List every file in the project, one relative path per line."""
+        return "\n".join(self._worktree.files())
+
+    def read_file(self, path: str) -> str:
+        """Return the content of the file at `path`, relative to the project root."""
+        if path.startswith(("/", "..")) or ".." in path.split("/"):
+            return "error: path must stay inside the project"
+        try:
+            return self._worktree.read(path)[: self.READ_LIMIT]
+        except (OSError, UnicodeDecodeError) as error:
+            return f"error: {error}"
+
+    def show_change(self) -> str:
+        """Show the change being reviewed, as a unified diff."""
+        return self._diff[: self.READ_LIMIT]
+
+    def contains(self, path: str, quote: str) -> bool:
+        """Whether `path` holds `quote` verbatim (whitespace runs count as one space)."""
+        text = self.read_file(path)
+        if text.startswith("error:"):
+            return False
+        return Quotes.normal(quote) in Quotes.normal(text)
+
+
+class Quotes:
+    MIN_LENGTH = 12  # shorter quotes match too easily to count as evidence
+
+    @staticmethod
+    def normal(text: str) -> str:
+        return " ".join(text.split())
+
+
+class QuotedProblem(Frozen):
+    title: str  # one line
+    detail: str  # what is wrong and why it matters to the reader
+    severity: Literal["major", "minor"]
+    file: str  # the file the quote is from, relative to the project root
+    quote: str  # the exact text the problem is about, copied verbatim (at least a few words)
+
+
+class ReviewReport(Frozen):
+    summary: str
+    problems: tuple[QuotedProblem, ...]
+
+
+class ReviewingAnalyzer(Analyzer):
+    """Evidence is a verbatim quote: a problem must cite text that really is in the named file."""
+
+    async def examine(
+        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest
+    ) -> Examination:
+        toolbox = ReadingToolbox(worktree, diff)
+        report = await self._worker.run(self.INSTRUCTIONS, request, ReviewReport, toolbox)
+        findings = tuple(
+            self.finding(ctx, p.severity, f'{p.title}: {p.detail}\n\nIn {p.file}: "{p.quote.strip()}"')
+            for p in report.problems
+            if len(Quotes.normal(p.quote)) >= Quotes.MIN_LENGTH and toolbox.contains(p.file, p.quote)
+        )
+        return Examination(findings=findings, dropped=len(report.problems) - len(findings))
+
+
+class IntegrationTester(ProbingAnalyzer):
     """Tests how the change works together with the rest of the code (§10.3)."""
 
     KIND: ClassVar[FindingKind] = FindingKind.TEST_FAILURE
@@ -216,7 +328,7 @@ whether it works together with the rest of the project.
 - Do not report style, naming or missing features the task did not ask for."""
 
 
-class RedTeam(Analyzer):
+class RedTeam(ProbingAnalyzer):
     """Tries to break the change: edge cases, misuse, unusual input (§10.3)."""
 
     KIND: ClassVar[FindingKind] = FindingKind.EDGE_CASE

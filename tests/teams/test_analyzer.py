@@ -14,7 +14,17 @@ from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.judges import IntegrationRelevance, Judge
 from agentswarm.judging.policy import Policy
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox, WorkerError
-from agentswarm.teams.analyzer import AnalysisReport, AnalysisToolbox, Analyzer, ReportedProblem
+from agentswarm.teams.analyzer import (
+    AnalysisReport,
+    AnalysisToolbox,
+    Analyzer,
+    ProbingAnalyzer,
+    QuotedProblem,
+    ReadingToolbox,
+    ReportedProblem,
+    ReviewingAnalyzer,
+    ReviewReport,
+)
 from agentswarm.teams.relevance import RelevanceFilter
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.sandbox import LocalSandbox
@@ -26,7 +36,7 @@ FAREWELL = 'def farewell(name):\n    return f"Goodbye, {name}!"\n'
 PROBE = TeamName("probe")
 
 
-class ProbeAnalyzer(Analyzer):
+class ProbeAnalyzer(ProbingAnalyzer):
     INSTRUCTIONS: ClassVar[str] = "Probe the change."
     KIND: ClassVar[FindingKind] = FindingKind.TEST_FAILURE
 
@@ -56,7 +66,7 @@ class Merged:
             PROBE, Samples.EXPERIMENTAL, FakeWorker(steps), self.runner_check, self.relevance
         )
 
-    async def run(self, analyzer: ProbeAnalyzer) -> list[Event]:
+    async def run(self, analyzer: Analyzer) -> list[Event]:
         assert await self.h.runner(analyzer).step() == 1
         return list(self.h.board.current().history(self.artifact.id))
 
@@ -169,3 +179,45 @@ class TestAnalysisToolbox:
         assert toolbox.run_test("test_ok.py", PASSING).startswith("PASSED")
         assert "_analysis" not in toolbox.list_files()
         assert not toolbox.failed("test_ok.py")
+
+
+class ProbeReviewer(ReviewingAnalyzer):
+    INSTRUCTIONS: ClassVar[str] = "Review the text."
+    KIND: ClassVar[FindingKind] = FindingKind.INCONSISTENT
+
+
+def quoted(quote: str, file: str = "greeter.py") -> QuotedProblem:
+    return QuotedProblem(title="Tone", detail="Too abrupt.", severity="major", file=file, quote=quote)
+
+
+class TestReviewingAnalyzer:
+    async def test_keeps_only_problems_quoting_text_that_is_really_there(self, tmp_path: Path) -> None:
+        m = Merged(tmp_path)
+
+        def review(toolbox: Toolbox | None) -> ReviewReport:
+            assert isinstance(toolbox, ReadingToolbox)
+            assert "farewell" in toolbox.read_file("greeter.py")
+            return ReviewReport(
+                summary="reviewed",
+                problems=(
+                    quoted('return  f"Goodbye, {name}!"'),  # really there (whitespace runs don't matter)
+                    quoted("this sentence is not in the file at all"),  # invented
+                    quoted("Goodbye"),  # too short to count as evidence
+                    quoted('return f"Goodbye, {name}!"', file="missing.md"),  # wrong file
+                ),
+            )
+
+        reviewer = ProbeReviewer(PROBE, Samples.EXPERIMENTAL, FakeWorker([review]))
+        history = await m.run(reviewer)
+        (added,) = [e for e in history if isinstance(e, FindingAdded)]
+        assert added.finding.kind is FindingKind.INCONSISTENT
+        assert 'In greeter.py: "return  f"Goodbye, {name}!""' in added.finding.detail
+        assert any(isinstance(e, SignedOff) for e in history)
+
+    def test_reading_tools_stay_inside_the_project(self, tmp_path: Path) -> None:
+        m = Merged(tmp_path)
+        worktree = m.h.repository.checkout_detached(m.h.repository.tip("experimental"), "read")
+        toolbox = ReadingToolbox(worktree, "diff")
+        assert toolbox.read_file("../outside").startswith("error")
+        assert "greeter.py" in toolbox.list_files()
+        assert [t.__name__ for t in toolbox.tools()] == ["list_files", "read_file", "show_change"]
