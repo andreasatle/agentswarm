@@ -4,18 +4,23 @@ from collections.abc import Callable
 from typing import Self
 
 from agentswarm.core.config import TeamConfig
-from agentswarm.gating.checks import CheckSet, HardCheck
+from agentswarm.core.domain import TeamName
+from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
+from agentswarm.judging.judgement import Judgements
 from agentswarm.llm.workers import Worker, WorkerProvider
+from agentswarm.teams.analyzer import IntegrationTester, RedTeam
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor
+from agentswarm.teams.relevance import RelevanceFilter
 from agentswarm.teams.runner import Team
 
 
 class TeamResources:
-    """What a team definition may draw on when it is instantiated: models and checks."""
+    """What a team definition may draw on when it is instantiated: models, checks and judgements."""
 
-    def __init__(self, workers: WorkerProvider, checks: CheckSet) -> None:
+    def __init__(self, workers: WorkerProvider, checks: CheckSet, judgements: Judgements) -> None:
         self._workers = workers
         self._checks = checks
+        self._judgements = judgements
 
     def worker_for(self, team: TeamConfig) -> Worker:
         if team.model is None:
@@ -24,6 +29,20 @@ class TeamResources:
 
     def checks_for(self, team: TeamConfig) -> list[HardCheck]:
         return self._checks.build(team.checks)
+
+    def test_runner_for(self, team: TeamConfig) -> CommandCheck:
+        """The team's first check, used to run individual test files (analyzers)."""
+        if not team.checks:
+            raise ValueError(f"team {team.use!r} needs a check to run tests with; set `checks:`")
+        return self._checks.command(team.checks[0])
+
+    def relevance_for(self, team: TeamConfig) -> RelevanceFilter | None:
+        if team.relevance is None:
+            return None
+        judgement = self._judgements.build(team.relevance)
+        return RelevanceFilter(
+            TeamName(team.use), judgement, self._judgements.decisions, self._judgements.clock
+        )
 
 
 type TeamFactory = Callable[[TeamConfig, TeamResources], Team]
@@ -44,6 +63,17 @@ class TeamCatalog:
             ),
         )
         catalog.register("fake_executor", lambda team, resources: FakeExecutor(team.watches))
+        for use, analyzer in (("integration_tester", IntegrationTester), ("red_team", RedTeam)):
+            catalog.register(
+                use,
+                lambda team, resources, analyzer=analyzer: analyzer(
+                    TeamName(team.use),
+                    team.watches,
+                    resources.worker_for(team),
+                    resources.test_runner_for(team),
+                    resources.relevance_for(team),
+                ),
+            )
         return catalog
 
     def register(self, name: str, factory: TeamFactory) -> None:

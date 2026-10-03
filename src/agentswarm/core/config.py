@@ -143,6 +143,7 @@ class TeamConfig(Strict):
     checks: tuple[str, ...] = ()  # checks the team may run while working, by name
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
     constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
+    relevance: str | None = None  # a Jev relevance judge asked before working (analyzer teams)
 
 
 class Budgets(Strict):
@@ -200,6 +201,9 @@ class ProjectConfig(Strict):
 
     @model_validator(mode="after")
     def _references_resolve(self) -> Self:
+        uses = [t.use for t in self.teams]
+        if len(set(uses)) != len(uses):
+            raise ValueError(f"each team may appear once (its name is its `use`): {uses}")
         for team in self.teams:
             if not self.levels.contains(team.watches):
                 raise ValueError(f"team {team.use!r} watches unknown level {team.watches!r}")

@@ -1,11 +1,13 @@
 """One judgement: ask a judge, rule on its answers, record the decision (proposal §11.2 steps 2-3, §15.1)."""
 
+from collections.abc import Mapping
+
 from agentswarm.core.clock import Clock
-from agentswarm.core.config import JevMode
+from agentswarm.core.config import JevMode, Threshold
 from agentswarm.core.domain import ArtifactContext
 from agentswarm.judging.deciders import Decider
 from agentswarm.judging.decisions import Decision, DecisionDraft, DecisionStore
-from agentswarm.judging.judges import Judge, JudgeState
+from agentswarm.judging.judges import Judge, JudgeCatalog, JudgeState
 from agentswarm.judging.policy import Policy
 
 
@@ -49,4 +51,30 @@ class Judgement:
                 model=answered.model,
                 at=self._clock.now(),
             )
+        )
+
+
+class Judgements:
+    """Builds judgements by judge name, all sharing one decider, decision log, mode and clock."""
+
+    def __init__(
+        self,
+        judges: JudgeCatalog,
+        decider: Decider | None,  # None when the project has no judges at all
+        decisions: DecisionStore,
+        mode: JevMode,
+        clock: Clock,
+    ) -> None:
+        self._judges = judges
+        self._decider = decider
+        self.decisions = decisions
+        self._mode = mode
+        self.clock = clock
+
+    def build(self, judge: str, thresholds: Mapping[str, Threshold] | None = None) -> Judgement:
+        if self._decider is None:
+            raise ValueError(f"judge {judge!r} needs a decider, but the project has none")
+        spec = self._judges.get(judge)
+        return Judgement(
+            spec, Policy(spec, thresholds), self._decider, self.decisions, self._mode, self.clock
         )

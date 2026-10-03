@@ -1,8 +1,14 @@
 import pytest
 
-from agentswarm.core.config import CheckConfig, TeamConfig
+from agentswarm.core.clock import FakeClock
+from agentswarm.core.config import CheckConfig, JevMode, TeamConfig
 from agentswarm.gating.checks import CheckSet
+from agentswarm.judging.deciders import FakeDecider
+from agentswarm.judging.decisions import InMemoryDecisions
+from agentswarm.judging.judgement import Judgements
+from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.llm.workers import FakeWorker, FakeWorkers
+from agentswarm.teams.analyzer import IntegrationTester, RedTeam
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor
 from agentswarm.workspace.sandbox import LocalSandbox
@@ -13,7 +19,10 @@ class Resources:
     @staticmethod
     def make() -> TeamResources:
         checks = CheckSet({"tests": CheckConfig(command=("true",))}, LocalSandbox())
-        return TeamResources(FakeWorkers({"fake": FakeWorker([])}), checks)
+        judgements = Judgements(
+            JudgeCatalog.standard(), FakeDecider(), InMemoryDecisions(), JevMode.SHADOW, FakeClock()
+        )
+        return TeamResources(FakeWorkers({"fake": FakeWorker([])}), checks, judgements)
 
 
 class TestTeamCatalog:
@@ -26,6 +35,31 @@ class TestTeamCatalog:
         assert isinstance(fake, FakeExecutor)
         assert isinstance(real, ExecutorTeam)
         assert real.watches == Samples.RAW
+
+    def test_builds_analyzers_with_their_relevance_filter(self) -> None:
+        team = TeamConfig(
+            use="red_team",
+            watches=Samples.EXPERIMENTAL,
+            model="fake",
+            checks=("tests",),
+            relevance="AdversarialRelevance",
+        )
+        red_team = TeamCatalog.standard().build(team, Resources.make())
+        assert isinstance(red_team, RedTeam)
+        assert red_team.name == "red_team"
+        tester = TeamCatalog.standard().build(
+            TeamConfig(
+                use="integration_tester", watches=Samples.EXPERIMENTAL, model="fake", checks=("tests",)
+            ),
+            Resources.make(),
+        )
+        assert isinstance(tester, IntegrationTester)
+
+    def test_analyzers_need_a_check_to_run_tests_with(self) -> None:
+        with pytest.raises(ValueError, match="needs a check"):
+            TeamCatalog.standard().build(
+                TeamConfig(use="red_team", watches=Samples.EXPERIMENTAL, model="fake"), Resources.make()
+            )
 
     def test_executor_without_a_model_is_an_error(self) -> None:
         with pytest.raises(ValueError, match="needs a model"):

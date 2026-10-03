@@ -68,4 +68,7 @@ class CheckSet:
         self._sandbox = sandbox
 
     def build(self, names: Sequence[str]) -> list[HardCheck]:
-        return [CommandCheck(name, self._configs[name], self._sandbox) for name in names]
+        return [self.command(name) for name in names]
+
+    def command(self, name: str) -> CommandCheck:
+        return CommandCheck(name, self._configs[name], self._sandbox)

@@ -43,6 +43,7 @@ class FindingKind(StrEnum):
     SECURITY = "security"
     INCONSISTENT = "inconsistent"
     TOO_LARGE = "too_large"  # should be decomposed
+    EDGE_CASE = "edge_case"  # breaks on unusual input or misuse (red team)
 
 
 class Severity(StrEnum):

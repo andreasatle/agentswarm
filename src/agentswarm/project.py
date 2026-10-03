@@ -19,9 +19,8 @@ from agentswarm.gating.promotion import Promoter
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.deciders import Decider, JevDecider
 from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
-from agentswarm.judging.judgement import Judgement
+from agentswarm.judging.judgement import Judgements
 from agentswarm.judging.judges import JudgeCatalog
-from agentswarm.judging.policy import Policy
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
@@ -82,14 +81,6 @@ class Project:
         )
         contexts = ContextBuilder(board, repository, config.north_star)
         checks = CheckSet(config.checks, Sandboxes.build(config.sandbox))
-        workers = services.workers or LangChainWorkers(ChatModels(config.models))
-        resources = TeamResources(workers, checks)
-        runners = [
-            TeamRunner(
-                services.teams.build(team, resources), board, claims, repository, contexts, clock, lease
-            )
-            for team in config.teams
-        ]
 
         owned: list[Closeable] = [log]
         decisions = services.decisions
@@ -97,28 +88,34 @@ class Project:
             decisions = SqliteDecisions(root / "decisions.sqlite")
             owned.append(decisions)
         decider = services.decider
-        if decider is None and any(gate.judge for gate in config.gates):
+        if decider is None and (any(g.judge for g in config.gates) or any(t.relevance for t in config.teams)):
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
             decider = JevDecider(jev)
-        promoters: list[Promoter] = []
-        for gate in config.gates:
-            judgement = None
-            if gate.judge is not None and decider is not None:
-                judge = services.judges.get(gate.judge)
-                policy = Policy(judge, gate.thresholds)
-                judgement = Judgement(judge, policy, decider, decisions, config.jev.mode, clock)
-            promoters.append(
-                Promoter(
-                    Gate.from_config(gate, checks, judgement),
-                    board,
-                    claims,
-                    repository,
-                    contexts,
-                    clock,
-                    lease,
-                )
+        judgements = Judgements(services.judges, decider, decisions, config.jev.mode, clock)
+
+        workers = services.workers or LangChainWorkers(ChatModels(config.models))
+        resources = TeamResources(workers, checks, judgements)
+        runners = [
+            TeamRunner(
+                services.teams.build(team, resources), board, claims, repository, contexts, clock, lease
             )
+            for team in config.teams
+        ]
+        promoters = [
+            Promoter(
+                Gate.from_config(
+                    gate, checks, judgements.build(gate.judge, gate.thresholds) if gate.judge else None
+                ),
+                board,
+                claims,
+                repository,
+                contexts,
+                clock,
+                lease,
+            )
+            for gate in config.gates
+        ]
         return cls(config, board, repository, runners, promoters, decisions, owned)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:

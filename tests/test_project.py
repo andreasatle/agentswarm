@@ -1,5 +1,6 @@
-"""End to end: the Phase 0 exit criterion from proposal §19."""
+"""End to end: whole projects, from tasks to promoted artifacts (the exit criteria of §19)."""
 
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -11,14 +12,21 @@ from agentswarm.core.domain import (
     ArtifactCreated,
     Claimed,
     CommitPushed,
+    FindingKind,
     ProjectId,
     Promoted,
     Rejected,
     Released,
+    TeamName,
 )
+from agentswarm.jev.api import NoulAnswer
+from agentswarm.judging.deciders import FakeDecider
+from agentswarm.judging.decisions import InMemoryDecisions
+from agentswarm.judging.judges import AdversarialRelevance
 from agentswarm.judging.policy import Verdict
 from agentswarm.llm.workers import FakeWorker, FakeWorkers, Toolbox
 from agentswarm.project import Project, ProjectServices
+from agentswarm.teams.analyzer import AnalysisReport, AnalysisToolbox, ReportedProblem
 from agentswarm.teams.executor import ExecutorReport, WorktreeToolbox
 from tests.support.projects import Projects
 from tests.support.samples import Judged, Samples
@@ -126,3 +134,52 @@ class TestSlug:
         assert Project.slug("Add retry: exponential back-off (v2)!") == "add-retry-exponential-back-off-v2"
         assert Project.slug("???") == "task"
         assert len(Project.slug("x" * 100)) == 40
+
+
+class TestProjectWithAnalyzers:
+    async def test_analyzers_examine_merged_artifacts_and_their_relevance_is_logged(
+        self, tmp_path: Path
+    ) -> None:
+        config = Projects.CONFIG | {
+            "levels": ["raw", "experimental", "candidate"],
+            "checks": Projects.CONFIG["checks"]
+            | {"pytest": {"command": [sys.executable, "-m", "pytest", "-q"]}},
+            "models": {"coder": {"model": "ollama:any"}},
+            "teams": [
+                {"use": "fake_executor", "watches": "raw"},
+                {
+                    "use": "red_team",
+                    "watches": "experimental",
+                    "model": "coder",
+                    "checks": ["pytest"],
+                    "relevance": "AdversarialRelevance",
+                },
+            ],
+        }
+
+        def attack(toolbox: Toolbox | None) -> AnalysisReport:
+            assert isinstance(toolbox, AnalysisToolbox)
+            toolbox.run_test("test_break.py", "def test_break():\n    assert False\n")
+            problem = ReportedProblem(
+                title="Breaks", detail="It breaks.", severity="major", test="test_break.py"
+            )
+            return AnalysisReport(summary="attacked", problems=(problem,))
+
+        services = ProjectServices(
+            workers=FakeWorkers({"coder": FakeWorker([attack])}),
+            decider=FakeDecider([AdversarialRelevance(relevant=NoulAnswer(noul=0.9))]),
+            decisions=InMemoryDecisions(),
+            clock=FakeClock(Samples.AT),
+        )
+        project = Project.open(ProjectConfig.model_validate(config), tmp_path, services)
+        artifact = project.create_artifact("Write the greeting")
+        await project.run_until_idle()
+
+        views = project.views()
+        assert views.artifact(artifact.id).level == Samples.EXPERIMENTAL
+        (finding,) = views.open_findings(artifact.id)
+        assert (finding.team, finding.kind) == ("red_team", FindingKind.EDGE_CASE)
+        assert views.signed_off(artifact.id, TeamName("red_team"))
+        (relevance,) = [d for d in project.decisions.all() if d.point == "relevance:red_team"]
+        assert project.decisions.outcomes(relevance.id)[0].truth is True
+        project.close()

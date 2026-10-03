@@ -181,6 +181,16 @@ that the preset YAML ships in the built wheel.
   failed; others are dropped (and logged). The finding's detail includes the failing test's source.
 - Analyzer test files live in `_analysis/` of a detached, throwaway checkout: never committed.
 
+**Step 4 (integration tester, red team).**
+- Both are `Analyzer` subclasses that differ only in instructions and finding kind: `TEST_FAILURE` for
+  the integration tester, a new `EDGE_CASE` for the red team.
+- A team's name is its `use` (so a gate can require `red_team`'s sign-off); each team may appear once per
+  project, which the config now enforces.
+- Teams name their relevance judge in config (`relevance: AdversarialRelevance`). A `Judgements` factory
+  (judge catalog + decider + decision log + mode + clock) builds every judgement, for gates and teams
+  alike; `Project.open` creates the decider before the teams, and only if some gate or team needs one.
+- Analyzers run individual test files with their first configured check (`checks:`), which must exist.
+
 ## Steps (one commit each)
 
 **3a**

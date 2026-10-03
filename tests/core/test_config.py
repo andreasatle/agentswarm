@@ -66,6 +66,7 @@ class TestProjectConfig:
             {"teams": [{"use": "executor", "watches": "raw", "model": "missing"}]},
             {"teams": [{"use": "executor", "watches": "raw", "checks": ["missing"]}]},
             {"models": {"m": {"model": "no-provider-prefix"}}},
+            {"teams": [{"use": "executor", "watches": "raw"}, {"use": "executor", "watches": "raw"}]},
         ],
         ids=[
             "unknown-team-level",
@@ -76,6 +77,7 @@ class TestProjectConfig:
             "undefined-team-model",
             "undefined-team-check",
             "model-without-provider",
+            "duplicate-team",
         ],
     )
     def test_rejects_inconsistent_configs(self, overrides: dict[str, Any]) -> None:

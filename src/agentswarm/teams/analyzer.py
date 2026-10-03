@@ -194,3 +194,34 @@ class Analyzer(ABC):
                 f"Failing test ({problem.test}):\n{toolbox.test_source(problem.test)}"
             ),
         )
+
+
+class IntegrationTester(Analyzer):
+    """Tests how the change works together with the rest of the code (§10.3)."""
+
+    KIND: ClassVar[FindingKind] = FindingKind.TEST_FAILURE
+    INSTRUCTIONS: ClassVar[str] = """\
+You are the integration tester. The change in the data has been merged into the shared code. Find out
+whether it works together with the rest of the project.
+
+- Use show_change, list_files and read_file to see what changed and what depends on it.
+- Write pytest files with run_test that exercise the changed code through the code that uses it, and
+  the code it uses: real call paths, not the new function alone.
+- Report a problem only if a test you ran fails because of the change; name that test in the report.
+  A passing suite with no problems is a good result: report no problems then.
+- Do not report style, naming or missing features the task did not ask for."""
+
+
+class RedTeam(Analyzer):
+    """Tries to break the change: edge cases, misuse, unusual input (§10.3)."""
+
+    KIND: ClassVar[FindingKind] = FindingKind.EDGE_CASE
+    INSTRUCTIONS: ClassVar[str] = """\
+You are the red team. The change in the data has been merged into the shared code. Try to break it.
+
+- Use show_change and read_file to see exactly what the change does.
+- Write pytest files with run_test that feed it unusual or hostile input: empty values, huge values,
+  wrong types, unexpected characters, repeated calls. Assert what a careful user would expect.
+- Report a problem only if a test you ran fails because of the change; name that test in the report.
+  Behaviour the task explicitly allowed is not a problem. If nothing breaks, report no problems.
+- Do not report style or naming."""
