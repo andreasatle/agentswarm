@@ -9,6 +9,7 @@ from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.claims import ClaimRegistry
 from agentswarm.board.context import ContextBuilder
 from agentswarm.board.eventlog import SqliteEventLog
+from agentswarm.control.budget import Budget
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import CheckConfig, JevMode, LevelLadder
 from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, CommitPushed, FindingKind, TeamName
@@ -110,5 +111,7 @@ class Harness:
             gate, requires, self.board, self.claims, self.repository, self.contexts, self.clock
         )
 
-    def runner(self, team: Team) -> TeamRunner:
-        return TeamRunner(team, self.board, self.claims, self.repository, self.contexts, self.clock)
+    def runner(self, team: Team, budget: Budget | None = None) -> TeamRunner:
+        return TeamRunner(
+            team, self.board, self.claims, self.repository, self.contexts, self.clock, budget=budget
+        )

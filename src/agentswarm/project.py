@@ -11,7 +11,9 @@ from agentswarm.board.claims import ClaimRegistry
 from agentswarm.board.context import ContextBuilder
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.board.spend import SpendLedger
+from agentswarm.control.budget import Budget
 from agentswarm.control.router import FindingRouter
+from agentswarm.control.scheduler import Scheduler
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig
@@ -49,6 +51,7 @@ class ProjectServices:
     decisions: DecisionStore | None = None  # None: decisions.sqlite in the project root
     clock: Clock = field(default_factory=SystemClock)
     lease: timedelta = timedelta(minutes=10)
+    scheduler: Scheduler | None = None  # shared by several projects in one process (agentswarm swarm)
 
 
 class Project:
@@ -90,7 +93,11 @@ class Project:
             root / "repo", root / "worktrees", config.levels, Git(), config.seed
         )
         contexts = ContextBuilder(board, repository, config.north_star)
-        checks = CheckSet(config.checks, Sandboxes.build(config.sandbox))
+        sandbox = Sandboxes.build(config.sandbox)
+        if services.scheduler is not None:
+            sandbox = services.scheduler.throttle(sandbox)
+        checks = CheckSet(config.checks, sandbox)
+        budget = Budget(config.budgets.usd_per_day, clock)
 
         owned: list[Closeable] = [log]
         decisions = services.decisions
@@ -107,7 +114,7 @@ class Project:
         if decider is None and needs_judges:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
-            decider = JevDecider(jev)
+            decider = JevDecider(jev, services.scheduler.jev if services.scheduler is not None else None)
             if config.jev.fallback is not None:
                 fallback = config.models[config.jev.fallback]
                 meter = ledger.meter("jev-fallback", config.jev.fallback, fallback.usd_per_million)
@@ -133,7 +140,16 @@ class Project:
         )
         runners = [
             TeamRunner(
-                services.teams.build(team, resources), board, claims, repository, contexts, clock, lease
+                services.teams.build(team, resources),
+                board,
+                claims,
+                repository,
+                contexts,
+                clock,
+                lease,
+                budget,
+                services.scheduler,
+                ProjectId(config.project),
             )
             for team in config.teams
         ]
@@ -158,7 +174,7 @@ class Project:
                 JoinPromoter(config.levels, gates, join, board, claims, repository, contexts, clock, lease)
             )
         drift = judgements.build("DriftCheck") if decider is not None else None
-        supervisor = Supervisor(config, board, repository, decisions, drift, clock)
+        supervisor = Supervisor(config, board, repository, decisions, drift, clock, budget)
         return cls(config, board, repository, runners, promoters, decisions, artifacts, supervisor, owned)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:

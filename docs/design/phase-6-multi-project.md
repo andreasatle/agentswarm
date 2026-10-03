@@ -64,3 +64,12 @@ no tokens record nothing. Jev answers carry their usage (`Answered.usage`), reco
 with `jev.usd_per_million`; the LLM fallback meters as `jev-fallback`. `BoardViews.spent_since(t)` sums
 spend for budgets. The ledger writes the board directly, like the decision log: it is infrastructure,
 not a team.
+
+**Steps 2–3 (scheduler, budgets).** `control/scheduler.py:Scheduler` holds an asyncio semaphore for model
+calls (team actions), a thread-safe sliding-window `RateLimiter` for Jev (the `JevDecider` waits on it before
+each request) and a bounded semaphore for sandbox runs (`ThrottledSandbox`). Fairness without a dispatcher:
+each project's loop waits for at most one grant at a time and the semaphore serves waiters in arrival
+order. `control/budget.py:Budget` reads spend for the current UTC day from the board; an exhausted
+project's team runners skip their turn (nothing marked handled, as with a pause), and the supervisor
+escalates once a day (project-wide, `artifact: None`). Gates keep judging over budget: Jev is cheap, and
+the model spend that budgets exist for is in team actions. Budgets work without a scheduler too.

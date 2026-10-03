@@ -14,9 +14,10 @@ Each cause escalates an artifact once; a person takes it from there (`agentswarm
 Leases need no supervision: expired claims are ignored by the views.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from agentswarm.board.blackboard import Blackboard, BoardViews
+from agentswarm.control.budget import Budget
 from agentswarm.core.clock import Clock
 from agentswarm.core.config import JevMode, LevelLadder, ProjectConfig
 from agentswarm.core.domain import (
@@ -48,7 +49,10 @@ class Supervisor:
         decisions: DecisionStore,
         drift: Judgement | None,  # None: no decider, so no drift checks
         clock: Clock,
+        budget: Budget | None = None,
     ) -> None:
+        self._budget = budget
+        self._budget_escalated: datetime | None = None  # the day it was last reported
         self._config = config
         self._ladder: LevelLadder = config.levels
         self._board = board
@@ -63,6 +67,9 @@ class Supervisor:
         drift = self._drift_check(views)
         if drift is not None:
             events.append(drift)
+        budget = self._budget_check(views)
+        if budget is not None:
+            events.append(budget)
         self._board.append(events)
         return len(events)
 
@@ -104,6 +111,16 @@ class Supervisor:
             if isinstance(event, CommitPushed | Promoted | Rejected | EscalationResolved):
                 return False
         return False
+
+    def _budget_check(self, views: BoardViews) -> Escalated | None:
+        """Once a day, when the project's budget runs out (its teams wait until the next day)."""
+        if self._budget is None or not self._budget.exhausted(views):
+            return None
+        today = self._budget.day_start()
+        if self._budget_escalated == today:
+            return None
+        self._budget_escalated = today
+        return Escalated(artifact=None, reason=f"supervisor: {self._budget.describe(views)}")
 
     def _drift_check(self, views: BoardViews) -> Paused | None:
         if self._drift is None or views.paused:

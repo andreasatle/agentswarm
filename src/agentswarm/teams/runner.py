@@ -7,6 +7,8 @@ from typing import Protocol
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.claims import ClaimRegistry
 from agentswarm.board.context import ContextBuilder
+from agentswarm.control.budget import Budget
+from agentswarm.control.scheduler import Scheduler
 from agentswarm.core.clock import Clock
 from agentswarm.core.domain import (
     Artifact,
@@ -14,6 +16,7 @@ from agentswarm.core.domain import (
     ArtifactId,
     Event,
     Level,
+    ProjectId,
     TeamName,
 )
 from agentswarm.workspace.git import Repository, Worktree
@@ -65,7 +68,13 @@ class TeamRunner:
         contexts: ContextBuilder,
         clock: Clock,
         lease: timedelta = timedelta(minutes=10),
+        budget: Budget | None = None,  # over budget, the team waits like a paused one
+        scheduler: Scheduler | None = None,  # shared across projects: a slot is held while the team acts
+        project: ProjectId = ProjectId("project"),
     ) -> None:
+        self._budget = budget
+        self._scheduler = scheduler
+        self._project = project
         self._team = team
         self._board = board
         self._claims = claims
@@ -81,8 +90,11 @@ class TeamRunner:
 
     async def step(self) -> int:
         """Act on every artifact that needs this team. Returns how many it acted on."""
-        if self._team.pausable and self._board.current().paused:
+        views = self._board.current()
+        if self._team.pausable and views.paused:
             return 0  # nothing is marked handled, so the work is picked up after Resumed
+        if self._budget is not None and self._budget.exhausted(views):
+            return 0  # likewise: the work waits for tomorrow's budget
         acted = 0
         for artifact in self._candidates():
             if await self._handle(artifact):
@@ -114,7 +126,11 @@ class TeamRunner:
                 else self._repository.checkout_merged(ctx.merge_commit, artifact.id)
             )
             try:
-                events = await self._team.act(ctx, worktree)
+                if self._scheduler is None:
+                    events = await self._team.act(ctx, worktree)
+                else:
+                    async with self._scheduler.model_call(self._project):
+                        events = await self._team.act(ctx, worktree)
             finally:
                 worktree.remove()
             views = self._board.append(events)

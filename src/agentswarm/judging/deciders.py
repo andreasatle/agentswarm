@@ -9,7 +9,7 @@ import asyncio
 import logging
 from collections.abc import Coroutine, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, ClassVar, Literal, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -18,6 +18,9 @@ from agentswarm.jev.api import NoulAnswer
 from agentswarm.jev.client import JevClient, JevError
 from agentswarm.jev.spec import Ask
 from agentswarm.llm.workers import Worker, WorkerError
+
+if TYPE_CHECKING:
+    from agentswarm.control.scheduler import RateLimiter
 
 
 class DeciderError(Exception):
@@ -37,10 +40,13 @@ class Decider(Protocol):
 
 
 class JevDecider:
-    def __init__(self, client: JevClient) -> None:
+    def __init__(self, client: JevClient, limiter: "RateLimiter | None" = None) -> None:
         self._client = client
+        self._limiter = limiter  # the scheduler's shared Jev rate limit, when there is one
 
     def decide[M: BaseModel](self, state: BaseModel, spec: type[M]) -> Answered[M]:
+        if self._limiter is not None:
+            self._limiter.acquire()
         try:
             response = self._client.decide(state, spec)
         except JevError as error:
