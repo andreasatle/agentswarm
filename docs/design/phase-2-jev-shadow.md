@@ -143,6 +143,22 @@ concrete to fix. `Verdict` moved to `policy.py`. Threshold YAML keys stay `pass`
   single question.
 - `Project` owns and closes what it opened (log, decision log, Jev client).
 
+**Step 5 (task suite and hidden tests).**
+- The suite is a YAML file (`examples/greeter/evaluation/suite.yaml`) naming a project config and 14
+  tasks, each with precise task text and a hidden test file. `TaskSuite.project_config()` puts the
+  suite's judge on the gate out of the lowest level and forces Jev into shadow mode, so an evaluation
+  never changes what gets promoted.
+- Every task runs in a fresh project under `workdir/<task id>`; a used workdir is refused, never reused.
+  All tasks share one decision log, so one calibration report covers the run. A task's decisions are
+  the ones recorded while it ran (tasks run one at a time).
+- Hidden tests run in a throwaway detached checkout of the judged commit, under `_hidden/`, in the
+  project's sandbox. They never enter the repository (tested against git history).
+- **The hidden tests are themselves tested:** each task has a reference solution in `reference/`; a test
+  checks that the reference passes and the untouched seed fails. Without this, a wrong hidden test
+  would silently corrupt the ground truth.
+- Five tasks are deliberately multi-part or have edge cases (`farewell-and-shout`, `robust-hello`,
+  `languages`, `hello-many`, `empty-name-error`) so that `complete` is not trivially true.
+
 ## Questions for review
 
 1. **Copy or depend?** Port the Jev client into `agentswarm/jev/` as classes (recommended), rather than

@@ -1,0 +1,86 @@
+# The greeter task suite: small tasks with hidden acceptance tests (Phase 2 design, step 5).
+# Hidden tests give the ground truth for the judge's `complete` question; the executor never sees them.
+project: ../project.yaml
+judge: RawToExperimental
+hidden_tests_command:
+- python
+- -m
+- pytest
+- -q
+- -p
+- no:cacheprovider
+tasks:
+- id: farewell
+  task: Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!' (farewell('Ada') returns 'Goodbye,
+    Ada!'). Add tests.
+  hidden_tests:
+  - hidden/test_farewell.py
+- id: shout
+  task: Add a function shout(name) to greeter.py that returns the hello greeting in upper case (shout('Ada') returns
+    'HELLO, ADA!'). Add tests.
+  hidden_tests:
+  - hidden/test_shout.py
+- id: default-name
+  task: 'Make the name argument of hello optional: hello() with no argument returns ''Hello, World!''. hello(''Ada'')
+    must still return ''Hello, Ada!''. Add tests.'
+  hidden_tests:
+  - hidden/test_default_name.py
+- id: greet-all
+  task: Add a function greet_all(names) to greeter.py that takes a list of names and returns a list with the hello
+    greeting for each name, in the same order (greet_all([]) returns []). Add tests.
+  hidden_tests:
+  - hidden/test_greet_all.py
+- id: strip-whitespace
+  task: 'Make hello strip leading and trailing whitespace from the name: hello(''  Ada '') returns ''Hello, Ada!''.
+    Add tests.'
+  hidden_tests:
+  - hidden/test_strip_whitespace.py
+- id: empty-name-error
+  task: Make hello raise ValueError when the name is an empty string or contains only whitespace. Other names must
+    still work as before. Add tests.
+  hidden_tests:
+  - hidden/test_empty_name_error.py
+- id: initials
+  task: 'Add a function initials(full_name) to greeter.py that returns the upper-case first letter of each word,
+    each followed by a dot: initials(''Ada Lovelace'') returns ''A.L.'' and initials(''grace brewster hopper'')
+    returns ''G.B.H.''. Add tests.'
+  hidden_tests:
+  - hidden/test_initials.py
+- id: polite
+  task: Add a function polite(name, title) to greeter.py that returns 'Hello, <title> <name>!' (polite('Ada', 'Dr.')
+    returns 'Hello, Dr. Ada!'). Add tests.
+  hidden_tests:
+  - hidden/test_polite.py
+- id: farewell-and-shout
+  task: 'Add two functions to greeter.py: farewell(name), which returns ''Goodbye, <name>!'', and shout(name), which
+    returns the hello greeting in upper case (''HELLO, ADA!'' for ''Ada''). Add tests for both.'
+  hidden_tests:
+  - hidden/test_farewell_and_shout.py
+- id: count-vowels
+  task: 'Add a function count_vowels(text) to greeter.py that returns how many of the letters a, e, i, o and u,
+    in upper or lower case, appear in text: count_vowels(''Ada Lovelace'') returns 6. Add tests.'
+  hidden_tests:
+  - hidden/test_count_vowels.py
+- id: languages
+  task: Add a function greet_in(name, language) to greeter.py. For language 'en' it returns 'Hello, <name>!', for
+    'es' it returns 'Hola, <name>!', and for 'fr' it returns 'Bonjour, <name>!'. Any other language raises ValueError.
+    Add tests.
+  hidden_tests:
+  - hidden/test_languages.py
+- id: hello-many
+  task: Add a function hello_many(name, times) to greeter.py that returns the hello greeting for name repeated times
+    times, one greeting per line, separated by a single newline character and with no trailing newline. hello_many('Ada',
+    0) returns the empty string. Add tests.
+  hidden_tests:
+  - hidden/test_hello_many.py
+- id: title-case
+  task: 'Make hello capitalise the name: the first letter of each word in upper case and the rest in lower case
+    (hello(''ada lovelace'') returns ''Hello, Ada Lovelace!'' and hello(''GRACE'') returns ''Hello, Grace!''). Add
+    tests.'
+  hidden_tests:
+  - hidden/test_title_case.py
+- id: robust-hello
+  task: Change hello so that (1) the name defaults to 'World' when it is omitted, (2) leading and trailing whitespace
+    is stripped from the name, and (3) an empty or whitespace-only name raises ValueError. Add tests for all three.
+  hidden_tests:
+  - hidden/test_robust_hello.py
