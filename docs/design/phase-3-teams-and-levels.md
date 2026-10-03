@@ -1,6 +1,6 @@
 # Phase 3: More teams and levels
 
-Status: **in progress.** All five questions decided as recommended (the user chose to let the
+Status: **complete.** All five questions decided as recommended (the user chose to let the
 implementation proceed on the recommendations). Proposal sections: §9 (git), §10 (teams), §11.4 (join checks),
 §12.1 (relevance filters), §14.1 (supervisor).
 
@@ -266,6 +266,20 @@ that the preset YAML ships in the built wheel.
   `agentswarm escalations / resolve / resume` work without models or a Jev key.
 - Gates escalate once while an escalation is open (`open_escalation`), instead of matching reason
   strings.
+
+## Result
+
+- **Exit criterion, in tests:** a goal split into two children reaches `candidate` (children by train,
+  umbrella by join); stall and drift escalations are triggered and checked; an escalated artifact is
+  listed, accepted and carried on through the CLI. 292 tests.
+- **Live run** (`examples/greeter/project.yaml` on the software preset, `gemma4:e4b`, `jev-latest` in
+  shadow mode, Docker sandbox), task "add farewell and shout, with tests": the executor's change was
+  correct; Jev passed the gate (in_scope 0.97, tests_relevant 0.94, complete 0.97); both relevance
+  filters judged the change not worth the effort (0.08, 0.15), the analyzers worked anyway (shadow) and
+  found nothing, so both relevance decisions got correct `team_result` outcomes; the train moved it to
+  `candidate`; the `production` gate escalated for a person, as configured.
+- Not exercised live: decomposition (shadow mode never splits) and the router (no findings). Both are
+  covered by tests with fakes; live decomposition comes with Phase 4, when decision points can be active.
 
 ## Steps (one commit each)
 
