@@ -191,6 +191,17 @@ that the preset YAML ships in the built wheel.
   alike; `Project.open` creates the decider before the teams, and only if some gate or team needs one.
 - Analyzers run individual test files with their first configured check (`checks:`), which must exist.
 
+**Step 5 (finding router).**
+- `control/router.py:FindingRouter` runs every project step, after the teams and gates. It routes open
+  `MAJOR`/`BLOCKER` findings on artifacts above the lowest level (minor ones stay informational), once
+  each, and resolves a finding when its fix reaches the finding's level.
+- `Artifact.fixes` names the finding a fix artifact fixes (and the views index it), so the router never
+  routes twice and decomposition children (step 7) can be told apart from fixes.
+- `board/artifacts.py:ArtifactFactory` creates artifacts for people, the router and (soon) the
+  decomposition team; `Project.slug` moved there.
+- The fix task carries the original task and the full finding (including the failing test), because the
+  executor of a fix artifact sees only its own task.
+
 ## Steps (one commit each)
 
 **3a**

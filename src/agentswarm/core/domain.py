@@ -31,7 +31,8 @@ class Artifact(Frozen):
     task: str  # what this artifact is meant to achieve
     branch: str  # e.g. "raw/a-0042-retry-policy"
     level: Level
-    parent: ArtifactId | None = None  # set when created by decomposition
+    parent: ArtifactId | None = None  # the artifact this one was split from, or fixes a finding on
+    fixes: FindingId | None = None  # set on fix artifacts created by the finding router
     created_by: TeamName
 
 

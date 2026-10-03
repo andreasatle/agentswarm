@@ -47,6 +47,7 @@ class BoardViews:
     _histories: dict[ArtifactId, list[Envelope]] = field(default_factory=dict[ArtifactId, list[Envelope]])
     _last_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _unjudged: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
+    _fixes: dict[FindingId, ArtifactId] = field(default_factory=dict[FindingId, ArtifactId])
     _merge_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
     _sign_offs: dict[ArtifactId, dict[TeamName, int]] = field(
@@ -63,6 +64,8 @@ class BoardViews:
         match event:
             case ArtifactCreated():
                 self._artifacts[event.artifact.id] = event.artifact
+                if event.artifact.fixes is not None:
+                    self._fixes[event.artifact.fixes] = event.artifact.id
             case Claimed():
                 self._claims[event.claim.artifact] = event.claim
             case Released():
@@ -108,6 +111,10 @@ class BoardViews:
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
+
+    def fix_for(self, finding: FindingId) -> ArtifactId | None:
+        """The artifact created to fix a finding, if there is one."""
+        return self._fixes.get(finding)
 
     def merge_commit(self, id: ArtifactId) -> str | None:
         """The merge commit that brought the artifact into the first shared level, once it is there."""

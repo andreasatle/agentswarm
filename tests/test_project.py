@@ -4,14 +4,17 @@ import sys
 from copy import deepcopy
 from pathlib import Path
 
+from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import (
     ArtifactCreated,
+    ArtifactId,
     Claimed,
     CommitPushed,
+    FindingAdded,
     FindingKind,
     ProjectId,
     Promoted,
@@ -131,9 +134,12 @@ class TestProjectWithExecutorTeam:
 
 class TestSlug:
     def test_slug_is_branch_safe(self) -> None:
-        assert Project.slug("Add retry: exponential back-off (v2)!") == "add-retry-exponential-back-off-v2"
-        assert Project.slug("???") == "task"
-        assert len(Project.slug("x" * 100)) == 40
+        assert (
+            ArtifactFactory.slug("Add retry: exponential back-off (v2)!")
+            == "add-retry-exponential-back-off-v2"
+        )
+        assert ArtifactFactory.slug("???") == "task"
+        assert len(ArtifactFactory.slug("x" * 100)) == 40
 
 
 class TestProjectWithAnalyzers:
@@ -165,8 +171,11 @@ class TestProjectWithAnalyzers:
             )
             return AnalysisReport(summary="attacked", problems=(problem,))
 
+        def nothing(toolbox: Toolbox | None) -> AnalysisReport:
+            return AnalysisReport(summary="attacked the fix", problems=())
+
         services = ProjectServices(
-            workers=FakeWorkers({"coder": FakeWorker([attack])}),
+            workers=FakeWorkers({"coder": FakeWorker([attack, nothing])}),
             decider=FakeDecider([AdversarialRelevance(relevant=NoulAnswer(noul=0.9))]),
             decisions=InMemoryDecisions(),
             clock=FakeClock(Samples.AT),
@@ -177,9 +186,17 @@ class TestProjectWithAnalyzers:
 
         views = project.views()
         assert views.artifact(artifact.id).level == Samples.EXPERIMENTAL
-        (finding,) = views.open_findings(artifact.id)
-        assert (finding.team, finding.kind) == ("red_team", FindingKind.EDGE_CASE)
+        (added,) = [e for e in views.history(artifact.id) if isinstance(e, FindingAdded)]
+        assert (added.finding.team, added.finding.kind) == ("red_team", FindingKind.EDGE_CASE)
         assert views.signed_off(artifact.id, TeamName("red_team"))
-        (relevance,) = [d for d in project.decisions.all() if d.point == "relevance:red_team"]
+        # The router turned the finding into a fix artifact, which reached the level and resolved it.
+        fix = views.artifact(views.fix_for(added.finding.id) or ArtifactId("missing"))
+        assert (fix.parent, fix.level, fix.created_by) == (artifact.id, Samples.EXPERIMENTAL, "router")
+        assert views.open_findings(artifact.id) == []
+        (relevance,) = [
+            d
+            for d in project.decisions.all()
+            if d.point == "relevance:red_team" and d.artifact == artifact.id
+        ]
         assert project.decisions.outcomes(relevance.id)[0].truth is True
         project.close()

@@ -1,18 +1,19 @@
 """One project with its north star: the board, the repository, its teams and its gates, wired together."""
 
-import re
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Protocol, Self
 
+from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.board.claims import ClaimRegistry
 from agentswarm.board.context import ContextBuilder
-from agentswarm.board.eventlog import ConcurrencyConflict, SqliteEventLog
+from agentswarm.board.eventlog import SqliteEventLog
+from agentswarm.control.router import FindingRouter
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig
-from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, ProjectId, TeamName
+from agentswarm.core.domain import Artifact, ProjectId, TeamName
 from agentswarm.gating.checks import CheckSet
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.promotion import Promoter
@@ -66,6 +67,8 @@ class Project:
         self._promoters = promoters
         self.decisions = decisions
         self._owned = owned  # resources this project opened, closed with it
+        self._artifacts = ArtifactFactory(board, config.levels)
+        self._router = FindingRouter(board, self._artifacts, config.levels)
 
     @classmethod
     def open(cls, config: ProjectConfig, root: Path, services: ProjectServices | None = None) -> Self:
@@ -120,29 +123,16 @@ class Project:
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
         """Put a new artifact on the board at the lowest level, with the next free id."""
-        while True:
-            views = self.board.current()
-            id = ArtifactId(f"a-{len(views.artifacts()) + 1:04d}")
-            artifact = Artifact(
-                id=id,
-                task=task,
-                branch=f"{self.config.levels.lowest}/{id}-{self.slug(task)}",
-                level=self.config.levels.lowest,
-                created_by=created_by,
-            )
-            try:
-                self.board.append([ArtifactCreated(artifact=artifact)], expected_head=views.seq)
-            except ConcurrencyConflict:
-                continue  # someone else appended; the id may be taken
-            return artifact
+        return self._artifacts.create(task, created_by)
 
     async def step(self) -> int:
-        """Run every team once, then every gate once. Returns the number of actions taken."""
+        """Run every team, every gate and the router once. Returns the number of actions taken."""
         actions = 0
         for runner in self._runners:
             actions += await runner.step()
         for promoter in self._promoters:
             actions += promoter.step()
+        actions += self._router.step()
         return actions
 
     async def run_until_idle(self, max_rounds: int = 50) -> int:
@@ -158,9 +148,3 @@ class Project:
     def close(self) -> None:
         for resource in reversed(self._owned):
             resource.close()
-
-    @staticmethod
-    def slug(task: str, max_length: int = 40) -> str:
-        """A branch-safe slug from a task description."""
-        words = re.sub(r"[^a-z0-9]+", "-", task.lower()).strip("-")
-        return words[:max_length].rstrip("-") or "task"

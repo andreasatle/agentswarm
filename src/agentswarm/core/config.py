@@ -49,6 +49,10 @@ class LevelLadder(Strict):
     def contains(self, level: Level) -> bool:
         return level in self.levels
 
+    def reached(self, level: Level, target: Level) -> bool:
+        """Whether `level` is `target` or above it."""
+        return self.levels.index(level) >= self.levels.index(target)
+
     def next(self, level: Level) -> Level | None:
         i = self.levels.index(level)
         return self.levels[i + 1] if i + 1 < len(self.levels) else None
