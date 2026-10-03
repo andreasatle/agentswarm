@@ -188,7 +188,8 @@ You are the executor in a software team. Implement the task in `instruction.goal
 - Follow every rule in `instruction.constraints`.
 - Add or update tests for the behaviour you change.
 - Run run_checks after your changes and keep fixing until every check passes.
-- When you are done, reply with a one-line summary of the change, and whether the task is complete."""
+- When you are done, give your final answer in the required structured format: a one-line summary
+  of the change, and whether the task is complete. Do not finish with a plain-text reply."""
 
     def __init__(
         self,
@@ -211,7 +212,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 self.INSTRUCTIONS, self.request(ctx, worktree), ExecutorReport, toolbox
             )
         except WorkerError as error:
-            return [Escalated(artifact=artifact.id, reason=f"executor failed: {error}")]
+            return self._escalate(ctx, worktree, f"executor failed: {error}")
         if not worktree.has_changes():
             return [Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")]
 
@@ -225,6 +226,15 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 Escalated(artifact=artifact.id, reason=f"executor reports incomplete: {report.summary}")
             )
         return events
+
+    @staticmethod
+    def _escalate(ctx: ArtifactContext, worktree: Worktree, reason: str) -> list[Event]:
+        """Escalate, first committing any work in progress so a human can see it."""
+        escalated = Escalated(artifact=ctx.artifact.id, reason=reason)
+        if not worktree.has_changes():
+            return [escalated]
+        sha = worktree.commit(f"{ctx.artifact.id}: work in progress (escalated)")
+        return [CommitPushed(artifact=ctx.artifact.id, commit=sha), escalated]
 
     def request(self, ctx: ArtifactContext, worktree: Worktree) -> ExecutorRequest:
         return ExecutorRequest(

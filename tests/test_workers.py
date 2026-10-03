@@ -44,8 +44,19 @@ class TestLangChainWorker:
         replies = Replies()
         for _ in range(5):
             replies.text("I refuse to use the format.")
-        with pytest.raises(WorkerError, match="no Answer"):
+        with pytest.raises(
+            WorkerError, match=r"(?s)no Answer; .*Model call limits exceeded.*final answer failed"
+        ):
             await LangChainWorker(replies.model(), max_model_calls=3).run("Do it.", Payload(task="t"), Answer)
+
+    async def test_asks_once_more_for_the_answer_when_the_model_ends_in_plain_text(self) -> None:
+        model = (
+            Replies().call("write_note", text="hi").text("Done! summary: done").call("Answer", summary="done")
+        )
+        notebook = Notebook()
+        answer = await LangChainWorker(model.model()).run("Do it.", Payload(task="t"), Answer, notebook)
+        assert answer == Answer(summary="done")
+        assert notebook.notes == ["hi"]
 
     async def test_stops_at_the_model_call_limit(self) -> None:
         replies = Replies()

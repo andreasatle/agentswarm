@@ -13,9 +13,10 @@ from typing import Protocol
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
-from langchain.messages import HumanMessage
+from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import BaseMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
@@ -77,15 +78,51 @@ class LangChainWorker:
         except Exception as error:  # provider and parsing failures surface as many types
             raise WorkerError(f"{type(error).__name__}: {error}") from error
         result = state.get("structured_response")
-        if not isinstance(result, output):
-            raise WorkerError(f"no {output.__name__} after at most {self._max_model_calls} model calls")
-        return result
+        if isinstance(result, output):
+            return result
+        # The agent ended without a structured answer: common for local models, which often finish in
+        # plain text, and after the call limit. One more call asks only for the answer.
+        messages: list[BaseMessage] = state.get("messages", [])
+        try:
+            return await self._final_answer(instructions, messages, output)
+        except Exception as error:
+            raise WorkerError(
+                f"no {output.__name__}; {Transcript(messages).summary()}; final answer failed: {error}"
+            ) from error
+
+    FINAL_ANSWER = (
+        "Stop working now. Give your final answer in the required structured format, based on the work above."
+    )
+
+    async def _final_answer[T: BaseModel](
+        self, instructions: str, messages: Sequence[BaseMessage], output: type[T]
+    ) -> T:
+        structured = self._model.with_structured_output(output)
+        answer = await structured.ainvoke(
+            [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)]
+        )
+        return answer if isinstance(answer, output) else output.model_validate(answer)
 
     @staticmethod
     def tools_of(toolbox: Toolbox | None) -> list[BaseTool]:
         if toolbox is None:
             return []
         return [StructuredTool.from_function(method) for method in toolbox.tools()]
+
+
+class Transcript:
+    """A short account of an agent run, for errors: model calls, tools called, and the last reply."""
+
+    REPLY_LIMIT = 500
+
+    def __init__(self, messages: Sequence[BaseMessage]) -> None:
+        self._messages = messages
+
+    def summary(self) -> str:
+        replies = [m for m in self._messages if isinstance(m, AIMessage)]
+        tools = [call["name"] for m in replies for call in m.tool_calls]
+        last = replies[-1].text[: self.REPLY_LIMIT] if replies else ""
+        return f"{len(replies)} model calls, tools called: {tools or 'none'}, last reply: {last!r}"
 
 
 type Step[T: BaseModel] = Callable[[Toolbox | None], T]

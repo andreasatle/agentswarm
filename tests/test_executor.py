@@ -176,6 +176,19 @@ class TestExecutorTeam:
         assert isinstance(event, Escalated)
         assert "no changes" in event.reason
 
+    async def test_worker_failure_keeps_the_work_done_so_far(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+
+        def half(toolbox: Toolbox | None) -> ExecutorReport:
+            assert isinstance(toolbox, WorktreeToolbox)
+            toolbox.write_file("greeting.py", "def farewell(): ...\n")
+            raise WorkerError("ran out of model calls")
+
+        commit, escalated = await ExecutorTeam(FakeWorker([half]), [], Samples.RAW).act(w.ctx(), w.worktree)
+        assert isinstance(commit, CommitPushed)
+        assert isinstance(escalated, Escalated)
+        assert w.h.repository.files_at(w.artifact.branch) == ["greeting.py"]
+
     async def test_worker_failure_is_escalated(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
 

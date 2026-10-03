@@ -1,6 +1,6 @@
 """A real model on the greeter example: the Phase 1 exit criterion. Opt in with AGENTSWARM_LIVE_MODEL.
 
-    AGENTSWARM_LIVE_MODEL=ollama:qwen2.5-coder:7b uv run --extra ollama pytest -m live -s
+    AGENTSWARM_LIVE_MODEL=ollama:gemma4:26b uv run --extra ollama pytest -m live -s
 
 Checks run in Docker when a daemon answers (the image from docker/sandbox-python.Dockerfile must exist),
 otherwise on the host with this interpreter.
@@ -25,7 +25,7 @@ TASK = "Add a function farewell(name) to greeter.py that returns 'Goodbye, <name
 
 @pytest.mark.live
 class TestLiveGreeter:
-    async def test_a_real_model_takes_a_task_to_experimental(self, tmp_path: Path) -> None:
+    async def test_a_real_model_takes_a_task_to_experimental(self, docker_workdir: Path) -> None:
         model = os.environ["AGENTSWARM_LIVE_MODEL"]
         config = ProjectConfig.load(EXAMPLE)
         config = config.model_copy(
@@ -38,7 +38,8 @@ class TestLiveGreeter:
             )
             config = config.model_copy(update={"sandbox": local, "checks": {"unit_tests": tests}})
 
-        project = Project.open(config, tmp_path, TeamCatalog.standard(), FakeDecider())
+        # docker_workdir is under $HOME, which Colima and Docker Desktop share with containers by default.
+        project = Project.open(config, docker_workdir, TeamCatalog.standard(), FakeDecider())
         artifact = project.create_artifact(TASK)
         await project.run_until_idle(max_rounds=10)
         print(Report.render(project.views()))
