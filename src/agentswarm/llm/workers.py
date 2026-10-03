@@ -20,7 +20,10 @@ from langchain_core.messages import BaseMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
+from agentswarm.core.domain import Usage
 from agentswarm.llm.models import ChatModels
+
+type Meter = Callable[[Usage], None]  # told the token usage of a run (see board/spend.py)
 
 
 class WorkerError(Exception):
@@ -59,9 +62,10 @@ class Worker(Protocol):
 class LangChainWorker:
     """A worker backed by any LangChain chat model, through `create_agent`."""
 
-    def __init__(self, model: BaseChatModel, max_model_calls: int = 40) -> None:
+    def __init__(self, model: BaseChatModel, max_model_calls: int = 40, meter: Meter | None = None) -> None:
         self._model = model
         self._max_model_calls = max_model_calls
+        self._meter = meter  # told the token usage of every run, so spend reaches the board
 
     async def run[T: BaseModel](
         self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
@@ -77,6 +81,7 @@ class LangChainWorker:
             state = await agent.ainvoke({"messages": [HumanMessage(Prompts.data(payload))]})
         except Exception as error:  # provider and parsing failures surface as many types
             raise WorkerError(f"{type(error).__name__}: {error}") from error
+        self._report(Tokens.of(state.get("messages", [])))
         result = state.get("structured_response")
         if isinstance(result, output):
             return result
@@ -97,17 +102,39 @@ class LangChainWorker:
     async def _final_answer[T: BaseModel](
         self, instructions: str, messages: Sequence[BaseMessage], output: type[T]
     ) -> T:
-        structured = self._model.with_structured_output(output)
-        answer = await structured.ainvoke(
+        structured = self._model.with_structured_output(output, include_raw=True)
+        reply = await structured.ainvoke(
             [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)]
         )
+        raw = reply.get("raw") if isinstance(reply, dict) else None
+        if isinstance(raw, AIMessage):
+            self._report(Tokens.of([raw]))
+        answer = reply.get("parsed") if isinstance(reply, dict) else reply
         return answer if isinstance(answer, output) else output.model_validate(answer)
+
+    def _report(self, usage: Usage) -> None:
+        if self._meter is not None:
+            self._meter(usage)
 
     @staticmethod
     def tools_of(toolbox: Toolbox | None) -> list[BaseTool]:
         if toolbox is None:
             return []
         return [StructuredTool.from_function(method) for method in toolbox.tools()]
+
+
+class Tokens:
+    @staticmethod
+    def of(messages: Sequence[BaseMessage]) -> Usage:
+        """The usage LangChain reports on AI messages (`usage_metadata`), summed."""
+        usage = Usage()
+        for message in messages:
+            if isinstance(message, AIMessage) and message.usage_metadata:
+                usage = usage + Usage(
+                    input_tokens=message.usage_metadata.get("input_tokens", 0),
+                    output_tokens=message.usage_metadata.get("output_tokens", 0),
+                )
+        return usage
 
 
 class Transcript:
@@ -148,8 +175,8 @@ class FakeWorker:
 
 
 class WorkerProvider(Protocol):
-    def worker(self, model: str, max_model_calls: int) -> Worker:
-        """The worker for the named model in the project configuration."""
+    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+        """The worker for the named model in the project configuration; `meter` hears its token usage."""
         ...
 
 
@@ -157,8 +184,8 @@ class LangChainWorkers:
     def __init__(self, models: ChatModels) -> None:
         self._models = models
 
-    def worker(self, model: str, max_model_calls: int) -> Worker:
-        return LangChainWorker(self._models.get(model), max_model_calls)
+    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+        return LangChainWorker(self._models.get(model), max_model_calls, meter)
 
 
 class FakeWorkers:
@@ -167,5 +194,5 @@ class FakeWorkers:
     def __init__(self, workers: Mapping[str, Worker]) -> None:
         self._workers = workers
 
-    def worker(self, model: str, max_model_calls: int) -> Worker:
+    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
         return self._workers[model]

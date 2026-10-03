@@ -1,6 +1,6 @@
 # Phase 6: Several projects, one scheduler
 
-Status: **planned** (decided on the recommendations). Proposal sections: §14.2 (scheduler), §14.1
+Status: **in progress** (decided on the recommendations). Proposal sections: §14.2 (scheduler), §14.1
 (budgets), §16 (project isolation).
 
 **Exit criterion (§19):** two projects run concurrently within their budgets.
@@ -54,3 +54,13 @@ repository and worktrees (§16, isolation).
    finishes; then a live run with the greeter and handbook projects.
 
 ## Decisions made during implementation
+
+**Step 1 (spend on the board).** Workers keep returning plain results: a `Meter` callback, given to each
+team's worker when the catalog builds it, hears the token usage of every run (LangChain's
+`usage_metadata`, summed over the agent's messages, plus the final-answer call, now made with
+`include_raw` to see its usage). `SpendLedger` prices usage with `models.<name>.usd_per_million` and
+appends `Spent(by, model, tokens, usd, priced)`; unpriced models record 0 and `priced: false`; calls with
+no tokens record nothing. Jev answers carry their usage (`Answered.usage`), recorded as `jev:<point>`
+with `jev.usd_per_million`; the LLM fallback meters as `jev-fallback`. `BoardViews.spent_since(t)` sums
+spend for budgets. The ledger writes the board directly, like the decision log: it is infrastructure,
+not a team.

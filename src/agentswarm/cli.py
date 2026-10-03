@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     Resumed,
     SignedOff,
     Sized,
+    Spent,
 )
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -69,6 +70,10 @@ class Report:
                 return f"finding {event.finding} resolved{by}: {event.reason}"
             case SignedOff():
                 return f"signed off by {event.team}"
+            case Spent():
+                cost = f"${event.usd:.4f}" if event.priced else "unpriced"
+                tokens = f"{event.input_tokens}+{event.output_tokens} tokens"
+                return f"spent by {event.by} on {event.model}: {tokens}, {cost}"
             case Paused():
                 return f"PAUSED: {event.reason}"
             case Resumed():

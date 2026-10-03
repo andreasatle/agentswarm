@@ -30,6 +30,7 @@ from agentswarm.core.domain import (
     Resumed,
     SignedOff,
     Sized,
+    Spent,
     TeamName,
 )
 
@@ -57,6 +58,7 @@ class BoardViews:
     _escalations: dict[ArtifactId, Escalated] = field(default_factory=dict[ArtifactId, Escalated])
     _accepted: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _dropped: set[ArtifactId] = field(default_factory=set[ArtifactId])
+    _spent: list[tuple[datetime, float]] = field(default_factory=list[tuple[datetime, float]])
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
     _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
@@ -95,6 +97,8 @@ class BoardViews:
             case Sized():
                 if not event.fits:
                     self._umbrellas.add(event.artifact)
+            case Spent():
+                self._spent.append((envelope.at, event.usd))
             case Paused():
                 self.paused = True
             case Resumed():
@@ -157,6 +161,10 @@ class BoardViews:
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
+
+    def spent_since(self, since: datetime) -> float:
+        """US dollars spent on models since a moment (e.g. the start of the day)."""
+        return sum(usd for at, usd in self._spent if at >= since)
 
     def last_activity(self, id: ArtifactId) -> datetime:
         """When anything last happened to the artifact."""

@@ -8,7 +8,7 @@ from agentswarm.core.config import LevelLadder, TeamConfig
 from agentswarm.core.domain import TeamName
 from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
 from agentswarm.judging.judgement import Judgement, Judgements
-from agentswarm.llm.workers import Worker, WorkerProvider
+from agentswarm.llm.workers import Meter, Worker, WorkerProvider
 from agentswarm.teams.analyzer import IntegrationTester, RedTeam
 from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
@@ -28,7 +28,9 @@ class TeamResources:
         artifacts: ArtifactFactory,
         ladder: LevelLadder,
         team_uses: Sequence[str],
+        meters: Callable[[str, str], Meter] | None = None,  # (team, model) -> meter, for spend
     ) -> None:
+        self._meters = meters
         self._workers = workers
         self._checks = checks
         self._judgements = judgements
@@ -53,12 +55,18 @@ class TeamResources:
         models = team.model_tiers or ((team.model,) if team.model is not None else ())
         if not models:
             raise ValueError(f"team {team.use!r} needs a model; set `model:` or `model_tiers:`")
-        return [Tier(model, self._workers.worker(model, team.max_model_calls)) for model in models]
+        return [
+            Tier(model, self._workers.worker(model, team.max_model_calls, self._meter(team, model)))
+            for model in models
+        ]
 
     def worker_for(self, team: TeamConfig) -> Worker:
         if team.model is None:
             raise ValueError(f"team {team.use!r} needs a model; set `model:` in its configuration")
-        return self._workers.worker(team.model, team.max_model_calls)
+        return self._workers.worker(team.model, team.max_model_calls, self._meter(team, team.model))
+
+    def _meter(self, team: TeamConfig, model: str) -> Meter | None:
+        return self._meters(team.use, model) if self._meters is not None else None
 
     def checks_for(self, team: TeamConfig) -> list[HardCheck]:
         return self._checks.build(team.checks)

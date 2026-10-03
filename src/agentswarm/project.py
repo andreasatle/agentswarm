@@ -10,11 +10,12 @@ from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.board.claims import ClaimRegistry
 from agentswarm.board.context import ContextBuilder
 from agentswarm.board.eventlog import SqliteEventLog
+from agentswarm.board.spend import SpendLedger
 from agentswarm.control.router import FindingRouter
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig
-from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName
+from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName, Usage
 from agentswarm.gating.checks import CheckSet
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.join import JoinPromoter
@@ -102,20 +103,33 @@ class Project:
             any(g.judge for g in config.gates) or any(t.relevance for t in config.teams) or decomposes
         )
         workers = services.workers or LangChainWorkers(ChatModels(config.models))
+        ledger = SpendLedger(board)
         if decider is None and needs_judges:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
             decider = JevDecider(jev)
             if config.jev.fallback is not None:
-                llm = LLMDecider(
-                    workers.worker(config.jev.fallback, 3), config.models[config.jev.fallback].model
-                )
+                fallback = config.models[config.jev.fallback]
+                meter = ledger.meter("jev-fallback", config.jev.fallback, fallback.usd_per_million)
+                llm = LLMDecider(workers.worker(config.jev.fallback, 3, meter), fallback.model)
                 decider = FallbackDecider(decider, llm)
-        judgements = Judgements(services.judges, decider, decisions, ModeTable.of(config.jev), clock)
+
+        def jev_spend(by: str, model: str, usage: Usage) -> None:
+            ledger.record(by, model, usage, config.jev.usd_per_million)
+
+        judgements = Judgements(
+            services.judges, decider, decisions, ModeTable.of(config.jev), clock, jev_spend
+        )
 
         artifacts = ArtifactFactory(board, config.levels)
         resources = TeamResources(
-            workers, checks, judgements, artifacts, config.levels, [t.use for t in config.teams]
+            workers,
+            checks,
+            judgements,
+            artifacts,
+            config.levels,
+            [t.use for t in config.teams],
+            lambda team, model: ledger.meter(team, model, config.models[model].usd_per_million),
         )
         runners = [
             TeamRunner(

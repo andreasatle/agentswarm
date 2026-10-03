@@ -210,6 +210,35 @@ class Resumed(Frozen):
         return None
 
 
+class Usage(Frozen):
+    """Tokens one model call (or a run of them) used."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def __add__(self, other: "Usage") -> "Usage":
+        return Usage(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+        )
+
+
+class Spent(Frozen):
+    """Money spent on models: one event per team action or Jev decision (Phase 6)."""
+
+    kind: Literal["spent"] = "spent"
+    by: str  # the team, or "jev:<decision point>"
+    model: str
+    input_tokens: int
+    output_tokens: int
+    usd: float
+    priced: bool  # False when the model has no price in the config, so usd is 0
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
 class Promoted(Frozen):
     kind: Literal["promoted"] = "promoted"
     artifact: ArtifactId
@@ -258,6 +287,7 @@ type Event = Annotated[
     | Sized
     | Paused
     | Resumed
+    | Spent
     | Promoted
     | Rejected
     | Escalated

@@ -84,6 +84,16 @@ class SandboxConfig(Strict):
     pids: int = Field(default=256, gt=0)
 
 
+class Price(Strict):
+    """US dollars per million tokens."""
+
+    input: float = Field(ge=0)
+    output: float = Field(ge=0)
+
+    def usd(self, input_tokens: int, output_tokens: int) -> float:
+        return (input_tokens * self.input + output_tokens * self.output) / 1_000_000
+
+
 class JevConfig(Strict):
     model: str = "jev-latest"  # pin a concrete version (e.g. "jev-1.13.0") once thresholds are calibrated
     mode: JevMode = JevMode.SHADOW  # the default for decision points `active` doesn't name
@@ -91,6 +101,7 @@ class JevConfig(Strict):
     # "gate:raw->experimental", "relevance:*", "size:raw". Promote a point once it is calibrated (§12.3).
     active: tuple[str, ...] = ()
     fallback: str | None = None  # a model in `models` that answers when Jev can't (uncalibrated, marked)
+    usd_per_million: Price | None = None  # Jev's price, for spend and budgets
     timeout_s: float = Field(default=30.0, gt=0)
 
 
@@ -141,6 +152,7 @@ class ModelConfig(Strict):
     max_tokens: int | None = None
     base_url: str | None = None  # e.g. a remote Ollama server
     timeout_s: float | None = None
+    usd_per_million: Price | None = None  # for spend and budgets; unpriced models cost 0 (and say so)
 
     @property
     def provider(self) -> str:

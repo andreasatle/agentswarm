@@ -1,16 +1,18 @@
 """One judgement: ask a judge, rule on its answers, record the decision (proposal §11.2 steps 2-3, §15.1)."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from fnmatch import fnmatchcase
 from typing import Self
 
 from agentswarm.core.clock import Clock
 from agentswarm.core.config import JevConfig, JevMode, Threshold
-from agentswarm.core.domain import ArtifactContext, ArtifactId
+from agentswarm.core.domain import ArtifactContext, ArtifactId, Usage
 from agentswarm.judging.deciders import Decider
 from agentswarm.judging.decisions import Decision, DecisionDraft, DecisionStore
 from agentswarm.judging.judges import Judge, JudgeCatalog, JudgeState
 from agentswarm.judging.policy import Policy
+
+type SpendRecorder = Callable[[str, str, Usage], None]  # (by, model, usage), e.g. SpendLedger.record
 
 
 class ModeTable:
@@ -44,6 +46,7 @@ class Judgement:
         decisions: DecisionStore,
         modes: ModeTable | JevMode,  # a single mode applies to every point
         clock: Clock,
+        spend: SpendRecorder | None = None,  # told each answer's usage, for the project's spend
     ) -> None:
         self.judge = judge
         self._policy = policy
@@ -51,6 +54,7 @@ class Judgement:
         self._decisions = decisions
         self._modes = modes if isinstance(modes, ModeTable) else ModeTable(modes)
         self._clock = clock
+        self._spend = spend
 
     def mode_for(self, point: str) -> JevMode:
         return self._modes.mode_for(point)
@@ -72,6 +76,8 @@ class Judgement:
     ) -> Decision:
         """Ask about a state built by the caller, e.g. the supervisor's view of recent work."""
         answered = self._decider.decide(state, self.judge.spec)
+        if self._spend is not None and answered.usage is not None:
+            self._spend(f"jev:{point}", answered.model, answered.usage)
         return self._decisions.record(
             DecisionDraft(
                 point=point,
@@ -100,7 +106,9 @@ class Judgements:
         decisions: DecisionStore,
         modes: ModeTable | JevMode,
         clock: Clock,
+        spend: SpendRecorder | None = None,
     ) -> None:
+        self._spend = spend
         self._judges = judges
         self._decider = decider
         self.decisions = decisions
@@ -112,5 +120,11 @@ class Judgements:
             raise ValueError(f"judge {judge!r} needs a decider, but the project has none")
         spec = self._judges.get(judge)
         return Judgement(
-            spec, Policy(spec, thresholds), self._decider, self.decisions, self._modes, self.clock
+            spec,
+            Policy(spec, thresholds),
+            self._decider,
+            self.decisions,
+            self._modes,
+            self.clock,
+            self._spend,
         )

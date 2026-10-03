@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from agentswarm.core.domain import Usage
 from agentswarm.jev.api import NoulAnswer
 from agentswarm.jev.client import JevClient, JevError
 from agentswarm.jev.spec import Ask
@@ -28,6 +29,7 @@ class Answered[M: BaseModel](BaseModel):
 
     answers: M
     model: str  # the concrete version that answered, e.g. "jev-1.13.0"
+    usage: Usage | None = None  # tokens, when the decider reports them (Jev does)
 
 
 class Decider(Protocol):
@@ -43,7 +45,8 @@ class JevDecider:
             response = self._client.decide(state, spec)
         except JevError as error:
             raise DeciderError(str(error)) from error
-        return Answered[spec](answers=response.answers, model=response.model)
+        usage = Usage(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
+        return Answered[spec](answers=response.answers, model=response.model, usage=usage)
 
 
 class FakeDecider:
