@@ -30,6 +30,7 @@ class Labelled(Frozen):
     """One question of one decision, with its ground truth."""
 
     point: str
+    judge_version: str
     field: str
     p_yes: float
     truth: bool
@@ -46,6 +47,7 @@ class Bin(Frozen):
 
 class QuestionCalibration(Frozen):
     point: str
+    judge_version: str
     field: str
     n: int
     positives: int  # how many have truth yes
@@ -81,6 +83,7 @@ class QuestionCalibration(Frozen):
         correct = sum((verdict is QuestionVerdict.PASS) == truth for verdict, truth in decided)
         return cls(
             point=rows[0].point,
+            judge_version=rows[0].judge_version,
             field=rows[0].field,
             n=n,
             positives=sum(r.truth for r in rows),
@@ -104,7 +107,8 @@ class QuestionCalibration(Frozen):
         if self.decided_accuracy is not None:
             decides += f", right {self.decided_accuracy:.0%} of those"
         lines = [
-            f"{self.point} · {self.field}: n={self.n} ({self.positives} yes), truths from {sources}",
+            f"{self.point} · {self.field} (judge {self.judge_version or 'unversioned'}): n={self.n} "
+            f"({self.positives} yes), truths from {sources}",
             "  bin        n  mean p(yes)  fraction yes",
             *(
                 f"  {b.low:.1f}-{b.high:.1f}  {b.n:3d}  {b.mean_p:11.2f}  {b.fraction_yes:12.2f}"
@@ -140,15 +144,16 @@ class CalibrationReport(Frozen):
                 rows.append(
                     Labelled(
                         point=decision.point,
+                        judge_version=decision.judge_version,
                         field=question.field,
                         p_yes=question.p_yes,
                         truth=best.truth,
                         source=best.source,
                     )
                 )
-        groups: dict[tuple[str, str], list[Labelled]] = {}
-        for row in rows:
-            groups.setdefault((row.point, row.field), []).append(row)
+        groups: dict[tuple[str, str, str], list[Labelled]] = {}
+        for row in rows:  # one wording of a judge is not evidence about another
+            groups.setdefault((row.point, row.judge_version, row.field), []).append(row)
         questions = tuple(QuestionCalibration.of(group, threshold) for _, group in sorted(groups.items()))
         return cls(questions=questions, unlabelled=unlabelled)
 

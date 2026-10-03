@@ -7,6 +7,7 @@ annotated with the finding a failure produces:
                         Fails(FindingKind.OUT_OF_SCOPE, "Changes things the task did not ask for")]
 """
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated, ClassVar, Self
@@ -46,6 +47,14 @@ class Judge:
     def name(self) -> str:
         return self.spec.__name__
 
+    @property
+    def version(self) -> str:
+        """A hash of the questions (names, wording, criteria): new wording means new calibration data."""
+        text = "\n".join(
+            f"{q.field}|{q.ask.instructions}|{q.ask.yes}|{q.ask.no}|{q.ask.levels}" for q in self.questions
+        )
+        return hashlib.sha256(text.encode()).hexdigest()[:12]
+
     def fields(self) -> tuple[str, ...]:
         return tuple(q.field for q in self.questions)
 
@@ -73,7 +82,10 @@ class ChangeReadiness(BaseModel):
 
     in_scope: Annotated[
         NoulAnswer,
-        Ask("Does the change stay within its task, without unrequested modifications?"),
+        Ask(
+            "Does the change modify only what the task asks for? Judge which files and behaviour it changes, "
+            "not how good its tests are."
+        ),
         Fails(FindingKind.OUT_OF_SCOPE, "The change modifies things the task did not ask for"),
     ]
     tests_relevant: Annotated[

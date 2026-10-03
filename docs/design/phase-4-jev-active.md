@@ -118,3 +118,10 @@ Noul questions works); its decisions are marked `llm:<model>`, and the calibrati
 Gates are synchronous inside the project's event loop, so the decider runs the async worker on a
 helper thread. `FallbackDecider` logs and falls back when the primary raises `DeciderError`;
 `jev.fallback` names the model.
+
+**Step 3 (judge versions, sharper wording).** `Judge.version` hashes each question's field name, wording,
+criteria and levels (not the class name); decisions record it as `judge_version` (`""` in older logs).
+The calibration report groups by decision point, judge version and question. `in_scope` now reads "Does
+the change modify only what the task asks for? Judge which files and behaviour it changes, not how good
+its tests are." This starts a new version of `ChangeReadiness`: the Phase 2 data remains in the logs as
+the unversioned wording.

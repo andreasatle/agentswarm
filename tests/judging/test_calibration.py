@@ -13,6 +13,7 @@ class Rows:
         return [
             Labelled(
                 point="gate:raw->experimental",
+                judge_version="v1",
                 field=field,
                 p_yes=p,
                 truth=t,
@@ -94,6 +95,22 @@ class TestCalibrationReport:
             )
         )
         assert CalibrationReport.of(store).questions == ()
+
+    def test_judge_versions_are_kept_apart(self) -> None:
+        store = InMemoryDecisions()
+        for version in ("old", "new"):
+            decision = store.record(Drafts.make().model_copy(update={"judge_version": version}))
+            store.add_outcome(
+                Outcome(
+                    decision=decision.id,
+                    field="complete",
+                    truth=True,
+                    source=OutcomeSource.HIDDEN_TESTS,
+                    at=Samples.AT,
+                )
+            )
+        report = CalibrationReport.of(store)
+        assert sorted(q.judge_version for q in report.questions) == ["new", "old"]
 
     def test_an_empty_log_says_so(self) -> None:
         assert CalibrationReport.of(InMemoryDecisions()).render().startswith("No labelled answers yet")

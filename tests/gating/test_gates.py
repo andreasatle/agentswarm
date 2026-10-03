@@ -6,7 +6,7 @@ from agentswarm.core.config import CheckConfig, JevMode
 from agentswarm.core.domain import FindingKind, Severity
 from agentswarm.gating.checks import CommandCheck
 from agentswarm.gating.gate import Gate, GateOutcome
-from agentswarm.judging.judges import ChangeReadiness, JudgeState
+from agentswarm.judging.judges import ChangeReadiness, Judge, JudgeState
 from agentswarm.judging.policy import Verdict
 from agentswarm.workspace.sandbox import LocalSandbox
 from tests.support.harness import Checks, Harness
@@ -98,6 +98,7 @@ class TestGateJudgingActive:
         assert decision.mode is JevMode.ACTIVE
         assert decision.point == "gate:raw->experimental"
         assert decision.answers["complete"] == {"noul": 0.95}
+        assert decision.judge_version == Judge(ChangeReadiness).version
 
     def test_a_failing_ruling_rejects_with_major_findings(self, tmp_path: Path) -> None:
         g = Gated(Harness(tmp_path, answers=[Judged.incomplete()]))

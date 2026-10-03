@@ -80,6 +80,7 @@ class Judgement:
                 base=base,
                 mode=self.mode_for(point),
                 judge=self.judge.name,
+                judge_version=self.judge.version,
                 state=state,
                 answers=answered.answers.model_dump(mode="json"),
                 ruling=self._policy.rule(answered.answers),

@@ -57,6 +57,22 @@ class TestJudge:
             Judge(Empty)
 
 
+class TestJudgeVersion:
+    def test_the_version_follows_the_wording(self) -> None:
+        class Before(BaseModel):
+            done: Annotated[NoulAnswer, Ask("Is it done?")]
+
+        class After(BaseModel):
+            done: Annotated[NoulAnswer, Ask("Is every part done?")]
+
+        class Renamed(BaseModel):  # same questions, other class name: same version
+            done: Annotated[NoulAnswer, Ask("Is it done?")]
+
+        assert Judge(Before).version != Judge(After).version
+        assert Judge(Before).version == Judge(Renamed).version
+        assert len(Judge(ChangeReadiness).version) == 12
+
+
 class TestJudgeCatalog:
     def test_standard_catalog_knows_raw_to_experimental(self) -> None:
         assert JudgeCatalog.standard().get("ChangeReadiness").spec is ChangeReadiness
