@@ -258,3 +258,14 @@ These come next, in this order:
   always to the question that was judged. Persisting each decision's full question spec wasn't needed:
   a person can only be asked today's questions anyway.
 - **Test drafts** now carry the judge's current version.
+
+**Step 7d (evaluation shape, F12).**
+- **`EvaluationRun.validate` checks before any run** that the evaluator can score the project:
+  - the first gate's judge must ask every question it records truths for (`complete`, `tests_relevant`
+    and the variants' planted fields);
+  - scripted variants refuse a project whose config has teams other than the executor, since they
+    replace the catalog with the scripted executor alone.
+- **Only the first gate's decisions are scored.** Size, relevance, join or drift decisions in the same
+  log are never given software-gate truths.
+- **Not done here:** a generic outcome-provider interface for document evaluation. It is still
+  deliberately out of scope; the evaluator now says so instead of failing halfway.

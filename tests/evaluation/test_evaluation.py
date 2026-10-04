@@ -153,6 +153,27 @@ class TestScriptedVariants:
             )
 
 
+class TestEvaluationShape:
+    def test_scripted_variants_refuse_a_project_with_other_teams(self, tmp_path: Path) -> None:
+        suite = FarewellSuite.write(tmp_path)
+        config = yaml.safe_load((tmp_path / "project.yaml").read_text())
+        config["teams"].append(
+            {"use": "red_team", "watches": "experimental", "model": "coder", "checks": ["unit_tests"]}
+        )
+        (tmp_path / "project.yaml").write_text(yaml.safe_dump(config))
+        with pytest.raises(ValueError, match="only an executor"):
+            EvaluationRun(
+                suite, tmp_path / "run", InMemoryDecisions(), FarewellSuite.services, [Variant.REFERENCE]
+            )
+
+    def test_a_judge_that_doesnt_ask_what_evaluation_scores_is_refused(self, tmp_path: Path) -> None:
+        suite = FarewellSuite.write(tmp_path).model_copy(update={"judge": "SizeCheck"})
+        with pytest.raises(ValueError, match="which evaluation scores"):
+            EvaluationRun(
+                suite, tmp_path / "run", InMemoryDecisions(), FarewellSuite.services, [Variant.EXECUTOR]
+            )
+
+
 class TestActiveEvaluation:
     async def test_an_active_gate_is_audited_against_the_planted_truths(self, tmp_path: Path) -> None:
         suite = FarewellSuite.write(tmp_path)

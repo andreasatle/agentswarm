@@ -16,12 +16,14 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.clock import Clock, SystemClock
+from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import DecisionId, Escalated, Level
 from agentswarm.evaluation.faults import ScriptedExecutor, Variant
 from agentswarm.evaluation.mutation import MutationTesting
 from agentswarm.evaluation.suite import EvalTask, HiddenTests, TaskSuite
 from agentswarm.gating.checks import CheckStatus
 from agentswarm.judging.decisions import Decision, DecisionStore, Outcome, OutcomeSource
+from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.catalog import TeamCatalog
 from agentswarm.workspace.sandbox import Sandboxes
@@ -69,10 +71,33 @@ class EvaluationRun:
         self._variants = tuple(variants)
         self._clock = clock or SystemClock()
         self._config = suite.project_config(active)
+        self._point = self.validate(self._config, suite, self._variants)
         sandbox = Sandboxes.build(self._config.sandbox)
         codes = suite.test_failure_exit_codes
         self._hidden = HiddenTests(suite.test_command, suite.test_timeout_s, sandbox, codes)
         self._mutation = MutationTesting(suite.test_command, suite.test_timeout_s, sandbox, codes)
+
+    RECORDED: tuple[str, ...] = ("complete", "tests_relevant")  # fields given hidden-test and mutation truths
+
+    @classmethod
+    def validate(cls, config: ProjectConfig, suite: TaskSuite, variants: Sequence[Variant]) -> str:
+        """Check up front that this evaluator can score the project; returns the gate's decision point.
+
+        It scores one decision point, the first gate, whose judge must ask about completeness and test
+        relevance (CODEX_AUDIT.md F12). Scripted variants run only the scripted executor.
+        """
+        gate = config.gate_from(config.levels.lowest)
+        assert gate is not None  # checked by suite.project_config
+        fields = set(JudgeCatalog.standard().get(suite.judge).fields())
+        needed = set(cls.RECORDED).union(*(v.known_truths() for v in variants))
+        if not needed <= fields:
+            raise ValueError(
+                f"judge {suite.judge!r} doesn't ask {sorted(needed - fields)}, which evaluation scores"
+            )
+        others = sorted({t.use for t in config.teams} - {"executor"})
+        if others and any(v.scripted for v in variants):
+            raise ValueError(f"scripted variants run only an executor; the project also has teams {others}")
+        return f"gate:{gate.from_level}->{gate.to_level}"
 
     @staticmethod
     def real_services(task: EvalTask) -> ProjectServices:
@@ -100,7 +125,8 @@ class EvaluationRun:
                 await project.run_until_idle(self.MAX_ROUNDS)
             except RuntimeError as error:  # still busy: record it, the other runs still go ahead
                 note = str(error)
-            mine = self._decisions.all()[already:]  # runs go one at a time, so these are this run's
+            # Runs go one at a time, so decisions after `already` are this run's; only the gate's are scored.
+            mine = [d for d in self._decisions.all()[already:] if d.point == self._point]
             passed = tuple(self._hidden_outcome(project, task, variant, d) for d in mine)
             scores = tuple(self._mutation_outcome(project, task, variant, d) for d in mine)
             for decision in mine:
