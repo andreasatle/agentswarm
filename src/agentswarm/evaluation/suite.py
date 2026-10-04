@@ -43,7 +43,9 @@ class TaskSuite(Frozen):
     project: Path
     judge: str = "ChangeReadiness"
     test_command: tuple[str, ...] = ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider")
-    test_failure_exit_codes: tuple[int, ...] = (1,)  # pytest: tests ran and failed; others are errors
+    # pytest 1: tests failed; 2: collection errors, which for hidden tests mean the code under test can't
+    # be imported (a missing function): incomplete, not an outage. 3-5 and anything else are errors.
+    test_failure_exit_codes: tuple[int, ...] = (1, 2)
     test_timeout_s: float = 120.0
     tasks: tuple[EvalTask, ...] = Field(min_length=1)
 
@@ -107,7 +109,7 @@ class HiddenTests:
         command: tuple[str, ...],
         timeout_s: float,
         sandbox: Sandbox,
-        failure_exit_codes: tuple[int, ...],
+        failure_exit_codes: tuple[int, ...] = (1, 2),
     ) -> None:
         self._command = command
         self._timeout_s = timeout_s

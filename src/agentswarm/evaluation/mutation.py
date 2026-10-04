@@ -191,7 +191,7 @@ class MutationTesting:
         command: tuple[str, ...],
         timeout_s: float,
         sandbox: Sandbox,
-        failure_exit_codes: tuple[int, ...] = (1,),
+        failure_exit_codes: tuple[int, ...] = (1, 2),
     ) -> None:
         self._command = command
         self._timeout_s = timeout_s

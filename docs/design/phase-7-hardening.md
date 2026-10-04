@@ -293,3 +293,10 @@ These come next, in this order:
   - event schema versioning;
   - indexed board queries;
   - CI.
+
+**Follow-up to 7a (found while preparing the held-out evaluation).** For hidden tests and mutation
+runs, pytest's exit 2 (collection error) means the code under test can't be imported, typically a
+missing function: an incomplete solution, not an outage. Task suites now default to
+`test_failure_exit_codes: (1, 2)`. Without this, the most common way to be incomplete would have
+recorded no outcome. The software preset's gate check keeps `[1]`: there the codes only decide what
+counts as evidence for analyzers, and gates block on either.

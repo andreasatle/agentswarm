@@ -9,9 +9,11 @@ from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.mutation import MutationTesting
 from agentswarm.evaluation.run import EvaluationRun
 from agentswarm.evaluation.suite import HiddenTests, TaskSuite
+from agentswarm.gating.checks import CheckStatus
 from agentswarm.judging.audit import GateAudit
 from agentswarm.judging.decisions import InMemoryDecisions, Outcomes, OutcomeSource
-from tests.support.suites import EXAMPLES, EXECUTOR_ONLY, FarewellSuite, GreeterSuite, TinySuite
+from agentswarm.workspace.sandbox import LocalSandbox
+from tests.support.suites import EXAMPLES, EXECUTOR_ONLY, PYTEST, FarewellSuite, GreeterSuite, TinySuite
 
 
 class TestGreeterSuite:
@@ -151,6 +153,19 @@ class TestScriptedVariants:
             EvaluationRun(
                 TinySuite.write(tmp_path), tmp_path / "run", InMemoryDecisions(), TinySuite.services
             )
+
+
+class TestHiddenTestStatus:
+    def test_a_missing_function_is_incomplete_not_an_error(self, tmp_path: Path) -> None:
+        # pytest exits 2 when the code under test can't be imported: that is a real "no" for complete.
+        task = GreeterSuite.task("banner")
+        (tmp_path / "greeter.py").write_text((EXAMPLES / "seed" / "greeter.py").read_text())
+        (tmp_path / "_hidden").mkdir()
+        (tmp_path / "_hidden" / "test_banner.py").write_text(task.hidden_tests[0].read_text())
+        result = LocalSandbox().run((*PYTEST, "_hidden"), tmp_path, 60)
+        assert result.exit_code == 2
+        codes = TaskSuite.model_fields["test_failure_exit_codes"].default
+        assert CheckStatus.of(result, codes) is CheckStatus.FAILED
 
 
 class TestEvaluationShape:
