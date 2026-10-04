@@ -1,7 +1,7 @@
 # AgentSwarm Reference
 
 Everything in one place: concepts, files, configuration, events, teams, gates, judges, the decision log,
-evaluation and the command line. For a guided walk through the system, read [TUTORIAL.md](TUTORIAL.md)
+evaluation and the command line. For a guided walk through the system, read the [tutorial](../tutorial/)
 first. The design and every decision behind it are in [FRAMEWORK_PROPOSAL.md](../FRAMEWORK_PROPOSAL.md)
 and [docs/design/](design/); deferred work is in [BACKLOG.md](BACKLOG.md). Section numbers (§) refer to
 the proposal.

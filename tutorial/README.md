@@ -6,27 +6,33 @@ Oct 3, 2026 · Andreas Atle (built with Claude)
 
 Read **Part 0** first: it explains what AgentSwarm is for and every piece you need, before any command.
 Then work through the steps in order. Each one adds a single idea to the previous ones and shows you
-where it lives in the code. [REFERENCE.md](REFERENCE.md) has every config key, event and command in
+where it lives in the code.
+
+**Every step has a script in this folder**, so nothing needs copying: run it from anywhere, for example
+`tutorial/03_first_run.sh`, or `uv run tutorial/01_board.py` for the Python steps. Each script prints every
+command before it runs it, so you see exactly what it does, and keeps its project under
+`~/agentswarm-runs/tutorial/` (set `AGENTSWARM_RUNS` to put it elsewhere, still under your home folder).
+A script that creates a project starts its own folder afresh each time; later steps reuse earlier ones. [REFERENCE.md](../docs/REFERENCE.md) has every config key, event and command in
 tables; this document explains why things are the way they are.
 
-| Step | New idea | Needs |
-| --- | --- | --- |
-| 1 | The board: events in, views out | nothing |
-| 2 | Claims: one team at a time | nothing |
-| 3 | Levels are branches; a first run | nothing |
-| 4 | A real executor in a sandbox | Ollama, Docker |
-| 5 | Jev judges the gate, in shadow | Jev key |
-| 6 | Ground truth without labelling | Ollama, Docker, Jev |
-| 7 | Analyzers, findings and the router | Ollama, Docker, Jev |
-| 8 | Release trains, human gates, escalations | Jev |
-| 9 | Decomposition and joins | Jev |
-| 10 | The supervisor | |
-| 11 | Making Jev act: tuning, active points, audit | Jev |
-| 12 | A second domain: documents | Ollama, Docker, Jev |
-| 13 | Several projects, money and limits | nothing (the quickstart swarm) |
-| 14 | What keeps it safe | |
+| Step | New idea | Script | Needs |
+| --- | --- | --- | --- |
+| 1 | The board: events in, views out | `uv run tutorial/01_board.py` | nothing |
+| 2 | Claims: one team at a time | `uv run tutorial/02_claims.py` | nothing |
+| 3 | Levels are branches; a first run | `tutorial/03_first_run.sh` | nothing |
+| 4 | A real executor in a sandbox | `tutorial/04_executor.sh` | Ollama, Docker |
+| 5 | Jev judges the gate, in shadow | `tutorial/05_shadow.sh` | Ollama, Docker, Jev |
+| 6 | Ground truth without labelling | `tutorial/06_ground_truth.sh`, then `tutorial/06_label.sh` | Ollama, Docker, Jev |
+| 7 | Analyzers, findings and the router | `tutorial/07_findings.sh` | step 5 |
+| 8 | Release trains, human gates, escalations | `tutorial/08_escalations.sh [ARTIFACT]` | step 5 |
+| 9 | Decomposition and joins | `tutorial/09_decomposition.sh` (offline tests) | nothing |
+| 10 | The supervisor | `tutorial/10_supervisor.sh` (offline tests) | nothing |
+| 11 | Making Jev act: tuning, active points, audit | `tutorial/11_jev_acts.sh` | step 6 |
+| 12 | A second domain: documents | `tutorial/12_documents.sh`, then `tutorial/12_publish.sh` | Ollama, Docker, Jev |
+| 13 | Several projects, money and limits | `tutorial/13_swarm.sh [live]` | nothing (live: Ollama, Docker, Jev) |
+| 14 | What keeps it safe | | |
 
-Steps 1–3 and the quickstart swarm in step 13 run anywhere, offline, in seconds. Status: every phase of the
+Steps 1–3, 9, 10 and the quickstart swarm in step 13 run anywhere, offline, in seconds. Status: every phase of the
 build plan is done, plus a hardening phase from an independent audit; the one open item is proving the gate's
 false-promotion rate with more data (step 11).
 
@@ -89,7 +95,7 @@ fails where it arrives, naming the field.
 
 Everything that happens in a project is an **event** appended to its log, and nothing else changes state.
 What you read (which artifacts are at which level, which findings are open) are **views**, folded from the
-log. Paste this into `uv run python`:
+log. Run `uv run tutorial/01_board.py`; this is the heart of it:
 
 ```python
 from agentswarm.board.blackboard import Blackboard
@@ -125,7 +131,8 @@ Where: `board/eventlog.py`, `board/blackboard.py`, `core/domain.py`.
 
 ## Step 2 — Claims: one team at a time
 
-Before a team works on an artifact, it **claims** it: a lease with an expiry. Continue in the same session:
+Before a team works on an artifact, it **claims** it: a lease with an expiry. Run
+`uv run tutorial/02_claims.py`; the core of it:
 
 ```python
 from datetime import timedelta
@@ -159,11 +166,7 @@ through a **gate**, one level at a time, and that is all the ordering there is.
 Run the quickstart project (a fake executor, no model, no Jev, no Docker):
 
 ```bash
-uv run agentswarm run examples/quickstart/project.yaml --root ~/agentswarm-runs/quickstart --task "Write a note" --task "Write another note"
-```
-
-```bash
-git -C ~/agentswarm-runs/quickstart/repo log --oneline --graph --all
+tutorial/03_first_run.sh
 ```
 
 You'll see each artifact's own commit, merged into `experimental` with a merge commit. What happened, in
@@ -195,7 +198,7 @@ Where: `workspace/git.py`, `gating/promotion.py`, `gating/merge_queue.py`, `team
 Now a model does the work. The greeter evaluation project has the executor and one gate, nothing else:
 
 ```bash
-uv run agentswarm run examples/greeter/evaluation/project.yaml --root ~/agentswarm-runs/greeter-1 --task "Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!', with tests."
+tutorial/04_executor.sh
 ```
 
 **The model.** `models: {coder: {model: "ollama:gemma4:e4b"}}`. The string is `<provider>:<model>`, built
@@ -250,11 +253,7 @@ been compared with what turned out to be true. Run the greeter project (software
 Jev in shadow; it needs the key):
 
 ```bash
-uv run agentswarm run examples/greeter/project.yaml --root ~/agentswarm-runs/greeter-2 --task "Add two functions to greeter.py: farewell(name), which returns 'Goodbye, <name>!', and shout(name), which returns the hello greeting in upper case. Add tests for both."
-```
-
-```bash
-uv run agentswarm calibrate ~/agentswarm-runs/greeter-2/decisions.sqlite
+tutorial/05_shadow.sh
 ```
 
 Every decision records its exact input, Jev's answers, the ruling, the mode, the Jev version that answered,
@@ -283,7 +282,7 @@ it must pass its hidden tests, and the untouched seed must fail them, or the gro
 out-of-scope edit, reference with an `assert True` test):
 
 ```bash
-uv run agentswarm evaluate examples/greeter/evaluation/suite.yaml --workdir ~/agentswarm-runs/eval-a
+tutorial/06_ground_truth.sh
 ```
 
 It prints one line per run and then the **calibration report**: per question, ten bins of Jev's
@@ -297,7 +296,7 @@ conditions), both fixed. Measuring the measurement is part of the job.
 A person checks the automatic sources now and then, without being anchored by Jev's answer:
 
 ```bash
-uv run agentswarm label ~/agentswarm-runs/eval-a/decisions.sqlite --limit 20
+tutorial/06_label.sh
 ```
 
 Where: `evaluation/` (suite, run, variants in `faults.py`, `mutation.py`), `judging/calibration.py`,
@@ -323,6 +322,12 @@ work with the code around it?) and the **red team** (does it break on hostile in
   failing test), and the finding is resolved when the fix reaches the finding's level. Minor findings stay
   on the board for a person and are not routed.
 
+To see what step 5's analyzers did (sign-offs, findings, fix artifacts):
+
+```bash
+tutorial/07_findings.sh
+```
+
 Where: `teams/analyzer.py`, `teams/relevance.py`, `control/router.py`.
 
 ## Step 8 — Release trains, human gates, escalations
@@ -338,11 +343,8 @@ The preset's `production` gate has `requires_human: true`: instead of promoting,
 escalation goes to a queue a person works through, without models or a Jev key:
 
 ```bash
-uv run agentswarm escalations examples/greeter/project.yaml --root ~/agentswarm-runs/greeter-2
-```
-
-```bash
-uv run agentswarm resolve examples/greeter/project.yaml --root ~/agentswarm-runs/greeter-2 a-0001 --accept --note "reviewed"
+tutorial/08_escalations.sh          # what waits for a person
+tutorial/08_escalations.sh a-0001   # accept a-0001 at its gate, then run again
 ```
 
 - `--retry`: teams look again (the executor treats it like a rejection).
@@ -375,8 +377,14 @@ teams:
 jev: {mode: shadow, active: ["size:*", "split:*", "join:*"]}
 ```
 
-Where: `teams/decomposer.py`, `gating/join.py`. The whole flow (a goal split in two, children by train,
-umbrella by join, all the way to `candidate`) is in `tests/test_project.py`.
+The whole flow (a goal split in two, children by train, umbrella by join, all the way to `candidate`) runs
+offline, with scripted models and judges, in the tests this script runs:
+
+```bash
+tutorial/09_decomposition.sh
+```
+
+Where: `teams/decomposer.py`, `gating/join.py`, `tests/test_project.py`.
 
 ## Step 10 — The supervisor
 
@@ -390,6 +398,12 @@ It also watches for **drift**: after every 5 merged changes it asks Jev whether 
 north star. With `drift` active, a clear "no" **pauses** the teams that start new work (analyzers and
 gates carry on) until a person runs `agentswarm resume`.
 
+Its rules run offline in:
+
+```bash
+tutorial/10_supervisor.sh
+```
+
 Where: `control/supervisor.py`.
 
 ## Step 11 — Making Jev act
@@ -399,22 +413,15 @@ Shadow mode collects evidence; the point is eventually to let Jev act where it h
 1. **Per decision point.** `jev.active: ["gate:raw->experimental"]` makes that one point act while
    everything else stays in shadow, so you promote points one at a time, as their data allows.
 2. **Thresholds from data.** `tune` finds, per question, the lowest pass and highest fail threshold that are
-   right at least 95% of the time, with Wilson lower bounds, and prints YAML for the gate:
+   right at least 95% of the time, with Wilson lower bounds, and prints YAML for the gate. The step's
+   script does it on step 6's decisions, then the audit below:
 
    ```bash
-   uv run agentswarm tune ~/agentswarm-runs/eval-a/decisions.sqlite
+   tutorial/11_jev_acts.sh   # tune, then the harder suite with the gate active, then the audit
    ```
 
-3. **Audit.** Run a suite with the gate active and measure how often it was wrong:
-
-   ```bash
-   uv run agentswarm evaluate examples/greeter/evaluation/hard/suite.yaml --workdir ~/agentswarm-runs/eval-b --active "gate:*"
-   ```
-
-   ```bash
-   uv run agentswarm audit ~/agentswarm-runs/eval-b/decisions.sqlite
-   ```
-
+3. **Audit.** Run a suite with the gate active and measure how often it was wrong (`agentswarm evaluate
+   … --active "gate:*"`, then `agentswarm audit`).
    The bounds: false promotions ≤ 5%, false rejections ≤ 10%, escalations ≤ 30%, each judged by its 95%
    upper confidence limit, so a tiny sample is never "within bounds".
 4. **When Jev is down.** Retries for timeouts and busy answers; optionally `jev.fallback: <model>`, a
@@ -451,17 +458,17 @@ Nothing in steps 1–11 is about code except the teams' instructions and the evi
 | pytest as the hard check | the project's own `tools/check_doc.py` |
 
 ```bash
-uv run agentswarm run examples/handbook/project.yaml --root ~/agentswarm-runs/handbook --task "Write a short handbook for running a book club: choosing books, running a meeting, keeping members"
+tutorial/12_documents.sh
 ```
 
 A reviewer's problem only counts if it quotes at least 12 characters that really are in the file it names,
 so a model can't invent a complaint. The run stops at the human publishing gate:
 
 ```bash
-uv run agentswarm resolve examples/handbook/project.yaml a-0001 --root ~/agentswarm-runs/handbook --accept --note "reviewed, publish"
+tutorial/12_publish.sh
 ```
 
-Run the project again and it is promoted to `published`. In the live run, the reviewers found a UK/US
+The script approves it as a person would, runs the project again, and it is promoted to `published`. In the live run, the reviewers found a UK/US
 spelling mismatch and a piece of jargon; both were minor, so they stayed on the board for a person rather
 than becoming fix tasks.
 
@@ -481,7 +488,8 @@ cheap, and the money budgets are about is in team actions.
 minute and sandbox runs:
 
 ```bash
-uv run agentswarm swarm examples/swarm-quickstart.yaml --task "notes-a=Write a note" --task "notes-b=Write a note"
+tutorial/13_swarm.sh          # two quickstart projects
+tutorial/13_swarm.sh live     # the greeter and the handbook together
 ```
 
 Each project keeps its own board, decision log, repository and budget. If one project fails, it is reported
@@ -505,7 +513,7 @@ don't reach, and Phase 7 closed them:
 - **Evidence means evidence.** A test that couldn't run is never proof of a bug, a hidden-test outage is
   never ground truth, and parked or dropped work is left alone by every controller.
 
-Where: [design/phase-7-hardening.md](design/phase-7-hardening.md), and section 15 of the reference.
+Where: [design/phase-7-hardening.md](../docs/design/phase-7-hardening.md), and section 15 of the reference.
 
 ---
 
@@ -526,12 +534,12 @@ classes and one judge.
 
 - **Proving the gate's false-promotion rate:** more evaluation tasks, until about 73 known promotions.
 - The backlog's deferred items: conflict refresh before retry, timeouts on git commands, several processes
-  per project, event schema versioning, CI ([BACKLOG.md](BACKLOG.md)).
+  per project, event schema versioning, CI ([BACKLOG.md](../docs/BACKLOG.md)).
 
 ## Where to read more
 
-- [REFERENCE.md](REFERENCE.md): every config key, event, team, judge, report and command.
-- [design/](design/): one document per phase, each ending with *every decision made during
+- [REFERENCE.md](../docs/REFERENCE.md): every config key, event, team, judge, report and command.
+- [design/](../docs/design/): one document per phase, each ending with *every decision made during
   implementation* and why, including the bugs the tests caught.
-- [BACKLOG.md](BACKLOG.md): what was deliberately postponed, why, and when it's due.
+- [BACKLOG.md](../docs/BACKLOG.md): what was deliberately postponed, why, and when it's due.
 - [FRAMEWORK_PROPOSAL.md](../FRAMEWORK_PROPOSAL.md): the original design.

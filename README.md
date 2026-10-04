@@ -6,7 +6,7 @@ each watches one level of a shared, append-only blackboard and reacts to its sta
 deadlock. **Language models produce, Jev decides, plain code controls**, and every one of Jev's decisions is
 logged and scored against what turned out to be true.
 
-- [docs/TUTORIAL.md](docs/TUTORIAL.md): the system one layer at a time, with commands to run.
+- [tutorial/](tutorial/): the system one layer at a time, with a script to run for every step.
 - [docs/REFERENCE.md](docs/REFERENCE.md): every config key, event, team, judge, report and command.
 - [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md) and [docs/design/](docs/design/): the design and every
   decision made while building it; [docs/BACKLOG.md](docs/BACKLOG.md): what was postponed, and why.
@@ -17,6 +17,9 @@ as a second domain, several projects at once), plus a hardening phase from an in
 evaluation data.
 
 ## Quick tutorial
+
+The full [tutorial](tutorial/) has a script for every step (`tutorial/03_first_run.sh`, ...); here are the
+essentials.
 
 **1. Install.**
 

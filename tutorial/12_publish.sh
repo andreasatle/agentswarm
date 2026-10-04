@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Step 12, the person's part: approve publishing, then run again so the handbook reaches published.
+source "$(dirname "$0")/_common.sh"
+ROOT="$RUNS/step12-handbook"
+needs "$ROOT" tutorial/12_documents.sh
+
+run uv run agentswarm resolve examples/handbook/project.yaml a-0001 --root "$ROOT" --accept --note "reviewed, publish"
+run uv run agentswarm run examples/handbook/project.yaml --root "$ROOT"
+run git -C "$ROOT/repo" show published:sections/01-choosing-books.md
