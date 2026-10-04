@@ -34,6 +34,13 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
   false promotions pooled and 0/16 held out. The 95% upper bound gets to 5% only at about 73 known
   promotions without error (about one per task). Add held-out tasks (or real outcomes) until then. Due:
   before relying on the active gate unattended.
+- **Phase 10 (planned): project types as data.** A project type becomes one YAML file, still one level:
+  levels, checks, gates, judges (questions and what a "no" means, built into Jev specs) and teams. Teams
+  are one of four mechanisms kept in code (producer, probing reviewer, quoting reviewer, planner) plus data
+  (name, instructions, finding kind, evidence). A project names its preset by name or path, so new types
+  need no code, and the fixed list of domains goes. Due: when the user wants a third concrete project type,
+  which then drives and validates the format (decided with the user, 2026-10-04, under the scope rule:
+  generalize from real cases, not imagined ones).
 - From the audit, deferred past Phase 7: F08 conflict refresh before retry, timeouts on git commands (the
   rest of F14), fencing for several owners of one project, event schema versioning, indexed board queries,
   CI.
