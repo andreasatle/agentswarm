@@ -323,6 +323,9 @@ class Escalated(Frozen):
     artifact: ArtifactId | None
     reason: str
     approval_for: Level | None = None  # set when a human gate asks to promote the artifact to this level
+    # False: a notice about one team's trouble (a reviewer that couldn't finish). It waits for a person like
+    # any escalation, but doesn't park the artifact, so the other teams carry on with it.
+    parks: bool = True
 
     @property
     def subject(self) -> ArtifactId | None:

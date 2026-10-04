@@ -58,6 +58,11 @@ class TestLangChainWorker:
         assert answer == Answer(summary="done")
         assert notebook.notes == ["hi"]
 
+    async def test_tries_the_final_answer_twice_before_giving_up(self) -> None:
+        model = Replies().text("Done.").text("Still just text.").call("Answer", summary="done")
+        answer = await LangChainWorker(model.model()).run("Do it.", Payload(task="t"), Answer)
+        assert answer == Answer(summary="done")
+
     async def test_stops_at_the_model_call_limit(self) -> None:
         replies = Replies()
         for i in range(5):

@@ -178,7 +178,9 @@ class Analyzer(ABC):
         try:
             examination = await self.examine(ctx, worktree, diff, request)
         except WorkerError as error:
-            return [Escalated(artifact=ctx.artifact.id, reason=f"{self._name} failed: {error}")]
+            # A notice, not a park: one reviewer's trouble mustn't stop the other reviewers.
+            reason = f"{self._name} failed: {error}"
+            return [Escalated(artifact=ctx.artifact.id, reason=reason, parks=False)]
         if examination.dropped:
             self._log.info(
                 "%s: dropped %d problem(s) on %s without evidence",

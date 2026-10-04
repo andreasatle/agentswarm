@@ -108,7 +108,8 @@ class Report:
             case Rejected():
                 return "rejected: " + "; ".join(f"{f.kind}: {f.detail}" for f in event.findings)
             case Escalated():
-                return f"ESCALATED: {event.reason}"
+                label = "ESCALATED" if event.parks else "ESCALATED (notice; others carry on)"
+                return f"{label}: {event.reason}"
             case EscalationResolved():
                 note = f": {event.note}" if event.note else ""
                 return f"escalation resolved ({event.resolution}){note}"

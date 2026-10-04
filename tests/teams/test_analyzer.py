@@ -135,8 +135,12 @@ class TestAnalyzer:
             raise WorkerError("model down")
 
         history = await m.run(m.analyzer(fail))
-        assert any(isinstance(e, Escalated) for e in history)
-        assert not m.h.board.current().signed_off(m.artifact.id, PROBE)
+        escalations = [e for e in history if isinstance(e, Escalated)]
+        assert len(escalations) == 1 and not escalations[0].parks  # a notice: other reviewers carry on
+        views = m.h.board.current()
+        assert not views.signed_off(m.artifact.id, PROBE)
+        assert views.active(m.artifact.id)
+        assert views.open_escalation(m.artifact.id) is not None  # still waits for a person
 
 
 class TestRelevanceFilter:

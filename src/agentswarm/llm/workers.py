@@ -20,7 +20,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from agentswarm.core.domain import Usage
 from agentswarm.llm.models import ChatModels
@@ -105,20 +105,27 @@ class LangChainWorker:
         "Stop working now. Give your final answer in the required structured format, based on the work above."
     )
 
+    FINAL_ANSWER_TRIES = 2  # small models sometimes reply without the structured answer; once more is cheap
+
     async def _final_answer[T: BaseModel](
         self, instructions: str, messages: Sequence[BaseMessage], output: type[T]
     ) -> T:
         structured = self._model.with_structured_output(output, include_raw=True)
-        tokens = Tokens()
-        try:
-            reply = await structured.ainvoke(
-                [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)],
-                config={"callbacks": [tokens]},
-            )
-        finally:
-            self._report(tokens.usage)
-        answer = reply.get("parsed") if isinstance(reply, dict) else reply
-        return answer if isinstance(answer, output) else output.model_validate(answer)
+        prompt = [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)]
+        error: Exception | None = None
+        for _ in range(self.FINAL_ANSWER_TRIES):
+            tokens = Tokens()
+            try:
+                reply = await structured.ainvoke(prompt, config={"callbacks": [tokens]})
+            finally:
+                self._report(tokens.usage)
+            answer = reply.get("parsed") if isinstance(reply, dict) else reply
+            try:
+                return answer if isinstance(answer, output) else output.model_validate(answer)
+            except ValidationError as invalid:
+                error = invalid
+        assert error is not None
+        raise error
 
     def _report(self, usage: Usage) -> None:
         if self._meter is not None:

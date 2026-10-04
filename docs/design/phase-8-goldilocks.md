@@ -241,3 +241,13 @@ many agents are prompts on one loaded model, which is itself part of the case fo
 - **Curve data comes only from single-model runs:** a run whose commits came from another model than the
   routed one (a tiered step up) is skipped, so the result is never credited to the wrong model.
 - **A smoke run** (one task under all five building setups) precedes the long runs.
+- **What the smoke run found, fixed before the long runs:**
+  - **One failing reviewer silenced the others.** The text tester's small model couldn't produce its
+    structured report and escalated, which parked the artifact, so the error and contract testers never
+    looked at it. A reviewer's failure is now an `Escalated(parks=False)`, a *notice*: it waits for a
+    person and can be retried like any escalation, but `BoardViews.active` ignores it, so the other teams
+    carry on.
+  - **The final-answer recovery gets two tries.** The small model sometimes replies without the
+    structured answer even when asked for nothing else; a second ask is cheap.
+- **Smoke result:** all five setups solved `greet-pair`. Big took 381 s against 31 s for small, with
+  4× the tokens; the swarm took 218 s with 6× the tokens of small.
