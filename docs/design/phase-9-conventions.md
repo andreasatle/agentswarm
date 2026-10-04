@@ -1,4 +1,4 @@
-# Phase 9: Toolchains and conventions that hold
+# Phase 9: Conventions that hold
 
 Status: **planned**, to start after the Phase 8 runs finish. The greeter seed is used by the running
 experiment, and changing it midway would change its conditions.
@@ -45,28 +45,30 @@ Conventions are enforced in three layers, each with its own job:
 
 ## Design
 
-### 0. A toolchain is a data file, named explicitly
+### 0. One level of configuration: shared structure in the project, methods in the teams
 
-The two concrete cases, Python software and Markdown documents, get a toolchain file each:
-`core/toolchains/python.yaml` and `core/toolchains/markdown.yaml`. A project names its own:
+Two kinds of tests need opposite treatment:
 
-```yaml
-domain: software        # the workflow shape: levels, teams, gates (the preset)
-toolchain: python       # the language: sandbox image, checks, probe tests, instructions
-```
+- **The project's own tests** (`tests/`, written by the executor, run by the gates) are a shared contract:
+  where tests live, how they're named and run. Every team depends on it and the gates enforce it, so it is
+  defined once, by the project: its seed (`pyproject.toml`, `tests/`), its conventions file (section 3)
+  and the checks below.
+- **A reviewer's probe tests** (the throwaway tests an analyzer writes in `_analysis/` to demonstrate a
+  bug, never committed) are the team's own method. No other team sees them, so how they are written and
+  run belongs in the team's definition: `probe: {folder: _analysis, pattern: "test_*.py", check:
+  unit_tests}`, with those values as defaults for the software analyzers.
 
-A toolchain holds what is now hard-wired or scattered: the sandbox image, the convention checks (below),
-how analyzers write and run probe tests (folder, file-name pattern, which check runs them), whether
-mutation testing applies, and a few lines of language-specific instructions for the models. A project
-overrides any part of it, as it overrides a preset. The domain's preset names a default toolchain, so
-existing configs keep working.
+So methods are decentralized and shared structure is not: teams coordinate only through the board and the
+repository, and the repository's conventions are the interface between them.
 
-Deliberately **not** built (backlog, with triggers): automatic detection from the seed's files (it saves
-one line of config but hides a decision; `agentswarm new` writes the line instead), toolchains for other
-languages (due when a real project in that language is wanted), and any plugin mechanism (a toolchain is
-data; a new language is a file and a sandbox image).
+This keeps configuration at one level, the preset plus the project's own config. A separate toolchain layer
+was considered and dropped: it would bring back the two levels of YAML (domain and language) that the
+user's earlier attempt struggled with, and nothing needs it now. `software` is honestly Python software;
+a real project in another language would get its own preset (for example `software-node`), still one
+level. Not built (backlog, with triggers): automatic detection of a project's language, presets for other
+languages (due when a real project in that language is wanted), and any plugin mechanism.
 
-### 1. Mechanical conventions become the Python toolchain's checks
+### 1. Mechanical conventions become the software preset's checks
 
 Every software project gets these by default, each a separate check, so a failure names exactly what's wrong:
 
@@ -128,20 +130,19 @@ with Phase 4 and Phase 8 data.
 
 ## Steps
 
-1. Toolchains as data: `python.yaml` and `markdown.yaml`, `toolchain:` in the project config, the
-   preset's default toolchain, and the analyzers' probe settings moved out of code into the toolchain.
+1. `probe:` in the team config: the analyzers' probe folder, file pattern and check move out of code.
 2. `agentswarm_checks` with the `layout` check; the sandbox image with ruff, basedpyright and hatchling.
-3. The Python toolchain's checks (`layout`, `package`, `lint`, `types`, `unit_tests`) and its default
+3. The software preset's checks (`layout`, `package`, `lint`, `types`, `unit_tests`) and its default
    constraints for the executor.
 4. The seed check at project creation.
 5. The conventions file in every executor's and reviewer's instructions; the `follows_conventions`
    question in shadow.
-6. `agentswarm new` for software and documents, writing the `toolchain:` line.
+6. `agentswarm new` for software and documents.
 7. The greeter and its suites on the new layout; the tutorial and examples updated.
 
 ## Not in this phase
 
 - Third-party dependencies inside the sandbox (an offline wheel folder); standard-library projects first.
-- Languages other than Python and Markdown, automatic detection, plugins: see section 0.
+- Other languages, automatic detection, plugins: see section 0.
 
 ## Decisions made during implementation

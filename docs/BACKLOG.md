@@ -21,8 +21,10 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
 
 - **Phase 8 (in progress): small swarms against bigger models.** The long comparison runs are going; then
   the model curves, the routed setup and the write-up. See docs/design/phase-8-goldilocks.md.
-- **Phase 9 (planned, next): toolchains and conventions that hold.** Python and Markdown toolchains as
-  explicit data files (no detection, no plugins, no other languages until a real project needs one). Structure and conventions (a
+- **Phase 9 (planned, next): conventions that hold.** One level of configuration: the project's test
+  structure is shared and defined once (seed, conventions file, checks); each analyzer's probe tests are its
+  own method, in its team config. No toolchain layer, detection, plugins or other languages until a real
+  project needs one. Structure and conventions (a
   `pyproject.toml`, the `src/` layout, lint, types, architectural rules) become preset checks, a conventions
   file every model reads, and a judge question in shadow; the seed must pass its checks at creation, and
   `agentswarm new` writes a seed that does. See docs/design/phase-9-conventions.md. Due: right after
