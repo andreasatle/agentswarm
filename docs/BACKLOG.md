@@ -19,6 +19,14 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
 
 ## Open items (updated 2026-10-04)
 
+- **Phase 8 (in progress): small swarms against bigger models.** The long comparison runs are going; then
+  the model curves, the routed setup and the write-up. See docs/design/phase-8-goldilocks.md.
+- **Phase 9 (planned, next): project conventions that hold.** Structure and conventions (a
+  `pyproject.toml`, the `src/` layout, lint, types, architectural rules) become preset checks, a conventions
+  file every model reads, and a judge question in shadow; the seed must pass its checks at creation, and
+  `agentswarm new` writes a seed that does. See docs/design/phase-9-conventions.md. Due: right after
+  Phase 8's runs, because they use the greeter seed this phase changes.
+
 - **Prove the active gate's false-promotion rate.** eval-3 (in sample) and eval-4 (held out) give 1/41
   false promotions pooled and 0/16 held out. The 95% upper bound gets to 5% only at about 73 known
   promotions without error (about one per task). Add held-out tasks (or real outcomes) until then. Due:

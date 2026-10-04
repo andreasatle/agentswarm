@@ -18,6 +18,8 @@ the proposal.
 | 5 | Documents as a second domain: writer, outliner, three reviewers, the `document` preset | done (live handbook run to published) |
 | 6 | Several projects at once: spend on the board, shared scheduler, daily budgets, `agentswarm swarm` | done (live greeter + handbook swarm) |
 | 7 | Hardening from an independent audit ([CODEX_AUDIT.md](../CODEX_AUDIT.md)): sandbox and file boundaries, crash-safe promotion, claim ownership, evidence quality | done ([phase-7](design/phase-7-hardening.md)) |
+| 8 | Small swarms against bigger models: narrow red teams, `agentswarm compare` (building and planted-bug review), routing by difficulty with model curves | in progress: live runs ([phase-8](design/phase-8-goldilocks.md)) |
+| 9 | Conventions that hold: layout, packaging, lint and type checks in the preset; a conventions file; `agentswarm new` | planned ([phase-9](design/phase-9-conventions.md)) |
 
 ## 1. Layout
 
