@@ -11,6 +11,7 @@ from agentswarm.evaluation.compare import (
     ComparisonRun,
     Experiment,
     RunMeasure,
+    RunOrder,
     SetupSummary,
 )
 from agentswarm.evaluation.suite import EvalTask
@@ -93,12 +94,34 @@ class TestExperiment:
 
 
 class TestComparisonRun:
+    def test_runs_one_setup_at_a_time_unless_asked_to_go_task_by_task(self, tmp_path: Path) -> None:
+        c = Comparison(tmp_path)
+        by_setup = [(setup, task.id) for setup, task in c.run.schedule()]
+        assert by_setup == [
+            ("careful", "done"),
+            ("careful", "half-done"),
+            ("sloppy", "done"),
+            ("sloppy", "half-done"),
+        ]
+        by_task_experiment = c.experiment.model_copy(update={"order": RunOrder.BY_TASK})
+        by_task_run = ComparisonRun(by_task_experiment, tmp_path / "work", Comparison.services)
+        by_task = [(setup, task.id) for setup, task in by_task_run.schedule()]
+        assert by_task == [
+            ("careful", "done"),
+            ("sloppy", "done"),
+            ("careful", "half-done"),
+            ("sloppy", "half-done"),
+        ]
+
     async def test_scores_what_each_setup_delivered_and_counts_its_tokens(self, tmp_path: Path) -> None:
         c = Comparison(tmp_path, tasks=("done",))
         seen: list[RunMeasure] = []
         report = await c.run.run(seen.append)
         by_setup = {m.setup: m for m in report.measures}
-        assert [m.setup for m in seen] == ["careful", "sloppy"]  # reported as they finish
+        assert [m.setup for m in seen] == [
+            "careful",
+            "sloppy",
+        ]  # reported as they finish, one setup at a time
         assert by_setup["careful"].solved is True
         assert (
             by_setup["sloppy"].solved is False

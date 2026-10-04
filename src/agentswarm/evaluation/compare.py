@@ -9,6 +9,7 @@ Tokens come from the `Spent` events on the board, per model, so any price list c
 import statistics
 import time
 from collections.abc import Callable, Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Self
 
@@ -28,12 +29,18 @@ class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class RunOrder(StrEnum):
+    BY_SETUP = "by_setup"  # every task under one setup, then the next: each model loads once (limited memory)
+    BY_TASK = "by_task"  # every setup on one task, then the next: an interrupted run stays balanced
+
+
 class Experiment(Frozen):
     """A suite, the setups to compare on it, and optionally which of its tasks to run."""
 
     suite: Path
     setups: dict[str, Path] = Field(min_length=1)  # name -> project config
     tasks: tuple[str, ...] = ()  # task ids to run; empty: all of them
+    order: RunOrder = RunOrder.BY_SETUP
 
     @classmethod
     def load(cls, path: Path) -> Self:
@@ -181,15 +188,20 @@ class ComparisonRun:
         return list(self._configs)
 
     async def run(self, report: Callable[[RunMeasure], None] | None = None) -> ComparisonReport:
-        """Tasks in the outer loop, setups in the inner, so partial results stay balanced across setups."""
+        """Every task under every setup, in the experiment's order; `report` hears each run as it finishes."""
         measures: list[RunMeasure] = []
-        for task in self._tasks:
-            for setup in self._configs:
-                measure = await self.run_task(setup, task)
-                measures.append(measure)
-                if report is not None:
-                    report(measure)
+        for setup, task in self.schedule():
+            measure = await self.run_task(setup, task)
+            measures.append(measure)
+            if report is not None:
+                report(measure)
         return ComparisonReport.of(measures, self.setups)
+
+    def schedule(self) -> list[tuple[str, EvalTask]]:
+        """The (setup, task) runs in order. By setup by default, so each setup's models load once."""
+        if self._experiment.order is RunOrder.BY_TASK:
+            return [(setup, task) for task in self._tasks for setup in self._configs]
+        return [(setup, task) for setup in self._configs for task in self._tasks]
 
     async def run_task(self, setup: str, task: EvalTask) -> RunMeasure:
         root = self._workdir / setup / task.id

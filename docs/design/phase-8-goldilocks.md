@@ -81,15 +81,47 @@ reviewers of the setup under test examine it. A bug counts as caught when a revi
 (evidence is a failing test, so a finding is never just a claim). Measured per reviewer set: catch rate,
 tokens per bug, and how many findings were raised on bug-free control runs (false alarms).
 
+### Routing: difficulty scores and model curves (decided with the user)
+
+Choosing a model per task is split in two parts that never depend on each other:
+
+- **Jev scores the task's difficulty.** One model-agnostic question at a `route:<team>` point, such as "is
+  this a simple, single-step change?". Jev's probability is the score. The score only has to *order*
+  tasks (easy before hard); it doesn't have to be calibrated itself.
+- **Each model gets a measured curve:** its success rate at each difficulty, fitted from comparison and
+  evaluation runs, never from descriptions.
+- **The router picks the cheapest model whose curve predicts success above a target** (for example 80%)
+  at the task's difficulty, and the strongest model if none does. Tiers stay as the safety net: a
+  rejection still steps up.
+
+Adding or swapping a model means measuring its curve; Jev's question doesn't change. Two conditions,
+checked with data rather than assumed:
+
+1. **Difficulty must be roughly one-dimensional.** If two models' curves *cross* (one better on some kinds
+   of task, the other on others), one score can't route correctly. The comparison results show whether
+   they cross. If they do, use a few scores or one curve per task category.
+2. **A curve belongs to its cohort:** one model version and one version of the difficulty question. A new
+   Jev version or new wording means refitting the curves.
+
+### Memory: a 24 GB machine
+
+All local models share 24 GB of unified memory with macOS and Docker, so a setup's models must fit
+together, and runs are grouped by setup so each model loads once (see step 2's decisions). A swarm's
+many agents are prompts on one loaded model, which is itself part of the case for small swarms.
+
 ## Steps
 
 1. The narrow red teams, registered in the catalog.
 2. `agentswarm compare EXPERIMENT`: runs every task of a suite under every setup and prints the table
    (and writes it as JSON next to the projects). Tested offline with scripted models.
 3. The review benchmark (planted bugs and bug-free controls), as a second kind of experiment.
-4. The setups in `examples/goldilocks/` and the live runs: the building comparison on the hard and
-   held-out suites, the review comparison on the same tasks' references.
-5. Results, honestly reported here and in the tutorial, including where small swarms lose.
+4. Routing: the difficulty question, per-model curves fitted from results, the router, a `routed`
+   setup.
+5. The setups in `examples/goldilocks/` (models that fit in memory together) and the live runs: the
+   building comparison on the hard and held-out suites, the review comparison on the same tasks'
+   references.
+6. Results, honestly reported here and in the tutorial, including where small swarms lose, and whether
+   the model curves cross.
 
 ## Not in this phase
 
@@ -126,3 +158,7 @@ tokens per bug, and how many findings were raised on bug-free control runs (fals
   costs, separate from the building cost being compared.
 - **Results:** the command prints a line per run as it finishes, then the table, and writes every run
   and the summary to `<workdir>/results.json`.
+- **Run order (after the memory discussion):** `order: by_setup` is the default, so every task runs under one
+  setup before the next and each model loads once. Looping task by task would reload models on almost
+  every run on a 24 GB machine. `order: by_task` stays available, for when an interrupted comparison
+  should still have balanced results.
