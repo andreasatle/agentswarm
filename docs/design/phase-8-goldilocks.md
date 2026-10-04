@@ -162,3 +162,27 @@ many agents are prompts on one loaded model, which is itself part of the case fo
   setup before the next and each model loads once. Looping task by task would reload models on almost
   every run on a 24 GB machine. `order: by_task` stays available, for when an interrupted comparison
   should still have balanced results.
+
+**Step 3 (review benchmark).**
+- **`evaluation/review.py`; `kind: review` in the experiment file** selects it, and `agentswarm compare`
+  runs either kind.
+- **`BugPlanter`:**
+  - takes the lines a task's reference changed relative to the seed (`ChangedLines.between`, a
+    `difflib` diff of the two texts);
+  - generates mutants on those lines with the existing `MutantGenerator`;
+  - keeps only the mutants the hidden tests catch, checked in a scratch copy in the setup's sandbox;
+  - picks `bugs_per_task` of them reproducibly (a seeded shuffle).
+- **Bugs are planted once per task and shared by every setup**, so every setup reviews exactly the same
+  bugs.
+- **`PlantingExecutor`** writes the reference (with the bug, or clean for a control) and a test that
+  passes, so the gate merges it. It ignores fix artifacts: the benchmark measures *finding* bugs, and a
+  routed fix would only be rewritten by the script.
+- **Swapping the executor:** `TeamCatalog.with_team` returns a copy of the catalog with the executor
+  replaced, so a setup's reviewers are built exactly as in a normal run.
+- **Scoring:**
+  - a bug is caught when any reviewer team (a team watching above the lowest level) adds a finding;
+  - a finding on a control run is a false alarm;
+  - each run records which teams found something, so the summary credits bugs to individual narrow
+    teams;
+  - setups with no reviewers are refused up front.
+- **Review runs always go one setup at a time**, for the memory reason in step 2.

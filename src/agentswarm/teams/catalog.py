@@ -186,6 +186,13 @@ class TeamCatalog:
     def names(self) -> list[str]:
         return sorted(self._factories)
 
+    def with_team(self, name: str, factory: TeamFactory) -> "TeamCatalog":
+        """A copy of this catalog in which `name` is built by `factory`, added or replaced."""
+        catalog = TeamCatalog()
+        catalog._factories = dict(self._factories)
+        catalog._factories[name] = factory
+        return catalog
+
     def register(self, name: str, factory: TeamFactory) -> None:
         if name in self._factories:
             raise ValueError(f"team {name!r} is already registered")

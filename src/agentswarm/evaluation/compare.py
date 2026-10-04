@@ -17,7 +17,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.core.config import ProjectConfig
-from agentswarm.core.domain import Spent, Usage
+from agentswarm.core.domain import Event, Spent, Usage
 from agentswarm.evaluation.suite import EvalTask, HiddenTests, TaskSuite
 from agentswarm.gating.checks import CheckStatus
 from agentswarm.judging.tuning import Wilson
@@ -34,13 +34,21 @@ class RunOrder(StrEnum):
     BY_TASK = "by_task"  # every setup on one task, then the next: an interrupted run stays balanced
 
 
+class ExperimentKind(StrEnum):
+    BUILD = "build"  # do the setups deliver working code? (hidden tests on what they merged)
+    REVIEW = "review"  # do the setups' reviewers catch planted bugs? (see review.py)
+
+
 class Experiment(Frozen):
     """A suite, the setups to compare on it, and optionally which of its tasks to run."""
 
     suite: Path
     setups: dict[str, Path] = Field(min_length=1)  # name -> project config
     tasks: tuple[str, ...] = ()  # task ids to run; empty: all of them
-    order: RunOrder = RunOrder.BY_SETUP
+    order: RunOrder = RunOrder.BY_SETUP  # build experiments; review runs always go setup by setup
+    kind: ExperimentKind = ExperimentKind.BUILD
+    bugs_per_task: int = Field(default=1, ge=1)  # review experiments: planted bugs per task
+    controls: bool = True  # review experiments: one clean run per task, to count false alarms
 
     @classmethod
     def load(cls, path: Path) -> Self:
@@ -64,6 +72,23 @@ class Experiment(Frozen):
         if unknown:
             raise ValueError(f"tasks not in the suite: {unknown}")
         return [t for t in suite.tasks if t.id in self.tasks]
+
+
+class TokenCount:
+    """Team model usage from a project's log, per real model (Jev decisions and the fallback left out)."""
+
+    @staticmethod
+    def of(events: Sequence[Event], config: ProjectConfig) -> tuple[int, dict[str, Usage]]:
+        """(model runs, tokens per model as "<provider>:<model>")."""
+        spent = [e for e in events if isinstance(e, Spent) and not e.by.startswith("jev")]
+        tokens: dict[str, Usage] = {}
+        for event in spent:
+            # By the real model, not the config's name for it: two setups may both call theirs "coder".
+            model = config.models[event.model].model if event.model in config.models else event.model
+            usage = Usage(input_tokens=event.input_tokens, output_tokens=event.output_tokens)
+            before = tokens.get(model, Usage())
+            tokens[model] = before + usage
+        return len(spent), tokens
 
 
 class RunMeasure(Frozen):
@@ -246,23 +271,15 @@ class ComparisonRun:
         note: str,
     ) -> RunMeasure:
         envelopes = project.board.log.read()
-        spent = [
-            e.event for e in envelopes if isinstance(e.event, Spent) and not e.event.by.startswith("jev")
-        ]
-        tokens: dict[str, Usage] = {}
-        for event in spent:
-            # By the real model, not the config's name for it: two setups may both call theirs "coder".
-            model = config.models[event.model].model if event.model in config.models else event.model
-            usage = Usage(input_tokens=event.input_tokens, output_tokens=event.output_tokens)
-            before = tokens.get(model, Usage())
-            tokens[model] = before + usage
+        events = [e.event for e in envelopes]
+        model_runs, tokens = TokenCount.of(events, config)
         views = project.views()
         open_escalations = views.open_escalations()
         return RunMeasure(
             setup=setup,
             task=task.id,
             solved=solved,
-            model_runs=len(spent),
+            model_runs=model_runs,
             tokens=tokens,
             seconds=round(seconds, 1),
             escalations=len(open_escalations),

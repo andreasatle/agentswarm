@@ -14,6 +14,7 @@ Python only, deliberately small and deterministic: enough to tell real tests fro
 
 import ast
 import copy
+import difflib
 import re
 from pathlib import PurePosixPath
 from typing import ClassVar
@@ -64,6 +65,18 @@ class ChangedLines:
             elif (hunk := cls.HUNK.match(line)) and path is not None:
                 start, count = int(hunk.group(1)), int(hunk.group(2) or "1")
                 changed[path].update(range(start, start + count))
+        return changed
+
+    @staticmethod
+    def between(old: str, new: str) -> set[int]:
+        """The line numbers of `new` that are added or changed relative to `old` (1-based)."""
+        old_lines = old.splitlines()
+        new_lines = new.splitlines()
+        matcher = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False)
+        changed: set[int] = set()
+        for tag, _, _, start, end in matcher.get_opcodes():
+            if tag in ("replace", "insert"):
+                changed.update(range(start + 1, end + 1))
         return changed
 
     @staticmethod

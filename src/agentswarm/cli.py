@@ -37,8 +37,15 @@ from agentswarm.core.domain import (
     Sized,
     Spent,
 )
-from agentswarm.evaluation.compare import ComparisonFiles, ComparisonReport, ComparisonRun, Experiment
+from agentswarm.evaluation.compare import (
+    ComparisonFiles,
+    ComparisonReport,
+    ComparisonRun,
+    Experiment,
+    ExperimentKind,
+)
 from agentswarm.evaluation.faults import Variant
+from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
 from agentswarm.judging.audit import GateAudit
@@ -125,7 +132,8 @@ class Cli:
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
-        compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups; compare them
+        compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
+                                                   bugs for their reviewers (review); compare them
         audit DECISIONS [--point POINT]            how often an active gate was wrong, against outcomes
         calibrate DECISIONS                        the calibration report for a decision log
         tune DECISIONS [--precision P]             thresholds that reach a target precision, per question
@@ -216,9 +224,16 @@ class Cli:
         experiment = Experiment.load(experiment_path)
         workdir = Path(args.workdir).expanduser()
         workdir.mkdir(parents=True, exist_ok=True)
+        results = ComparisonFiles.results(workdir)
+        if experiment.kind is ExperimentKind.REVIEW:
+            review = ReviewRun(experiment, workdir)
+            review_report = await review.run(lambda measure: self._show(ReviewReport.line(measure)))
+            review_report.write(results)
+            self._show("\n" + review_report.render())
+            self._show(f"\nEvery run and the summary: {results}")
+            return 0
         comparison = ComparisonRun(experiment, workdir)
         report = await comparison.run(lambda measure: self._show(ComparisonReport.line(measure)))
-        results = ComparisonFiles.results(workdir)
         report.write(results)
         self._show("\n" + report.render())
         self._show(f"\nEvery run and the summary: {results}")
