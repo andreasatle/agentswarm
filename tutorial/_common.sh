@@ -47,3 +47,8 @@ needs() {
         exit 1
     fi
 }
+
+# Say where a step's project is, so it can be inspected afterwards.
+where() {
+    printf '\nThe project is in %s\n' "$1"
+}

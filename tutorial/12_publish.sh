@@ -8,3 +8,4 @@ needs "$ROOT" tutorial/12_documents.sh
 run uv run agentswarm resolve examples/handbook/project.yaml a-0001 --root "$ROOT" --accept --note "reviewed, publish"
 run uv run agentswarm run examples/handbook/project.yaml --root "$ROOT"
 run git -C "$ROOT/repo" show published:sections/01-choosing-books.md
+where "$ROOT"

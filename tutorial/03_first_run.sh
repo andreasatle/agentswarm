@@ -8,3 +8,4 @@ fresh "$ROOT"
 run uv run agentswarm run examples/quickstart/project.yaml --root "$ROOT" \
     --task "Write a note" --task "Write another note"
 run git -C "$ROOT/repo" log --oneline --graph --all
+where "$ROOT"

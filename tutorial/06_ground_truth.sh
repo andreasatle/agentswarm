@@ -7,3 +7,4 @@ WORK="$RUNS/step06-eval"
 fresh "$WORK"
 
 run uv run agentswarm evaluate examples/greeter/evaluation/suite.yaml --workdir "$WORK"
+where "$WORK"

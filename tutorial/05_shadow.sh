@@ -9,3 +9,4 @@ fresh "$ROOT"
 run uv run agentswarm run examples/greeter/project.yaml --root "$ROOT" \
     --task "Add two functions to greeter.py: farewell(name), which returns 'Goodbye, <name>!', and shout(name), which returns the hello greeting in upper case. Add tests for both."
 run uv run agentswarm calibrate "$ROOT/decisions.sqlite"
+where "$ROOT"

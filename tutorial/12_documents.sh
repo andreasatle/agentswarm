@@ -9,3 +9,4 @@ fresh "$ROOT"
 run uv run agentswarm run examples/handbook/project.yaml --root "$ROOT" \
     --task "Write a short handbook for running a book club: choosing books, running a meeting, keeping members"
 run git -C "$ROOT/repo" ls-tree -r --name-only final
+where "$ROOT"
