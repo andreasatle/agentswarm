@@ -1,0 +1,9 @@
+# Phase 8 review comparison: planted bugs in the held-out tasks' references, and clean controls.
+#   uv run agentswarm compare examples/goldilocks/review.yaml --workdir ~/agentswarm-runs/goldilocks/review
+suite: ../greeter/evaluation/heldout/suite.yaml
+kind: review
+bugs_per_task: 1
+setups:
+  broad-small: review-broad-small.yaml
+  narrow-small: review-narrow-small.yaml
+  broad-big: review-broad-big.yaml

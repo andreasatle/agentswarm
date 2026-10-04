@@ -218,3 +218,26 @@ many agents are prompts on one loaded model, which is itself part of the case fo
   - prints the curves and any crossings, and writes them as JSON;
   - when a task was split, only the task's own artifact counts, since the children's difficulty isn't the
     task's.
+
+**Step 5 (setups and live runs).**
+- **Models that fit (24 GB, checked on this machine):**
+  - gemma4:e4b takes 3.2 GB on the GPU when loaded, much less than its 9.6 GB file;
+  - gemma4:12b takes 8 GB;
+  - gemma4:26b takes 18.3 GB in total, 13.4 GB on the GPU and the rest on the CPU, so it is slower but
+    usable when it runs alone, which running one setup at a time guarantees;
+  - gpt-oss:20b doesn't load in this Ollama version (it can't read the model file), so it's left out;
+  - all three gemma4 sizes make real tool calls.
+- **`examples/goldilocks/`:**
+  - building setups: `small`, `medium`, `big` (one executor each, logging difficulty for the curves),
+    `tiered` (small, stepping up to medium on rejection), `swarm` (a small executor plus the four narrow
+    red teams, with findings becoming fix tasks) and `routed` (small, medium and big tiers chosen from
+    curves; run after the curves exist);
+  - reviewing setups: one broad red team on the small model, four narrow ones on the small model, and one
+    broad red team on the big model. "Narrow and small" against "broad and big" is the goldilocks question
+    for reviewing.
+  - every setup shares the project, the seed and the first gate: unit tests only, no judge.
+- **The swarm has no decomposer:** greeter tasks are single functions, so splitting would add noise
+  rather than help. A suite with multi-part tasks is where decomposition should be compared.
+- **Curve data comes only from single-model runs:** a run whose commits came from another model than the
+  routed one (a tiered step up) is skipped, so the result is never credited to the wrong model.
+- **A smoke run** (one task under all five building setups) precedes the long runs.

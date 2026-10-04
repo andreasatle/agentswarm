@@ -1,0 +1,24 @@
+# Phase 8 setup "big": one big executor (gemma4:26b, partly on the CPU in 24 GB); logs difficulty for the curves
+# Every setup shares the project, the seed and the first gate (unit tests only, no judge), so the setups
+# differ only in their teams and models. Compared with `agentswarm compare` (see build-*.yaml, review.yaml).
+project: goldilocks
+domain: software
+north_star: A small, well-tested Python greeting library.
+seed: ../greeter/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+
+models:
+  big: {model: "ollama:gemma4:26b", temperature: 0}
+teams:
+  - use: executor
+    watches: raw
+    model: big
+    checks: [unit_tests]
+    max_model_calls: 30
+    constraints: [Use only the Python standard library., Put tests in tests/ and run them with run_checks.]
+    routing: {}
+gates:
+  - {from: raw, to: experimental, hard_checks: [unit_tests]}
+
+jev: {mode: shadow}

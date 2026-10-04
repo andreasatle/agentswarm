@@ -1,0 +1,9 @@
+# Phase 8 building comparison on the hard greeter suite: does each setup deliver working code?
+#   uv run agentswarm compare examples/goldilocks/build-hard.yaml --workdir ~/agentswarm-runs/goldilocks/build-hard
+suite: ../greeter/evaluation/hard/suite.yaml
+setups:
+  small: small.yaml
+  medium: medium.yaml
+  big: big.yaml
+  tiered: tiered.yaml
+  swarm: swarm.yaml

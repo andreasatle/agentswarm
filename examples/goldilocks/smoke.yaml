@@ -1,0 +1,10 @@
+# A quick check that every building setup starts and finishes, on one task.
+#   uv run agentswarm compare examples/goldilocks/smoke.yaml --workdir ~/agentswarm-runs/goldilocks/smoke
+suite: ../greeter/evaluation/heldout/suite.yaml
+tasks: [greet-pair]
+setups:
+  small: small.yaml
+  medium: medium.yaml
+  big: big.yaml
+  tiered: tiered.yaml
+  swarm: swarm.yaml

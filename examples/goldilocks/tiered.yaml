@@ -1,0 +1,24 @@
+# Phase 8 setup "tiered": starts small, steps up to medium on each rejection
+# Every setup shares the project, the seed and the first gate (unit tests only, no judge), so the setups
+# differ only in their teams and models. Compared with `agentswarm compare` (see build-*.yaml, review.yaml).
+project: goldilocks
+domain: software
+north_star: A small, well-tested Python greeting library.
+seed: ../greeter/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+
+models:
+  small: {model: "ollama:gemma4:e4b", temperature: 0}
+  medium: {model: "ollama:gemma4:12b", temperature: 0}
+teams:
+  - use: executor
+    watches: raw
+    model_tiers: [small, medium]
+    checks: [unit_tests]
+    max_model_calls: 30
+    constraints: [Use only the Python standard library., Put tests in tests/ and run them with run_checks.]
+gates:
+  - {from: raw, to: experimental, hard_checks: [unit_tests]}
+
+jev: {mode: shadow}
