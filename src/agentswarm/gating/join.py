@@ -51,7 +51,7 @@ class JoinPromoter:
     def step(self) -> int:
         views = self._board.current()
         joined = 0
-        for umbrella in [a for a in views.artifacts() if views.is_umbrella(a.id)]:
+        for umbrella in [a for a in views.artifacts() if views.is_umbrella(a.id) and not views.dropped(a.id)]:
             target = self._ladder.next(umbrella.level)
             if (
                 target is None

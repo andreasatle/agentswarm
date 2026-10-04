@@ -3,7 +3,15 @@ from pathlib import Path
 
 import pytest
 
-from agentswarm.core.domain import ArtifactContext, Event, Level, TeamName
+from agentswarm.core.domain import (
+    ArtifactContext,
+    Escalated,
+    EscalationResolved,
+    Event,
+    Level,
+    Resolution,
+    TeamName,
+)
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.git import Worktree
 from tests.support.harness import Harness
@@ -51,6 +59,23 @@ class TestTeamRunner:
         h.push(artifact, {"a.txt": "a"})  # something new happened to the artifact
         assert await runner.step() == 1
         assert len(team.acted) == 2
+
+    async def test_parked_and_dropped_artifacts_are_left_alone(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+        team = RecordingTeam()
+        runner = h.runner(team)
+        parked, dropped = h.create(Samples.A), h.create(Samples.B)
+        h.board.append(
+            [
+                Escalated(artifact=parked.id, reason="waits for a person"),
+                Escalated(artifact=dropped.id, reason="retire it"),
+                EscalationResolved(artifact=dropped.id, resolution=Resolution.DROP),
+            ]
+        )
+        assert await runner.step() == 0
+        h.board.append([EscalationResolved(artifact=parked.id, resolution=Resolution.RETRY)])
+        assert await runner.step() == 1
+        assert [ctx.artifact.id for ctx in team.acted] == [parked.id]
 
     async def test_irrelevant_artifacts_are_not_claimed_or_asked_again(self, tmp_path: Path) -> None:
         h = Harness(tmp_path)

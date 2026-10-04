@@ -7,11 +7,14 @@ from agentswarm.core.config import LevelLadder
 from agentswarm.core.domain import (
     ArtifactId,
     DecisionId,
+    Escalated,
+    EscalationResolved,
     Finding,
     FindingAdded,
     FindingKind,
     Level,
     Promoted,
+    Resolution,
     Severity,
 )
 from tests.support.samples import Samples
@@ -63,6 +66,14 @@ class TestFindingRouter:
             "router",
         )
         assert "Add farewell" in fix.task and "Goodbye, !" in fix.task
+
+    def test_parked_or_dropped_artifacts_get_no_fixes(self) -> None:
+        r = Routing()
+        r.finding()
+        r.board.append([Escalated(artifact=r.original.id, reason="a person decides")])
+        assert r.router.step() == 0
+        r.board.append([EscalationResolved(artifact=r.original.id, resolution=Resolution.DROP)])
+        assert r.router.step() == 0
 
     def test_minor_findings_are_not_routed(self) -> None:
         r = Routing()

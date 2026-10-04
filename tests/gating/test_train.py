@@ -71,6 +71,13 @@ class Train:
 
 
 class TestTrainPromoter:
+    def test_an_open_escalation_holds_the_train(self, tmp_path: Path) -> None:
+        t = Train.of(tmp_path, 2)
+        t.sign_off(0, 1)
+        t.h.board.append([Escalated(artifact=t.artifacts[0].id, reason="a person decides")])
+        assert t.promoter().step() == 0
+        assert t.promoted() == []
+
     def test_promotes_every_ready_artifact_in_one_fast_forward(self, tmp_path: Path) -> None:
         t = Train.of(tmp_path, 3)
         t.sign_off(0, 1, 2)

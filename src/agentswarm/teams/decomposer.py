@@ -114,7 +114,9 @@ You are the planner. The task in the data is too large for one change by one tea
             check = self._split.ask(f"split:{self._watches}", ctx, head, head, "", proposal)
         except DeciderError as error:
             return [Escalated(artifact=artifact.id, reason=f"split could not be checked: {error}")]
-        if check.ruling.verdict is not Verdict.PROMOTE:
+        if (
+            check.mode is JevMode.ACTIVE and check.ruling.verdict is not Verdict.PROMOTE
+        ):  # shadow never blocks
             return [
                 Escalated(artifact=artifact.id, reason="proposed split is not clearly smaller than the task")
             ]

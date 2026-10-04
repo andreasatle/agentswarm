@@ -109,7 +109,9 @@ class TeamRunner:
         return [
             a
             for a in views.artifacts_at(self._team.watches)
-            if (a.id, views.version(a.id)) not in self._handled and views.claim_on(a.id, now) is None
+            if (a.id, views.version(a.id)) not in self._handled
+            and views.claim_on(a.id, now) is None
+            and views.active(a.id)
         ]
 
     async def _handle(self, artifact: Artifact) -> bool:

@@ -22,7 +22,12 @@ class Sizing:
     """A harness with one artifact, and a decomposer whose judges answer as scripted."""
 
     def __init__(
-        self, tmp_path: Path, fits: float, smaller: float = 0.95, mode: JevMode = JevMode.ACTIVE
+        self,
+        tmp_path: Path,
+        fits: float,
+        smaller: float = 0.95,
+        mode: JevMode = JevMode.ACTIVE,
+        split_mode: JevMode | None = None,
     ) -> None:
         self.h = Harness(tmp_path)
         self.artifact = self.h.create(task="Build a greeting library with farewells and shouting")
@@ -30,17 +35,20 @@ class Sizing:
             [SizeCheck(fits=NoulAnswer(noul=fits)), SplitCheck(smaller=NoulAnswer(noul=smaller))]
         )
         self.mode = mode
+        self.split_mode = split_mode or mode
 
-    def judgement(self, spec: type[BaseModel]) -> Judgement:
+    def judgement(self, spec: type[BaseModel], mode: JevMode | None = None) -> Judgement:
         judge = Judge(spec)
-        return Judgement(judge, Policy(judge), self.decider, self.h.decisions, self.mode, self.h.clock)
+        return Judgement(
+            judge, Policy(judge), self.decider, self.h.decisions, mode or self.mode, self.h.clock
+        )
 
     def decomposer(self, *steps: Step[BaseModel], max_depth: int = 3) -> Decomposer:
         return Decomposer(
             Samples.RAW,
             FakeWorker(steps),
             self.judgement(SizeCheck),
-            self.judgement(SplitCheck),
+            self.judgement(SplitCheck, self.split_mode),
             ArtifactFactory(self.h.board, Harness.LADDER),
             max_depth,
         )
@@ -87,6 +95,12 @@ class TestDecomposer:
         history = await s.run(s.decomposer(split_into("The same task", "The same task again")))
         assert any(isinstance(e, Escalated) and "not clearly smaller" in e.reason for e in history)
         assert not any(isinstance(e, ArtifactCreated) and e.artifact.parent for e in history)
+
+    async def test_a_shadow_split_check_never_blocks_an_active_size_check(self, tmp_path: Path) -> None:
+        s = Sizing(tmp_path, fits=0.05, smaller=0.5, split_mode=JevMode.SHADOW)
+        history = await s.run(s.decomposer(split_into("Greetings", "Farewells")))
+        assert not any(isinstance(e, Escalated) for e in history)
+        assert any(isinstance(e, Sized) and not e.fits for e in history)
 
     async def test_the_depth_limit_escalates_instead_of_splitting_again(self, tmp_path: Path) -> None:
         s = Sizing(tmp_path, fits=0.05)  # every task looks too large

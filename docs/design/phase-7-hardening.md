@@ -181,3 +181,22 @@ These come next, in this order:
 - **Joins move no branch** and are unchanged.
 - **Tests:** crash after the move, crash before the move, the queue leaving the level alone on failed
   checks, and the normal path.
+
+**Step 5 (lifecycle).**
+- **`BoardViews.active(id)`** is the one rule: an artifact is active unless an escalation about it is
+  open (it waits for a person) or it was dropped. This is a single view method, not the separate
+  `Lifecycle` class planned: there are only two states to honour, and every caller already holds the
+  views.
+- **Where it is used:**
+  - Every team runner skips inactive artifacts, without marking them handled, so a retry picks them up
+    again. Before, this held only until a restart, through the in-memory handled set.
+  - The router creates no fixes for inactive artifacts.
+  - Joins skip dropped umbrellas. Parked umbrellas were already skipped.
+- **The release train's exceptions are explicit:**
+  - a dropped artifact's merged code rides along, as before;
+  - an open escalation holds the train, unless it is the human gate's own request for approval.
+    `Escalated` gained `approval_for: Level`, so the train recognises its own request without parsing
+    the reason text.
+- **F16:** a split check in shadow mode never blocks; the split goes ahead when the size check is
+  active.
+- **Tests:** runner, router, train and decomposer each get one case.

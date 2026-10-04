@@ -169,6 +169,15 @@ class BoardViews:
     def dropped(self, id: ArtifactId) -> bool:
         return id in self._dropped
 
+    def active(self, id: ArtifactId) -> bool:
+        """Neither waiting for a person (open escalation) nor dropped (CODEX_AUDIT.md F07).
+
+        Every team runner, the joins and the router act only on active artifacts. The release train has two
+        deliberate exceptions: a dropped artifact's merged code rides along (it can't leave the level's
+        history), and a human gate's own request for approval doesn't hold the artifact it asks about.
+        """
+        return id not in self._escalations and id not in self._dropped
+
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
 

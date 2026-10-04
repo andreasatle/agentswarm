@@ -302,6 +302,7 @@ class Escalated(Frozen):
     kind: Literal["escalated"] = "escalated"
     artifact: ArtifactId | None
     reason: str
+    approval_for: Level | None = None  # set when a human gate asks to promote the artifact to this level
 
     @property
     def subject(self) -> ArtifactId | None:

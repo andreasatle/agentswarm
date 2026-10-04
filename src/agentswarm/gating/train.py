@@ -104,6 +104,9 @@ class TrainPromoter:
     def _is_ready(self, views: BoardViews, artifact: Artifact) -> bool:
         if views.dropped(artifact.id):
             return True
+        escalation = views.open_escalation(artifact.id)
+        if escalation is not None and escalation.approval_for != self._gate.to_level:
+            return False  # waiting for a person about something else
         return (
             artifact.level == self._gate.from_level
             and all(views.signed_off(artifact.id, team) for team in self._requires)
@@ -172,5 +175,5 @@ class TrainPromoter:
         if self._board.current().open_escalation(artifact.id) is not None:
             return 0
         reason = f"{self._gate.name}: needs human approval to promote up to {commit[:12]}"
-        self._board.append([Escalated(artifact=artifact.id, reason=reason)])
+        self._board.append([Escalated(artifact=artifact.id, reason=reason, approval_for=self._gate.to_level)])
         return 1

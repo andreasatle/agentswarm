@@ -29,8 +29,8 @@ class FindingRouter:
         views = self._board.current()
         created = 0
         for artifact in views.artifacts():
-            if artifact.level == self._ladder.lowest:
-                continue
+            if artifact.level == self._ladder.lowest or not views.active(artifact.id):
+                continue  # no fixes for work that is parked with a person or dropped
             for finding in views.open_findings(artifact.id):
                 if finding.severity in self.BLOCKING and views.fix_for(finding.id) is None:
                     self._artifacts.create(
