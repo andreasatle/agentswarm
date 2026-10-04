@@ -55,7 +55,16 @@ class Rate(Frozen):
 
 
 class GateAudit(Frozen):
+    """How often a gate's active rulings were wrong, for one cohort (CODEX_AUDIT.md F10).
+
+    A cohort is one judge wording and one concrete model; `None` means pooled over all of them, which
+    `cohorts` never does. This audits the judge's rulings, not the promotions that followed: a ruling to
+    promote may still fail the merge checks or wait for a person.
+    """
+
     point: str
+    judge_version: str | None
+    model: str | None
     decisions: int
     false_promotions: Rate
     false_rejections: Rate
@@ -65,8 +74,29 @@ class GateAudit(Frozen):
     BOUNDS: ClassVar[dict[str, float]] = {"promotion": 0.05, "rejection": 0.10, "escalation": 0.30}
 
     @classmethod
-    def of(cls, store: DecisionStore, point: str = "gate:raw->experimental") -> Self:
-        decisions = [d for d in store.all() if d.point == point and d.mode is JevMode.ACTIVE]
+    def cohorts(cls, store: DecisionStore, point: str = "gate:raw->experimental") -> list[Self]:
+        """One audit per judge wording and model; LLM-fallback decisions form their own cohorts."""
+        keys = {
+            (d.judge_version, d.model) for d in store.all() if d.point == point and d.mode is JevMode.ACTIVE
+        }
+        return [cls.of(store, point, version, model) for version, model in sorted(keys)]
+
+    @classmethod
+    def of(
+        cls,
+        store: DecisionStore,
+        point: str = "gate:raw->experimental",
+        judge_version: str | None = None,
+        model: str | None = None,
+    ) -> Self:
+        decisions = [
+            d
+            for d in store.all()
+            if d.point == point
+            and d.mode is JevMode.ACTIVE
+            and judge_version in (None, d.judge_version)
+            and model in (None, d.model)
+        ]
         promotions = [cls._wrong(store, d) for d in decisions if d.ruling.verdict is Verdict.PROMOTE]
         rejections = [cls._wrong(store, d) for d in decisions if d.ruling.verdict is Verdict.REJECT]
         escalations = sum(d.ruling.verdict is Verdict.ESCALATE for d in decisions)
@@ -74,6 +104,8 @@ class GateAudit(Frozen):
         known_rejections = [w for w in rejections if w is not None]
         return cls(
             point=point,
+            judge_version=judge_version,
+            model=model,
             decisions=len(decisions),
             false_promotions=Rate(
                 name="false promotions",
@@ -107,13 +139,26 @@ class GateAudit(Frozen):
             return True
         return False if False in known else None
 
+    @staticmethod
+    def render_all(audits: "list[GateAudit]") -> str:
+        note = "Rulings of the judge, not promotions: merge checks and people decide after it."
+        return (
+            "\n\n".join([a.render() for a in audits] or ["No active decisions at this point."]) + f"\n{note}"
+        )
+
     @property
     def within(self) -> bool:
         return all(r.within for r in (self.false_promotions, self.false_rejections, self.escalations))
 
     def render(self) -> str:
+        cohort = (
+            "all wordings and models, pooled"
+            if self.judge_version is None and self.model is None
+            else f"judge {self.judge_version or 'unversioned'}, {self.model or 'any model'}"
+        )
         lines = [
-            f"{self.point}: {self.decisions} active decisions ({self.unknown} not settled by the outcomes)",
+            f"{self.point} ({cohort}): {self.decisions} active decisions "
+            f"({self.unknown} not settled by the outcomes)",
             *(f"  {r.render()}" for r in (self.false_promotions, self.false_rejections, self.escalations)),
             "  all within bounds" if self.within else "  not all within bounds",
         ]

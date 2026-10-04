@@ -30,6 +30,17 @@ ALL_YES = {"in_scope": True, "tests_relevant": True, "complete": True}
 
 
 class TestGateAudit:
+    def test_each_model_and_wording_is_audited_on_its_own(self) -> None:
+        log = Log()
+        log.add(Judged.passing(), ALL_YES)
+        log.store.record(
+            Drafts.make(Judged.passing()).model_copy(update={"mode": JevMode.ACTIVE, "model": "jev-2"})
+        )
+        audits = GateAudit.cohorts(log.store)
+        assert [(a.model, a.decisions) for a in audits] == [(Drafts.make().model, 1), ("jev-2", 1)]
+        assert GateAudit.of(log.store).decisions == 2  # pooled only when asked for explicitly
+        assert "pooled" in GateAudit.of(log.store).render()
+
     def test_classifies_promotions_rejections_and_escalations(self) -> None:
         log = Log()
         log.add(Judged.passing(), ALL_YES)  # right promotion

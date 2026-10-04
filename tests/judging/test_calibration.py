@@ -14,6 +14,7 @@ class Rows:
             Labelled(
                 point="gate:raw->experimental",
                 judge_version="v1",
+                model="jev-1",
                 field=field,
                 p_yes=p,
                 truth=t,

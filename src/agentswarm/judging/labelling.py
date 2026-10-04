@@ -68,12 +68,17 @@ class SpotCheck:
         self._random = random.Random(seed)
 
     def candidates(self, limit: int) -> list[Decision]:
-        """A reproducible random sample of decisions with automatic outcomes and no human labels yet."""
+        """A reproducible random sample of decisions with automatic outcomes and no human labels yet.
+
+        Only decisions asked with the judge's current wording: a person answers today's questions, and a
+        label must answer the question that was judged (CODEX_AUDIT.md F10).
+        """
         eligible = [
             d
             for d in self._store.all()
             if (outcomes := self._store.outcomes(d.id))
             and not any(o.source is OutcomeSource.HUMAN for o in outcomes)
+            and d.judge_version == self._judges.get(d.judge).version
         ]
         return self._random.sample(eligible, min(limit, len(eligible)))
 

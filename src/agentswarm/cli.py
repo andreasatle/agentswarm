@@ -221,7 +221,7 @@ class Cli:
                     self._show(EvaluationReport.line(result))
             self._show("\n" + CalibrationReport.of(decisions).render())
             if args.active:
-                self._show("\n" + GateAudit.of(decisions).render())
+                self._show("\n" + GateAudit.render_all(GateAudit.cohorts(decisions)))
         return 0
 
     def calibrate(self, args: argparse.Namespace) -> int:
@@ -238,7 +238,7 @@ class Cli:
 
     def audit(self, args: argparse.Namespace) -> int:
         with SqliteDecisions(self._existing(args.decisions)) as decisions:
-            self._show(GateAudit.of(decisions, args.point).render())
+            self._show(GateAudit.render_all(GateAudit.cohorts(decisions, args.point)))
         return 0
 
     def label(self, args: argparse.Namespace) -> int:

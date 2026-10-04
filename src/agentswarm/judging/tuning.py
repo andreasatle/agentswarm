@@ -68,6 +68,7 @@ class QuestionTuning(Frozen):
     point: str
     judge: str
     judge_version: str
+    model: str  # the concrete decider version the answers came from
     current: bool  # whether the judge in the catalog still asks this wording
     field: str
     n: int
@@ -78,7 +79,7 @@ class QuestionTuning(Frozen):
     def render(self) -> str:
         wording = "current wording" if self.current else "OLD wording, not for tuning"
         version = self.judge_version or "unversioned"
-        lines = [f"{self.point} · {self.field} ({self.judge} {version}, {wording}): n={self.n}"]
+        lines = [f"{self.point} · {self.field} ({self.judge} {version}, {wording}, {self.model}): n={self.n}"]
         for name, side in (("pass", self.passing), ("fail", self.failing)):
             if side is None:
                 lines.append(f"  {name}: no threshold reaches the target precision")
@@ -101,7 +102,7 @@ class ThresholdTuner:
     def tune(self, store: DecisionStore, judges: JudgeCatalog) -> list[QuestionTuning]:
         answers = LabelledAnswers.of(store)
         tunings: list[QuestionTuning] = []
-        for (point, version, field), rows in answers.groups.items():
+        for (point, version, model, field), rows in answers.groups.items():
             judge = answers.judges[(point, version)]
             current = version == judges.get(judge).version
             failing = self.failing(rows)
@@ -112,6 +113,7 @@ class ThresholdTuner:
                     point=point,
                     judge=judge,
                     judge_version=version,
+                    model=model,
                     current=current,
                     field=field,
                     n=len(rows),
@@ -174,8 +176,11 @@ class TuningReport(Frozen):
         rounding could merge or invert thresholds, or admit answers the measured policy excluded.
         """
         blocks: list[str] = []
-        for point in sorted({q.point for q in self.questions if q.point.startswith("gate:")}):
-            current = {q.field: q for q in self.questions if q.point == point and q.current}
+        cohorts = sorted({(q.point, q.model) for q in self.questions if q.point.startswith("gate:")})
+        for point, model in cohorts:
+            current = {
+                q.field: q for q in self.questions if (q.point, q.model) == (point, model) and q.current
+            }
             tuned = {f: q for f, q in current.items() if q.passing is not None and q.failing is not None}
             if not tuned:
                 continue
@@ -194,10 +199,10 @@ class TuningReport(Frozen):
             line = f"thresholds: {{{', '.join(entries)}}}"
             if problems:
                 blocks.append(
-                    f"# {point}: NOT READY ({'; '.join(problems)}); for exploration only:\n# {line}"
+                    f"# {point} ({model}): NOT READY ({'; '.join(problems)}); for exploration only:\n# {line}"
                 )
             else:
-                blocks.append(f"# {point}: ready\n{line}")
+                blocks.append(f"# {point} ({model}): ready\n{line}")
         return "\n".join(blocks) or "# no gate has enough data for thresholds yet"
 
     def render(self) -> str:

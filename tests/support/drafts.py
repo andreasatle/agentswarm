@@ -20,6 +20,7 @@ class Drafts:
             base="b45e",
             mode=JevMode.SHADOW,
             judge=cls.JUDGE.name,
+            judge_version=cls.JUDGE.version,
             state=JudgeState(north_star="n", task="t", must_fix=(), diff=diff),
             answers=answers.model_dump(mode="json"),
             ruling=Policy(cls.JUDGE).rule(answers),

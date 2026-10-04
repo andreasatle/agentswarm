@@ -15,6 +15,7 @@ def rows(*pairs: tuple[float, bool]) -> list[Labelled]:
         Labelled(
             point="gate:x",
             judge_version="v",
+            model="jev-1",
             field="complete",
             p_yes=p,
             truth=t,
@@ -88,6 +89,7 @@ class TestThresholdsYaml:
             point="gate:raw->experimental",
             judge="ChangeReadiness",
             judge_version="v",
+            model="jev-1",
             current=True,
             field=field,
             n=40,
@@ -100,7 +102,7 @@ class TestThresholdsYaml:
         tunings = [self.tuning("complete", 0.904, 0.901), self.tuning("in_scope", 0.37, 0.2)]
         tunings.append(self.tuning("tests_relevant", 0.8412, 0.0312))
         yaml_text = TuningReport.of(tunings, JudgeCatalog.standard()).thresholds_yaml()
-        assert yaml_text.startswith("# gate:raw->experimental: ready\n")
+        assert yaml_text.startswith("# gate:raw->experimental (jev-1): ready\n")
         loaded = yaml.safe_load(yaml_text)["thresholds"]
         assert loaded["complete"] == {"pass": 0.904, "fail": 0.901}  # not rounded into pass == fail
         assert {f: Threshold.model_validate(t).pass_at for f, t in loaded.items()} == {

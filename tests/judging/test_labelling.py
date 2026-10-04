@@ -80,3 +80,18 @@ class TestSpotCheck:
             )
         )
         assert s.check().candidates(limit=10) == []
+
+    def test_decisions_asked_with_old_wording_are_not_offered(self) -> None:
+        s = Session([])
+        for version in ("an-old-wording", Drafts.JUDGE.version):
+            decision = s.store.record(Drafts.make().model_copy(update={"judge_version": version}))
+            s.store.add_outcome(
+                Outcome(
+                    decision=decision.id,
+                    field="complete",
+                    truth=True,
+                    source=OutcomeSource.PLANTED,
+                    at=Samples.AT,
+                )
+            )
+        assert [d.judge_version for d in s.check().candidates(limit=10)] == [Drafts.JUDGE.version]

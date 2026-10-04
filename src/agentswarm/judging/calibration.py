@@ -31,6 +31,7 @@ class Labelled(Frozen):
 
     point: str
     judge_version: str
+    model: str  # the concrete decider version that answered
     field: str
     p_yes: float
     truth: bool
@@ -48,6 +49,7 @@ class Bin(Frozen):
 class QuestionCalibration(Frozen):
     point: str
     judge_version: str
+    model: str
     field: str
     n: int
     positives: int  # how many have truth yes
@@ -84,6 +86,7 @@ class QuestionCalibration(Frozen):
         return cls(
             point=rows[0].point,
             judge_version=rows[0].judge_version,
+            model=rows[0].model,
             field=rows[0].field,
             n=n,
             positives=sum(r.truth for r in rows),
@@ -107,8 +110,8 @@ class QuestionCalibration(Frozen):
         if self.decided_accuracy is not None:
             decides += f", right {self.decided_accuracy:.0%} of those"
         lines = [
-            f"{self.point} · {self.field} (judge {self.judge_version or 'unversioned'}): n={self.n} "
-            f"({self.positives} yes), truths from {sources}",
+            f"{self.point} · {self.field} (judge {self.judge_version or 'unversioned'}, {self.model}): "
+            f"n={self.n} ({self.positives} yes), truths from {sources}",
             "  bin        n  mean p(yes)  fraction yes",
             *(
                 f"  {b.low:.1f}-{b.high:.1f}  {b.n:3d}  {b.mean_p:11.2f}  {b.fraction_yes:12.2f}"
@@ -125,19 +128,22 @@ class QuestionCalibration(Frozen):
 
 
 class LabelledAnswers(Frozen):
-    """Every calibrated answer that has a ground truth, grouped by decision point, judge version and question.
+    """Every calibrated answer that has a ground truth, grouped by cohort and question (CODEX_AUDIT.md F10).
+
+    A cohort is a decision point, a judge wording and the concrete model that answered: answers from
+    another wording or another model are not evidence about this one.
 
     Shared by the calibration report and the threshold tuner. LLM-fallback decisions are left out:
     uncalibrated answers would only blur the picture.
     """
 
-    groups: dict[tuple[str, str, str], tuple[Labelled, ...]]  # (point, judge_version, field) -> answers
+    groups: dict[tuple[str, str, str, str], tuple[Labelled, ...]]  # (point, version, model, field) -> answers
     unlabelled: int  # questions asked that have no outcome yet
     judges: dict[tuple[str, str], str]  # (point, judge_version) -> judge name
 
     @classmethod
     def of(cls, store: DecisionStore) -> Self:
-        groups: dict[tuple[str, str, str], list[Labelled]] = {}
+        groups: dict[tuple[str, str, str, str], list[Labelled]] = {}
         judges: dict[tuple[str, str], str] = {}
         unlabelled = 0
         for decision in store.all():
@@ -153,12 +159,13 @@ class LabelledAnswers(Frozen):
                 row = Labelled(
                     point=decision.point,
                     judge_version=decision.judge_version,
+                    model=decision.model,
                     field=question.field,
                     p_yes=question.p_yes,
                     truth=best.truth,
                     source=best.source,
                 )
-                groups.setdefault((row.point, row.judge_version, row.field), []).append(row)
+                groups.setdefault((row.point, row.judge_version, row.model, row.field), []).append(row)
         return cls(
             groups={key: tuple(rows) for key, rows in sorted(groups.items())},
             unlabelled=unlabelled,

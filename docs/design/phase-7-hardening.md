@@ -245,3 +245,16 @@ These come next, in this order:
   catalog.
 - **The report ends with a caveat:** "ready" is in-sample, so confirm on tasks the thresholds weren't
   tuned on. That held-out run is already planned after this phase.
+
+**Step 7c (cohorts, F10).**
+- **A cohort is one decision point, judge wording and concrete model.** Calibration and tuning group by
+  cohort, and tuned thresholds come out per point and model.
+  - LLM-fallback decisions were already left out of calibration.
+- **`GateAudit.cohorts`** audits each wording and model separately, fallback decisions included as
+  their own cohorts. `audit` and `evaluate --active` print one block per cohort, and a pooled audit
+  exists only through `GateAudit.of` with no filters, labelled "pooled".
+- **The audit report says it audits rulings, not promotions** (Q9).
+- **`label` offers only decisions asked with the judge's current wording**, so a person's answer is
+  always to the question that was judged. Persisting each decision's full question spec wasn't needed:
+  a person can only be asked today's questions anyway.
+- **Test drafts** now carry the judge's current version.
