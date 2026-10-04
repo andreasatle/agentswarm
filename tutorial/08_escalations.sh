@@ -2,7 +2,8 @@
 # Step 8: release trains, human gates, escalations, on step 5's project.
 #   tutorial/08_escalations.sh            list what waits for a person
 #   tutorial/08_escalations.sh a-0001     accept a-0001 at its gate, then run the project again
-source "$(dirname "$0")/_common.sh"
+here=$(dirname "$0")
+source "$here/_common.sh"
 ROOT="$RUNS/step05-greeter"
 needs "$ROOT" tutorial/05_shadow.sh
 

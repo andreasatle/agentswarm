@@ -3,7 +3,8 @@
 # Its projects live where examples/swarm-quickstart.yaml says (~/agentswarm-runs/swarm/).
 #   tutorial/13_swarm.sh          the quickstart swarm
 #   tutorial/13_swarm.sh live     the greeter and the handbook (needs Ollama, Docker, the Jev key)
-source "$(dirname "$0")/_common.sh"
+here=$(dirname "$0")
+source "$here/_common.sh"
 
 if [ "${1:-}" = live ]; then
     run uv run agentswarm swarm examples/swarm-live.yaml \

@@ -95,26 +95,56 @@ fails where it arrives, naming the field.
 
 Everything that happens in a project is an **event** appended to its log, and nothing else changes state.
 What you read (which artifacts are at which level, which findings are open) are **views**, folded from the
-log. Run `uv run tutorial/01_board.py`; this is the heart of it:
+log. Run `uv run tutorial/01_board.py`; this is all of it, one named value per line so you can inspect
+any of them:
 
 ```python
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.eventlog import InMemoryEventLog
 from agentswarm.core.clock import FakeClock
-from agentswarm.core.domain import Artifact, ArtifactCreated, ArtifactId, CommitPushed, Level, ProjectId, TeamName
-
-clock = FakeClock()
-board = Blackboard(InMemoryEventLog(ProjectId("demo"), clock))
-task = Artifact(
-    id=ArtifactId("a-0001"), task="Add farewell", branch="raw/a-0001-farewell",
-    level=Level("raw"), created_by=TeamName("human"),
+from agentswarm.core.domain import (
+    Artifact,
+    ArtifactCreated,
+    ArtifactId,
+    CommitPushed,
+    Level,
+    ProjectId,
+    TeamName,
 )
-views = board.append([ArtifactCreated(artifact=task)])
-print([a.id for a in views.artifacts_at(Level("raw"))])     # ['a-0001']
 
-views = board.append([CommitPushed(artifact=task.id, commit="c0ffee")])
-print(views.unjudged_commit(task.id), views.version(task.id))   # c0ffee 2
-print(board.rebuild() == board.current())                    # True: replay gives the same views
+# The pieces of a board: a clock, a project id, a log of events, and the board over that log.
+clock = FakeClock()
+project = ProjectId("demo")
+log = InMemoryEventLog(project, clock)
+board = Blackboard(log)
+
+# An artifact: one task on its own branch at the lowest level.
+artifact_id = ArtifactId("a-0001")
+raw = Level("raw")
+human = TeamName("human")
+task = Artifact(
+    id=artifact_id, task="Add farewell", branch="raw/a-0001-farewell", level=raw, created_by=human
+)
+
+# Appending an event is the only way to change anything; it returns the new views.
+created = ArtifactCreated(artifact=task)
+views = board.append([created])
+at_raw = views.artifacts_at(raw)
+ids_at_raw = [artifact.id for artifact in at_raw]
+print("at raw:", ids_at_raw)  # ['a-0001']
+
+pushed = CommitPushed(artifact=artifact_id, commit="c0ffee")
+views = board.append([pushed])
+unjudged = views.unjudged_commit(artifact_id)
+version = views.version(artifact_id)
+print("unjudged commit:", unjudged)  # c0ffee
+print("version:", version)  # 2: the artifact changed twice
+
+# Fold the log again from scratch: the same views.
+replayed = board.rebuild()
+current = board.current()
+same = replayed == current
+print("replay gives the same views:", same)  # True
 ```
 
 Three things to notice:
@@ -135,15 +165,32 @@ Before a team works on an artifact, it **claims** it: a lease with an expiry. Ru
 `uv run tutorial/02_claims.py`; the core of it:
 
 ```python
-from datetime import timedelta
-from agentswarm.board.claims import ClaimRegistry
-
+# ... the same board and artifact as in step 1, then:
+# Claims go through a registry over the board. A lease lasts ten minutes.
 claims = ClaimRegistry(board, clock)
-mine = claims.claim(task.id, TeamName("executor"), timedelta(minutes=10))
-print(mine is not None)                                                    # True
-print(claims.claim(task.id, TeamName("red_team"), timedelta(minutes=10)))  # None: taken
-clock.advance(timedelta(minutes=11))                                        # the executor crashed...
-print(claims.claim(task.id, TeamName("red_team"), timedelta(minutes=10)) is not None)  # ...True: lease expired
+lease = timedelta(minutes=10)
+executor = TeamName("executor")
+red_team = TeamName("red_team")
+
+mine = claims.claim(artifact_id, executor, lease)
+print("executor's claim:", mine)  # a Claim with an id and an expiry
+
+refused = claims.claim(artifact_id, red_team, lease)
+print("red team's claim while the executor holds it:", refused)  # None: taken
+
+# The executor crashed: its lease runs out, and the red team can take the artifact over.
+eleven_minutes = timedelta(minutes=11)
+clock.advance(eleven_minutes)
+theirs = claims.claim(artifact_id, red_team, lease)
+print("red team's claim after the lease expired:", theirs)  # a new Claim
+
+# The executor's late result is thrown away: someone else holds the artifact now.
+assert mine is not None
+views = board.current()
+version = views.version(artifact_id)
+published = claims.publish(mine, version, [])
+accepted = published is not None
+print("executor's late result accepted:", accepted)  # False
 ```
 
 A claim is appended **only if the log hasn't moved** since the registry checked that the artifact was free

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Step 12, the person's part: approve publishing, then run again so the handbook reaches published.
-source "$(dirname "$0")/_common.sh"
+here=$(dirname "$0")
+source "$here/_common.sh"
 ROOT="$RUNS/step12-handbook"
 needs "$ROOT" tutorial/12_documents.sh
 

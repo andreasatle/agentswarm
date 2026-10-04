@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Step 3: levels are branches. A first run with a fake executor: no model, no Jev, no Docker.
-source "$(dirname "$0")/_common.sh"
+here=$(dirname "$0")
+source "$here/_common.sh"
 ROOT="$RUNS/step03-quickstart"
 fresh "$ROOT"
 

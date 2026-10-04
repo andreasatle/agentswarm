@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Step 4: a real executor in a sandbox. Needs Ollama (ollama pull gemma4:e4b) and Docker with the
 # sandbox image (docker build -t agentswarm/sandbox-python:3.13 -f docker/sandbox-python.Dockerfile docker).
-source "$(dirname "$0")/_common.sh"
+here=$(dirname "$0")
+source "$here/_common.sh"
 ROOT="$RUNS/step04-greeter"
 fresh "$ROOT"
 

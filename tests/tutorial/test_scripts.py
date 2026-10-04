@@ -34,6 +34,14 @@ class TestTutorialScripts:
     def test_the_tutorial_and_its_folder_name_the_same_scripts(self) -> None:
         assert Scripts.named_in_tutorial() == Scripts.in_folder()
 
+    @pytest.mark.parametrize(
+        ("script", "start"), [("01_board.py", "from agentswarm"), ("02_claims.py", "# Claims go")]
+    )
+    def test_the_tutorial_shows_the_python_scripts_as_they_are(self, script: str, start: str) -> None:
+        source = (TUTORIAL / script).read_text()
+        shown = source[source.index(start) :].rstrip("\n")
+        assert shown in (TUTORIAL / "README.md").read_text()
+
     def test_shell_scripts_are_executable(self) -> None:
         for name in Scripts.in_folder():
             if name.endswith(".sh"):

@@ -2,7 +2,8 @@
 # and keep every tutorial project under one folder ($AGENTSWARM_RUNS/tutorial, default ~/agentswarm-runs).
 # Project roots must be under your home folder so Docker (Colima, Docker Desktop) can mount them.
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+tutorial=$(dirname "${BASH_SOURCE[0]}")
+cd "$tutorial/.."
 RUNS="${AGENTSWARM_RUNS:-$HOME/agentswarm-runs}/tutorial"
 mkdir -p "$RUNS"
 

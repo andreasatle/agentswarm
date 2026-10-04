@@ -1,6 +1,8 @@
 """Step 1: the board. Events in, views out; replaying the log gives the same views.
 
-uv run tutorial/01_board.py
+    uv run tutorial/01_board.py
+
+Every value is built on its own line and named, so you can print or inspect any of them.
 """
 
 from agentswarm.board.blackboard import Blackboard
@@ -16,19 +18,36 @@ from agentswarm.core.domain import (
     TeamName,
 )
 
+# The pieces of a board: a clock, a project id, a log of events, and the board over that log.
 clock = FakeClock()
-board = Blackboard(InMemoryEventLog(ProjectId("demo"), clock))
-task = Artifact(
-    id=ArtifactId("a-0001"),
-    task="Add farewell",
-    branch="raw/a-0001-farewell",
-    level=Level("raw"),
-    created_by=TeamName("human"),
-)
-views = board.append([ArtifactCreated(artifact=task)])
-print("at raw:", [a.id for a in views.artifacts_at(Level("raw"))])  # ['a-0001']
+project = ProjectId("demo")
+log = InMemoryEventLog(project, clock)
+board = Blackboard(log)
 
-views = board.append([CommitPushed(artifact=task.id, commit="c0ffee")])
-print("unjudged commit:", views.unjudged_commit(task.id))  # c0ffee
-print("version:", views.version(task.id))  # 2: the artifact changed twice
-print("replay gives the same views:", board.rebuild() == board.current())  # True
+# An artifact: one task on its own branch at the lowest level.
+artifact_id = ArtifactId("a-0001")
+raw = Level("raw")
+human = TeamName("human")
+task = Artifact(
+    id=artifact_id, task="Add farewell", branch="raw/a-0001-farewell", level=raw, created_by=human
+)
+
+# Appending an event is the only way to change anything; it returns the new views.
+created = ArtifactCreated(artifact=task)
+views = board.append([created])
+at_raw = views.artifacts_at(raw)
+ids_at_raw = [artifact.id for artifact in at_raw]
+print("at raw:", ids_at_raw)  # ['a-0001']
+
+pushed = CommitPushed(artifact=artifact_id, commit="c0ffee")
+views = board.append([pushed])
+unjudged = views.unjudged_commit(artifact_id)
+version = views.version(artifact_id)
+print("unjudged commit:", unjudged)  # c0ffee
+print("version:", version)  # 2: the artifact changed twice
+
+# Fold the log again from scratch: the same views.
+replayed = board.rebuild()
+current = board.current()
+same = replayed == current
+print("replay gives the same views:", same)  # True

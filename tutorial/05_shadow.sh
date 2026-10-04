@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Step 5: Jev judges the gate, in shadow. The software preset: executor, judged gate, two analyzers,
 # release train, human production gate. Needs Ollama, Docker and TYPESAFE_API_KEY in .env.
-source "$(dirname "$0")/_common.sh"
+here=$(dirname "$0")
+source "$here/_common.sh"
 ROOT="$RUNS/step05-greeter"
 fresh "$ROOT"
 

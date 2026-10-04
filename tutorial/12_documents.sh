@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Step 12: a second domain. The handbook goes draft -> reviewed -> final, then waits for a person.
 # Needs Ollama, Docker and the Jev key. Then: tutorial/12_publish.sh
-source "$(dirname "$0")/_common.sh"
+here=$(dirname "$0")
+source "$here/_common.sh"
 ROOT="$RUNS/step12-handbook"
 fresh "$ROOT"
 
