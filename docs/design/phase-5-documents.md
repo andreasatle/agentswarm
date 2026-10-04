@@ -1,6 +1,6 @@
 # Phase 5: A second domain, documents
 
-Status: **in progress** (decided on the recommendations, as for Phases 3 and 4). Proposal sections: §3 G2
+Status: **complete** (decided on the recommendations, as for Phases 3 and 4). Proposal sections: §3 G2
 (domains are configuration), §9 (documents in git), §10.3 (document teams), §17.
 
 **Exit criterion (§19):** the same engine produces a multi-section document through all levels.
@@ -86,3 +86,21 @@ pytest collects any imported class whose name starts with `Test`.
   written, judged, reviewed by all three reviewers and, once a person approves, published, the umbrella
   with it. No engine class changed for the domain beyond step 1's evidence strategies.
 - `ScriptedWorker` (tests) answers by output type, so one fake model can serve every team in a run.
+
+**Step 6 (live run, 2026-10-04).** `examples/handbook/project.yaml`, gemma4:e4b writing and reviewing,
+Jev active for size/split/join, Docker sandbox, run in `~/agentswarm-runs/handbook-1`.
+- **The size check judged the book-club task to fit one branch**, so the outliner didn't split it.
+  Splitting and joining are covered by the offline end-to-end test; a live split needs a larger goal.
+- **The path:**
+  - the writer wrote four sections (the seeded introduction plus choosing books, running a meeting,
+    keeping members) and `check_doc` passed;
+  - the gate promoted draft → reviewed;
+  - the consistency and fact checkers signed off, and the train promoted reviewed → final;
+  - the audience reviewer signed off, and the human gate escalated;
+  - after `agentswarm resolve … --accept`, the next run promoted final → published.
+- **The reviewers left two minor findings,** both specific and quoted from the text: a UK/US spelling
+  mismatch between the north star and the introduction, and "group dynamics" as jargon. Minor
+  findings don't block or create fix tasks, by design, so they stay visible on the board for a person.
+- **12 model runs, unpriced** (a local model): $0.00.
+- **Phase 5's exit criterion holds live:** the second domain reuses the same board, gates, trains and
+  human approval with only a preset and its checks.
