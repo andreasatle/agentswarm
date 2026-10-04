@@ -1,5 +1,6 @@
 """Teams and the loop every team runs (proposal §10)."""
 
+import logging
 from datetime import timedelta
 from enum import StrEnum
 from typing import Protocol
@@ -58,6 +59,8 @@ class TeamRunner:
     artifact versions it has already handled, including the version its own events produced, so a team
     reacts once to each new state and never to its own output.
     """
+
+    _log = logging.getLogger(__name__)
 
     def __init__(
         self,
@@ -118,6 +121,9 @@ class TeamRunner:
         claim = self._claims.claim(artifact.id, self._team.name, self._lease)
         if claim is None:
             return False  # another team got it first; look again next step
+        if self._board.current().version(artifact.id) != version:
+            self._claims.release(claim)  # it changed between reading it and claiming it; look again
+            return False
         try:
             worktree = (
                 self._repository.checkout_artifact(artifact)
@@ -132,8 +138,14 @@ class TeamRunner:
                         events = await self._team.act(ctx, worktree)
             finally:
                 worktree.remove()
-            views = self._board.append(events)
+            published = self._claims.publish(claim, version, events)
         finally:
             self._claims.release(claim)
+        if published is None:
+            self._log.warning(
+                "%s: discarded %s's result, superseded while it worked", artifact.id, self._team.name
+            )
+            return False
+        views = published
         self._handled.add((artifact.id, views.version(artifact.id)))
         return True

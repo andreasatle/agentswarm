@@ -20,6 +20,9 @@ class Claims:
         self.board.append([Samples.created()])
         self.registry = ClaimRegistry(self.board, self.clock)
 
+    def version(self) -> int:
+        return self.board.current().version(Samples.A)
+
 
 class TestClaimRegistry:
     def test_claim_grants_a_lease(self) -> None:
@@ -58,6 +61,52 @@ class TestClaimRegistry:
         c.registry.release(first)
         assert c.registry.claim(Samples.A, Samples.EXECUTOR, LEASE) is None
 
+    def test_late_release_by_the_same_team_does_not_free_its_newer_claim(self) -> None:
+        c = Claims()
+        old = c.registry.claim(Samples.A, Samples.EXECUTOR, timedelta(seconds=1))
+        c.clock.advance(timedelta(seconds=2))
+        new = c.registry.claim(Samples.A, Samples.EXECUTOR, LEASE)
+        assert old is not None and new is not None and old.id != new.id
+        c.registry.release(old)
+        assert c.board.current().claim_on(Samples.A, c.clock.now()) == new
+
+
+class TestFencedPublication:
+    def test_the_holder_publishes(self) -> None:
+        c = Claims()
+        claim = c.registry.claim(Samples.A, Samples.EXECUTOR, LEASE)
+        assert claim is not None
+        assert c.registry.publish(claim, c.version(), [Samples.commit()]) is not None
+
+    def test_an_expired_lease_nobody_took_still_publishes(self) -> None:
+        c = Claims()
+        claim = c.registry.claim(Samples.A, Samples.EXECUTOR, timedelta(seconds=1))
+        assert claim is not None
+        c.clock.advance(timedelta(minutes=30))
+        assert c.registry.publish(claim, c.version(), [Samples.commit()]) is not None
+
+    def test_a_superseded_holder_is_discarded(self) -> None:
+        c = Claims()
+        version = c.version()
+        old = c.registry.claim(Samples.A, Samples.EXECUTOR, timedelta(seconds=1))
+        c.clock.advance(timedelta(seconds=2))
+        assert old is not None and c.registry.claim(Samples.A, Samples.EXECUTOR, LEASE) is not None
+        assert c.registry.publish(old, version, [Samples.commit()]) is None
+        assert c.version() == version
+
+    def test_a_holder_whose_artifact_changed_meanwhile_is_discarded(self) -> None:
+        c = Claims()
+        version = c.version()
+        old = c.registry.claim(Samples.A, Samples.EXECUTOR, timedelta(seconds=1))
+        c.clock.advance(timedelta(seconds=2))
+        successor = c.registry.claim(Samples.A, Samples.EXECUTOR, LEASE)
+        assert old is not None and successor is not None
+        assert c.registry.publish(successor, version, [Samples.commit()]) is not None
+        c.registry.release(successor)
+        assert c.registry.publish(old, version, [Samples.commit()]) is None
+
+
+class TestRacing:
     def test_racing_registries_on_separate_connections_cannot_both_win(self, tmp_path: Path) -> None:
         clock = FakeClock(Samples.AT)
         path = tmp_path / "events.sqlite"

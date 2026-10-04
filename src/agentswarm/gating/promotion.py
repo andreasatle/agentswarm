@@ -60,10 +60,10 @@ class Promoter:
                 claim = self._claims.claim(artifact.id, self._gate.team, self._lease)
                 if claim is None:
                     continue
+                held.append(claim)  # before judging, so an exception still releases it
                 judged += 1
-                if self._judge(artifact):
-                    held.append(claim)
-                else:
+                if not self._judge(artifact):
+                    held.remove(claim)
                     self._claims.release(claim)
             self._board.append(self._queue.process())
         finally:

@@ -146,8 +146,10 @@ class Cli:
         match args.command:
             case "config":
                 return self.config(args)
-            case "run" | "status":
+            case "run":
                 return self.run(args)
+            case "status":
+                return self.status(args)
             case "evaluate":
                 return asyncio.run(self.evaluate(args))
             case "calibrate":
@@ -174,13 +176,22 @@ class Cli:
         config = ProjectConfig.load(Path(args.config))
         project = Project.open(config, Path(args.root).expanduser(), ProjectServices(teams=self._catalog))
         try:
-            if args.command == "run":
-                for task in args.task:
-                    project.create_artifact(task)
-                asyncio.run(project.run_until_idle(args.max_rounds))
+            for task in args.task:
+                project.create_artifact(task)
+            asyncio.run(project.run_until_idle(args.max_rounds))
             self._show(Report.render(project.views()))
         finally:
             project.close()
+        return 0
+
+    def status(self, args: argparse.Namespace) -> int:
+        """Reads only the board: works while the project runs, and needs no models or keys."""
+        config = ProjectConfig.load(Path(args.config))
+        root = Path(args.root).expanduser()
+        if not (root / "blackboard.sqlite").is_file():
+            raise SystemExit(f"no project at {root}")
+        with SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), SystemClock()) as log:
+            self._show(Report.render(Blackboard(log).current()))
         return 0
 
     async def evaluate(self, args: argparse.Namespace) -> int:

@@ -81,8 +81,9 @@ class BoardViews:
             case Claimed():
                 self._claims[event.claim.artifact] = event.claim
             case Released():
+                # A late release must not remove a newer claim, even by the same team (CODEX_AUDIT.md F04).
                 claim = self._claims.get(event.artifact)
-                if claim is not None and claim.team == event.team:
+                if claim is not None and claim.team == event.team and event.claim in (None, claim.id):
                     del self._claims[event.artifact]
             case CommitPushed():
                 self._last_commit[event.artifact] = event.commit

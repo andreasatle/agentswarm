@@ -11,6 +11,7 @@ ArtifactId = NewType("ArtifactId", str)  # e.g. "a-0042"
 TeamName = NewType("TeamName", str)
 ProjectId = NewType("ProjectId", str)
 DecisionId = NewType("DecisionId", str)
+ClaimId = NewType("ClaimId", str)  # e.g. "c-3f9a0c1d2e4b"
 FindingId = NewType("FindingId", str)  # "f-" + 12 hex digits: unique without coordination between teams
 
 # Levels are per-domain configuration (software: raw → … → production, document: draft → … → published),
@@ -80,6 +81,7 @@ class Claim(Frozen):
     artifact: ArtifactId
     team: TeamName
     expires_at: datetime
+    id: ClaimId | None = None  # None only in logs written before claims had ids
 
 
 # Events: nothing changes the blackboard except appending one of these.
@@ -108,6 +110,7 @@ class Released(Frozen):
     kind: Literal["released"] = "released"
     artifact: ArtifactId
     team: TeamName
+    claim: ClaimId | None = None  # releases only this claim; None (older logs): whatever the team holds
 
     @property
     def subject(self) -> ArtifactId:

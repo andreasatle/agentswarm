@@ -48,6 +48,13 @@ class TestCli:
         assert Cli.main(["status", str(config), "--root", str(root)]) == 0
         assert "promoted raw -> experimental" in capsys.readouterr().out
 
+    def test_status_reads_only_the_board(self, tmp_path: Path) -> None:
+        config = Configs.write(tmp_path)
+        root = tmp_path / "missing"
+        with pytest.raises(SystemExit, match="no project"):
+            Cli.main(["status", str(config), "--root", str(root)])
+        assert not root.exists()
+
     def test_seed_is_the_first_commit_on_every_level(self, tmp_path: Path) -> None:
         config = Configs.write(tmp_path)
         root = tmp_path / "run"

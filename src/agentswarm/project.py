@@ -34,6 +34,7 @@ from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
 from agentswarm.teams.runner import TeamRunner
 from agentswarm.workspace.git import Git, Repository
+from agentswarm.workspace.lock import RootLock
 from agentswarm.workspace.sandbox import Sandboxes
 
 
@@ -85,8 +86,17 @@ class Project:
     def open(cls, config: ProjectConfig, root: Path, services: ProjectServices | None = None) -> Self:
         """Open the project at `root`, creating its log and repository on first use."""
         services = services or ProjectServices()
-        clock, lease = services.clock, services.lease
         root.mkdir(parents=True, exist_ok=True)
+        lock = RootLock.acquire(root)
+        try:
+            return cls._build(config, root, services, lock)
+        except BaseException:
+            lock.close()
+            raise
+
+    @classmethod
+    def _build(cls, config: ProjectConfig, root: Path, services: ProjectServices, lock: RootLock) -> Self:
+        clock, lease = services.clock, services.lease
         log = SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), clock)
         board = Blackboard(log)
         claims = ClaimRegistry(board, clock)
@@ -100,7 +110,7 @@ class Project:
         checks = CheckSet(config.checks, sandbox)
         budget = Budget(config.budgets.usd_per_day, clock)
 
-        owned: list[Closeable] = [log]
+        owned: list[Closeable] = [lock, log]
         decisions = services.decisions
         if decisions is None:
             decisions = SqliteDecisions(root / "decisions.sqlite")

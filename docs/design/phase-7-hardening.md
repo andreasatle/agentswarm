@@ -140,3 +140,22 @@ These come next, in this order:
 - **`_children_diff`** checks for an umbrella before looking for a merge. A separate typed "joined
   snapshot" field wasn't needed: nothing reads it.
 - The phase-3 design doc keeps its original wording as history; the tutorial is updated.
+
+**Step 3 (ownership).**
+- **`workspace/lock.py:RootLock`:** `Project.open` takes an exclusive, non-blocking `flock` on
+  `<root>/.agentswarm.lock`, which records the holder's pid, and releases it on close. The OS drops it
+  if the process dies. A second owner gets `ProjectLocked`. Commands that only read or append to the
+  board don't take it, so `status` (now board-only, which also covers F15's status part),
+  `escalations`, `resolve` and `resume` still work beside a running project.
+- **Claims have ids** (`c-` + 12 hex). `Released` names the claim, and the fold removes a claim only
+  if the id matches. Older logs, with no ids, keep the old team-based rule, so replays don't change.
+- **Fenced publication:** `ClaimRegistry.publish(claim, version, events)` appends with an expected head
+  only if no other claim is live and the artifact's version is still the one seen at claim time. A
+  lease that merely expired, with nobody else having touched the artifact, still publishes.
+  - The runner re-reads the version right after claiming and gives the claim back if it moved.
+  - A discarded result is logged. Its git commit may stay on the artifact branch unannounced, which
+    is harmless: only announced commits are judged.
+- **No heartbeats or renewal:** with one owner per root, nothing else can act during a long run.
+- **The promoter adds a claim to its cleanup list before judging**, so an exception still releases it.
+- **`Swarm.open`** checks for distinct names and roots before opening anything, and closes the projects
+  it already opened if a later one fails.

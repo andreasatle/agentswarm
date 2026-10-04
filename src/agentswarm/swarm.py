@@ -70,13 +70,29 @@ class Swarm:
         services_for: Callable[[ProjectConfig], ProjectServices] | None = None,  # tests inject fakes
     ) -> Self:
         scheduler = Scheduler(config.scheduler)
+        configs = [(ProjectConfig.load(entry.config), entry.root) for entry in config.projects]
+        cls._check_distinct(configs)  # before opening anything
         projects: list[Project] = []
-        for entry in config.projects:
-            project_config = ProjectConfig.load(entry.config)
-            base = services_for(project_config) if services_for is not None else ProjectServices()
-            services = dataclasses.replace(base, scheduler=scheduler)
-            projects.append(Project.open(project_config, entry.root, services))
+        try:
+            for project_config, root in configs:
+                base = services_for(project_config) if services_for is not None else ProjectServices()
+                projects.append(
+                    Project.open(project_config, root, dataclasses.replace(base, scheduler=scheduler))
+                )
+        except BaseException:
+            for project in projects:
+                project.close()
+            raise
         return cls(projects, scheduler)
+
+    @staticmethod
+    def _check_distinct(configs: list[tuple[ProjectConfig, Path]]) -> None:
+        names = [c.project for c, _ in configs]
+        if len(set(names)) != len(names):
+            raise ValueError(f"project names must be unique in a swarm: {names}")
+        roots = [root.expanduser().resolve() for _, root in configs]
+        if len(set(roots)) != len(roots):
+            raise ValueError(f"project roots must be distinct in a swarm: {[str(r) for r in roots]}")
 
     async def run(self, max_rounds: int = 50) -> list[ProjectRun]:
         """Run every project until it is idle, concurrently."""
