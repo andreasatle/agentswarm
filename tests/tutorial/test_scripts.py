@@ -23,11 +23,13 @@ class Scripts:
 
     @staticmethod
     def in_folder() -> set[str]:
-        return {p.name for p in TUTORIAL.iterdir() if re.match(r"^\d\d_.+\.(sh|py)$", p.name)}
+        return {p.name for p in TUTORIAL.iterdir() if re.match(r"^\d\d[a-z]?_.+\.(sh|py)$", p.name)}
 
     @staticmethod
     def named_in_tutorial() -> set[str]:
-        return set(re.findall(r"tutorial/(\d\d_[a-z_]+\.(?:sh|py))", (TUTORIAL / "README.md").read_text()))
+        return set(
+            re.findall(r"tutorial/(\d\d[a-z]?_[a-z_]+\.(?:sh|py))", (TUTORIAL / "README.md").read_text())
+        )
 
 
 class TestTutorialScripts:
@@ -35,7 +37,12 @@ class TestTutorialScripts:
         assert Scripts.named_in_tutorial() == Scripts.in_folder()
 
     @pytest.mark.parametrize(
-        ("script", "start"), [("01_board.py", "from agentswarm"), ("02_claims.py", "# Claims go")]
+        ("script", "start"),
+        [
+            ("01_board.py", "from agentswarm"),
+            ("02_claims.py", "# Claims go"),
+            ("03b_project_api.py", "# Load and check"),
+        ],
     )
     def test_the_tutorial_shows_the_python_scripts_as_they_are(self, script: str, start: str) -> None:
         source = (TUTORIAL / script).read_text()
@@ -52,6 +59,7 @@ class TestTutorialScripts:
         [
             ("01_board.py", "replay gives the same views: True"),
             ("02_claims.py", "executor's late result accepted: False"),
+            ("03b_project_api.py", "a-0002 is at experimental"),
         ],
     )
     def test_python_steps(self, tmp_path: Path, script: str, expected: str) -> None:

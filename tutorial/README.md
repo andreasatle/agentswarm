@@ -20,6 +20,7 @@ tables; this document explains why things are the way they are.
 | 1 | The board: events in, views out | `uv run tutorial/01_board.py` | nothing |
 | 2 | Claims: one team at a time | `uv run tutorial/02_claims.py` | nothing |
 | 3 | Levels are branches; a first run | `tutorial/03_first_run.sh` | nothing |
+| 3b | The same run from Python, at the project level | `uv run tutorial/03b_project_api.py` | nothing |
 | 4 | A real executor in a sandbox | `tutorial/04_executor.sh` | Ollama, Docker |
 | 5 | Jev judges the gate, in shadow | `tutorial/05_shadow.sh` | Ollama, Docker, Jev |
 | 6 | Ground truth without labelling | `tutorial/06_ground_truth.sh`, then `tutorial/06_label.sh` | Ollama, Docker, Jev |
@@ -32,7 +33,7 @@ tables; this document explains why things are the way they are.
 | 13 | Several projects, money and limits | `tutorial/13_swarm.sh [live]` | nothing (live: Ollama, Docker, Jev) |
 | 14 | What keeps it safe | | |
 
-Steps 1–3, 9, 10 and the quickstart swarm in step 13 run anywhere, offline, in seconds. Status: every phase of the
+Steps 1–3b, 9, 10 and the quickstart swarm in step 13 run anywhere, offline, in seconds. Status: every phase of the
 build plan is done, plus a hardening phase from an independent audit; the one open item is proving the gate's
 false-promotion rate with more data (step 11).
 
@@ -242,6 +243,64 @@ Try breaking it: edit the check to always fail and run again with a new root; th
 
 Where: `workspace/git.py`, `gating/promotion.py`, `gating/merge_queue.py`, `teams/runner.py`, `project.py`.
 `agentswarm config examples/quickstart/project.yaml` prints the whole configuration.
+
+## Step 3b — The same run, from Python
+
+Steps 1 and 2 called the board's basic operations by hand: `append`, `current`, `claim`. A real project
+never does. Each layer bundles the one below it:
+
+| Layer | You call | It does for you |
+| --- | --- | --- |
+| Command line | `agentswarm run`, `status`, `resolve`, `swarm` | open, add tasks, run until idle, print, close |
+| Project | `Project.open(config, root)` | builds everything from the YAML: the log and views, git, the sandbox, teams, gates, judges, router, supervisor |
+| | `project.create_artifact(task)` | picks the next id, builds the `Artifact`, appends `ArtifactCreated` |
+| | `project.step()`, `project.run_until_idle()` | one round of every team, gate and controller; or rounds until nothing happens |
+| Team runner | (inside a step) | claim, check out a worktree, let the team act, publish its events, release, clean up |
+| Board | `append`, `current`, `claim` | the basic operations of steps 1 and 2 |
+
+Run `uv run tutorial/03b_project_api.py`. After finding the example config and its own folder, it does
+this:
+
+```python
+# Load and check the configuration, then open the project: the log and views, git, sandbox, teams, gates.
+config = ProjectConfig.load(config_path)
+project = Project.open(config, root)
+try:
+    # One call builds the Artifact, picks its id and appends ArtifactCreated.
+    first = project.create_artifact("Write a note")
+    second = project.create_artifact("Write another note")
+    print("created:", first.id, second.id)
+
+    # Run until a round takes no action. Teams run asynchronously, hence asyncio.run.
+    run = project.run_until_idle()
+    rounds = asyncio.run(run)
+    print("rounds that took action:", rounds)
+
+    # Read the state: the views, as in step 1.
+    views = project.views()
+    first_now = views.artifact(first.id)
+    second_now = views.artifact(second.id)
+    print(first.id, "is at", first_now.level)  # experimental
+    print(second.id, "is at", second_now.level)  # experimental
+
+    history = views.history(first.id)
+    kinds = [type(event).__name__ for event in history]
+    print(first.id, "history:", kinds)  # created, claimed, commit, released, claimed, promoted, released
+
+    # The content is in git: the level branch now holds both notes.
+    repository_files = project.repository.files_at("experimental")
+    print("files on experimental:", repository_files)
+finally:
+    project.close()  # releases the project's lock and closes its databases
+```
+
+Nothing here can be forgotten by accident: `append` returns the state after your events and every read
+catches up by itself; the runner and gates release claims and remove worktrees in `finally` blocks, even
+when a team crashes; `Project.open` checks the configuration before it writes anything. The one thing to
+remember with the Python API is `project.close()`, which releases the project's lock and databases (the
+command line does it for you).
+
+Where: `project.py` (`Project`), `teams/runner.py` (`TeamRunner`).
 
 ## Step 4 — A real executor in a sandbox
 
