@@ -257,6 +257,35 @@ class Promoted(Frozen):
         return self.artifact
 
 
+class PromotionStarted(Frozen):
+    """Written just before a level's branch moves (CODEX_AUDIT.md F03).
+
+    Git and the board can't change in one transaction. The promoter records what it is about to do, moves
+    the branch, then records the promotions together with a `PromotionSettled`. If it stops in between, the
+    next step settles the open record from where the branch actually is.
+    """
+
+    kind: Literal["promotion_started"] = "promotion_started"
+    branch: Level
+    previous: str  # the branch's tip before the move
+    target: str  # the commit it moves to
+    promotions: tuple[Promoted, ...]
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
+class PromotionSettled(Frozen):
+    kind: Literal["promotion_settled"] = "promotion_settled"
+    branch: Level
+    moved: bool  # False: the branch never moved, so the promotions did not happen
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
 class Rejected(Frozen):
     kind: Literal["rejected"] = "rejected"
     artifact: ArtifactId
@@ -292,6 +321,8 @@ type Event = Annotated[
     | Resumed
     | Spent
     | Promoted
+    | PromotionStarted
+    | PromotionSettled
     | Rejected
     | Escalated
     | EscalationResolved,

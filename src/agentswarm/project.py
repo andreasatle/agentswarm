@@ -23,6 +23,7 @@ from agentswarm.gating.checks import CheckSet
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.join import JoinPromoter
 from agentswarm.gating.promotion import Promoter, PromotionLoop
+from agentswarm.gating.publication import LevelPublisher
 from agentswarm.gating.train import TrainPromoter
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.deciders import Decider, FallbackDecider, JevDecider, LLMDecider
@@ -80,6 +81,7 @@ class Project:
         self._owned = owned  # resources this project opened, closed with it
         self._artifacts = artifacts
         self._router = FindingRouter(board, self._artifacts, config.levels)
+        self._publisher = LevelPublisher(board, repository)  # settles branch moves a crash interrupted
         self._supervisor = supervisor
 
     @classmethod
@@ -199,6 +201,7 @@ class Project:
             actions += await runner.step()
         # Gates, the router and the supervisor block (git, sandboxes, synchronous Jev): in a thread, so other
         # projects in the same process keep going meanwhile.
+        actions += await asyncio.to_thread(self._publisher.recover)
         for promoter in self._promoters:
             actions += await asyncio.to_thread(promoter.step)
         actions += await asyncio.to_thread(self._router.step)

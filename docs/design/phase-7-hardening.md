@@ -159,3 +159,25 @@ These come next, in this order:
 - **The promoter adds a claim to its cleanup list before judging**, so an exception still releases it.
 - **`Swarm.open`** checks for distinct names and roots before opening anything, and closes the projects
   it already opened if a later one fails.
+
+**Step 4 (recoverable promotion).**
+- **`gating/publication.py:LevelPublisher`** is now the only code that moves a level branch. It runs
+  three steps:
+  1. append `PromotionStarted(branch, previous, target, promotions)`;
+  2. compare-and-swap with `update-ref` (`Repository.fast_forward`);
+  3. append the promotions with `PromotionSettled(moved=True)` in one transaction.
+- **A failed swap** is settled as `moved=False`.
+- **`recover()`** runs at the start of every project step, before the promoters. An open move whose
+  branch reached its target is recorded as promoted. One whose branch didn't move is settled as not
+  having happened: the commit is still unjudged, so the gate judges it again.
+- **The intent events are project-wide** (no subject), one per branch move, which matches how a train
+  moves several artifacts at once. Artifact histories and their tests are unchanged.
+- **The merge queue merges in a detached worktree** at the level tip and moves the branch only after
+  the post-merge checks pass. A check exception or a crash no longer leaves an unchecked merge on the
+  level. Each result is recorded as it happens, not after the whole batch, so a failure later in the
+  batch can't strand earlier promotions.
+- **The release train** publishes its prefix through the same protocol. A hard-check finding on a later
+  commit goes in the same append as the promotions.
+- **Joins move no branch** and are unchanged.
+- **Tests:** crash after the move, crash before the move, the queue leaving the level alone on failed
+  checks, and the normal path.

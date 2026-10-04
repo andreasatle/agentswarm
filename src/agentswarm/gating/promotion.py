@@ -10,6 +10,7 @@ from agentswarm.core.clock import Clock
 from agentswarm.core.domain import Artifact, Claim, Escalated, Event, Rejected
 from agentswarm.gating.gate import Gate, GateOutcome, Verdict
 from agentswarm.gating.merge_queue import MergeQueue, MergeRequest
+from agentswarm.gating.publication import LevelPublisher
 from agentswarm.workspace.git import Repository
 
 
@@ -45,7 +46,7 @@ class Promoter:
         self._contexts = contexts
         self._clock = clock
         self._lease = lease
-        self._queue = MergeQueue(repository, gate)
+        self._queue = MergeQueue(repository, gate, LevelPublisher(board, repository))
 
     @property
     def gate(self) -> Gate:
@@ -65,7 +66,7 @@ class Promoter:
                 if not self._judge(artifact):
                     held.remove(claim)
                     self._claims.release(claim)
-            self._board.append(self._queue.process())
+            self._queue.process()
         finally:
             for claim in held:
                 self._claims.release(claim)

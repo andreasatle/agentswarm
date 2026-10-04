@@ -199,6 +199,10 @@ class Repository:
             raise GitError(("fast-forward", branch, commit), 1, f"{commit} does not descend from {expected}")
         self.git.run(self.path, "update-ref", f"refs/heads/{branch}", commit, expected)
 
+    def contains(self, commit: str, ancestor: str) -> bool:
+        """Whether `ancestor` is `commit` or one of its ancestors."""
+        return self.git.attempt(self.path, "merge-base", "--is-ancestor", ancestor, commit).returncode == 0
+
     def ensure_branch(self, artifact: Artifact) -> None:
         """Create the artifact's branch from the base level if it doesn't exist yet."""
         if not self.has_branch(artifact.branch):

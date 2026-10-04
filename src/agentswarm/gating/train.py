@@ -35,6 +35,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.gating.gate import Gate
+from agentswarm.gating.publication import LevelPublisher
 from agentswarm.workspace.git import Repository
 
 
@@ -57,6 +58,7 @@ class TrainPromoter:
         self._board = board
         self._claims = claims
         self._repository = repository
+        self._publisher = LevelPublisher(board, repository)
         self._contexts = contexts
         self._clock = clock
         self._lease = lease
@@ -124,24 +126,23 @@ class TrainPromoter:
     def _promote(self, ready: list[tuple[str, Artifact]]) -> int:
         prefix, failure = self._checked_prefix(ready)
         events: list[Event] = [FindingAdded(finding=failure)] if failure is not None else []
-        if prefix:
-            target = prefix[-1][0]
-            self._repository.fast_forward(
-                self._gate.to_level, target, self._repository.tip(self._gate.to_level)
+        if not prefix:
+            self._board.append(events)
+            return len(events)
+        target = prefix[-1][0]
+        promotions = [
+            Promoted(
+                artifact=artifact.id,
+                from_level=self._gate.from_level,
+                to_level=self._gate.to_level,
+                gate_decision=None,
+                commit=target,
             )
-            events += [
-                Promoted(
-                    artifact=artifact.id,
-                    from_level=self._gate.from_level,
-                    to_level=self._gate.to_level,
-                    gate_decision=None,
-                    commit=target,
-                )
-                for _, artifact in prefix
-                if not self._board.current().dropped(artifact.id)
-            ]
-        self._board.append(events)
-        return sum(isinstance(e, Promoted) for e in events) + (failure is not None)
+            for _, artifact in prefix
+            if not self._board.current().dropped(artifact.id)
+        ]
+        self._publisher.publish(self._gate.to_level, target, promotions, also=events)
+        return len(promotions) + len(events)
 
     def _checked_prefix(
         self, ready: list[tuple[str, Artifact]]

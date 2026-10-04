@@ -27,6 +27,8 @@ from agentswarm.core.domain import (
     Paused,
     ProjectId,
     Promoted,
+    PromotionSettled,
+    PromotionStarted,
     Rejected,
     Released,
     Resolution,
@@ -83,6 +85,10 @@ class Report:
                 return "fits one branch" if event.fits else f"split into {', '.join(event.children)}"
             case Promoted():
                 return f"promoted {event.from_level} -> {event.to_level}"
+            case PromotionStarted():
+                return f"moving {event.branch} to {event.target[:10]}"
+            case PromotionSettled():
+                return f"{event.branch} {'moved' if event.moved else 'did not move'}"
             case Rejected():
                 return "rejected: " + "; ".join(f"{f.kind}: {f.detail}" for f in event.findings)
             case Escalated():

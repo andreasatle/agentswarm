@@ -24,6 +24,8 @@ from agentswarm.core.domain import (
     Level,
     Paused,
     Promoted,
+    PromotionSettled,
+    PromotionStarted,
     Rejected,
     Released,
     Resolution,
@@ -55,6 +57,7 @@ class BoardViews:
     _unjudged: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
     _fixes: dict[FindingId, ArtifactId] = field(default_factory=dict[FindingId, ArtifactId])
     _merge_commit: dict[ArtifactId, str] = field(default_factory=dict[ArtifactId, str])
+    _moving: dict[Level, PromotionStarted] = field(default_factory=dict[Level, PromotionStarted])
     _escalations: dict[ArtifactId, Escalated] = field(default_factory=dict[ArtifactId, Escalated])
     _accepted: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _dropped: set[ArtifactId] = field(default_factory=set[ArtifactId])
@@ -117,6 +120,10 @@ class BoardViews:
                 # merges: its commits are snapshots of the level it joined (CODEX_AUDIT.md F09).
                 if event.commit is not None and event.artifact not in self._umbrellas:
                     self._merge_commit.setdefault(event.artifact, event.commit)
+            case PromotionStarted():
+                self._moving[event.branch] = event
+            case PromotionSettled():
+                self._moving.pop(event.branch, None)
             case Rejected():
                 self._findings[event.artifact] = list(event.findings)
                 self._unjudged.pop(event.artifact, None)
@@ -191,6 +198,10 @@ class BoardViews:
     def fix_for(self, finding: FindingId) -> ArtifactId | None:
         """The artifact created to fix a finding, if there is one."""
         return self._fixes.get(finding)
+
+    def moving(self) -> list[PromotionStarted]:
+        """Branch moves that were started and not yet settled: what a crash may have left behind."""
+        return list(self._moving.values())
 
     def merge_commit(self, id: ArtifactId) -> str | None:
         """The merge commit that brought the artifact into the first shared level, once it is there."""
