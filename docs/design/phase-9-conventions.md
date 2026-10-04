@@ -1,4 +1,4 @@
-# Phase 9: Project conventions that hold
+# Phase 9: Toolchains and conventions that hold
 
 Status: **planned**, to start after the Phase 8 runs finish. The greeter seed is used by the running
 experiment, and changing it midway would change its conditions.
@@ -14,6 +14,20 @@ Today AgentSwarm doesn't enforce any of them:
 - **The software preset's only check is pytest.** Since tests import from the top-level folder, code in the
   wrong place passes as long as the tests do.
 - **The executor is told no conventions,** unless a project writes them as constraints.
+
+## The scope rule (applies to this phase and every later one)
+
+A new mechanism must answer: *which measured problem, or which concrete project, needs this now?*
+"It might be useful later" goes to the backlog with the condition that would make it due. Generalize only
+what the existing concrete cases share; prefer explicit configuration to detection; prefer data to code.
+This is decided with the user, who asked that proposals, theirs included, be held to it.
+
+## What a project assumes today
+
+The engine assumes only files in git and checks that are commands. The presets assume much more:
+`software` is Python in five places (the sandbox image, pytest as the check, the analyzers' pytest probes,
+mutation testing through Python's parser, the task suites), and `document` is Markdown, lightly (the
+project's own checker and a mention of sections in the writer's instructions).
 
 ## The principle
 
@@ -31,7 +45,28 @@ Conventions are enforced in three layers, each with its own job:
 
 ## Design
 
-### 1. Mechanical conventions become the software preset's checks
+### 0. A toolchain is a data file, named explicitly
+
+The two concrete cases, Python software and Markdown documents, get a toolchain file each:
+`core/toolchains/python.yaml` and `core/toolchains/markdown.yaml`. A project names its own:
+
+```yaml
+domain: software        # the workflow shape: levels, teams, gates (the preset)
+toolchain: python       # the language: sandbox image, checks, probe tests, instructions
+```
+
+A toolchain holds what is now hard-wired or scattered: the sandbox image, the convention checks (below),
+how analyzers write and run probe tests (folder, file-name pattern, which check runs them), whether
+mutation testing applies, and a few lines of language-specific instructions for the models. A project
+overrides any part of it, as it overrides a preset. The domain's preset names a default toolchain, so
+existing configs keep working.
+
+Deliberately **not** built (backlog, with triggers): automatic detection from the seed's files (it saves
+one line of config but hides a decision; `agentswarm new` writes the line instead), toolchains for other
+languages (due when a real project in that language is wanted), and any plugin mechanism (a toolchain is
+data; a new language is a file and a sandbox image).
+
+### 1. Mechanical conventions become the Python toolchain's checks
 
 Every software project gets these by default, each a separate check, so a failure names exactly what's wrong:
 
@@ -93,18 +128,20 @@ with Phase 4 and Phase 8 data.
 
 ## Steps
 
-1. `agentswarm_checks` with the `layout` check; the sandbox image with ruff, basedpyright and hatchling.
-2. The preset's checks (`layout`, `package`, `lint`, `types`, `unit_tests`) and the executor's default
-   constraints.
-3. The seed check at project creation.
-4. The conventions file in every executor's and reviewer's instructions; the `follows_conventions`
+1. Toolchains as data: `python.yaml` and `markdown.yaml`, `toolchain:` in the project config, the
+   preset's default toolchain, and the analyzers' probe settings moved out of code into the toolchain.
+2. `agentswarm_checks` with the `layout` check; the sandbox image with ruff, basedpyright and hatchling.
+3. The Python toolchain's checks (`layout`, `package`, `lint`, `types`, `unit_tests`) and its default
+   constraints for the executor.
+4. The seed check at project creation.
+5. The conventions file in every executor's and reviewer's instructions; the `follows_conventions`
    question in shadow.
-5. `agentswarm new` for software and documents.
-6. The greeter and its suites on the new layout; the tutorial and examples updated.
+6. `agentswarm new` for software and documents, writing the `toolchain:` line.
+7. The greeter and its suites on the new layout; the tutorial and examples updated.
 
 ## Not in this phase
 
 - Third-party dependencies inside the sandbox (an offline wheel folder); standard-library projects first.
-- Languages other than Python: the same pattern (a toolchain image, checks per convention), not yet built.
+- Languages other than Python and Markdown, automatic detection, plugins: see section 0.
 
 ## Decisions made during implementation
