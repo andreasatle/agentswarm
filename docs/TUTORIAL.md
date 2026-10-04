@@ -22,10 +22,13 @@ tables; this document explains why things are the way they are.
 | 9 | Decomposition and joins | Jev |
 | 10 | The supervisor | |
 | 11 | Making Jev act: tuning, active points, audit | Jev |
+| 12 | A second domain: documents | Ollama, Docker, Jev |
+| 13 | Several projects, money and limits | nothing (the quickstart swarm) |
+| 14 | What keeps it safe | |
 
-Steps 1–3 run anywhere, offline, in seconds. Status: Phases 0–3 of the build plan are done; Phase 4 is in
-its final step; Phases 5 (documents) and 6 (several projects) are designed but not built. Where a step
-touches unfinished work, it says so.
+Steps 1–3 and the quickstart swarm in step 13 run anywhere, offline, in seconds. Status: every phase of the
+build plan is done, plus a hardening phase from an independent audit; the one open item is proving the gate's
+false-promotion rate with more data (step 11).
 
 ---
 
@@ -397,11 +400,90 @@ Shadow mode collects evidence; the point is eventually to let Jev act where it h
 5. **Cheap first.** `model_tiers: [small, large]` on the executor: each rejection moves it up a tier, and
    every commit records which model made it.
 
-*Status:* the Phase 4 runs (shadow evaluation of both suites, tuning, an active evaluation, the audit
-against these bounds) are in progress; their results will be added here.
+*Results:* tuned on the first two suites, then audited with the gate active, the gate made one wrong
+promotion in 41 and no wrong rejection in 158. On 16 held-out tasks it had never been tuned on
+(`examples/greeter/evaluation/heldout/`) it made no wrong ruling at all. False rejections and escalations
+are within their bounds even by the cautious upper limit. False promotions aren't *proven* to be at or
+below 5% yet: that takes about 73 known promotions without an error, and each task yields about one. Every
+suite you add moves that number.
+
+Two habits the reports enforce: `tune` writes thresholds exactly and comments a block out when any question
+isn't ready, and `audit` prints one block per *cohort* (judge wording and model), never pooling them.
 
 Where: `judging/judgement.py` (`ModeTable`), `judging/tuning.py`, `judging/audit.py`,
 `judging/deciders.py`.
+
+---
+
+## Step 12 — A second domain: documents
+
+Nothing in steps 1–11 is about code except the teams' instructions and the evidence they accept. The
+`document` preset swaps those and keeps everything else:
+
+| Software | Documents |
+| --- | --- |
+| raw → experimental → candidate → production | draft → reviewed → final → published |
+| executor, decomposer | writer, outliner |
+| integration tester, red team (evidence: a failing test) | consistency, fact and audience reviewers (evidence: a verbatim quote) |
+| `ChangeReadiness` at the first gate | `SectionReadiness` (`on_topic`, `clear`, `complete`) |
+| pytest as the hard check | the project's own `tools/check_doc.py` |
+
+```bash
+uv run agentswarm run examples/handbook/project.yaml --root ~/agentswarm-runs/handbook --task "Write a short handbook for running a book club: choosing books, running a meeting, keeping members"
+```
+
+A reviewer's problem only counts if it quotes at least 12 characters that really are in the file it names,
+so a model can't invent a complaint. The run stops at the human publishing gate:
+
+```bash
+uv run agentswarm resolve examples/handbook/project.yaml a-0001 --root ~/agentswarm-runs/handbook --accept --note "reviewed, publish"
+```
+
+Run the project again and it is promoted to `published`. In the live run, the reviewers found a UK/US
+spelling mismatch and a piece of jargon; both were minor, so they stayed on the board for a person rather
+than becoming fix tasks.
+
+Where: `teams/documents.py`, `core/presets/document.yaml`, `examples/handbook/`.
+
+## Step 13 — Several projects, money and limits
+
+**Spend is an event.** Every model run reports its tokens (counted per call, so a run that fails halfway
+still records what it used), priced from `models.<name>.usd_per_million`, and lands on the board as `Spent`.
+Reports start with it: `spent: $1.23 (4 unpriced model runs)`.
+
+**Budgets.** `budgets.usd_per_day: 5` stops a project's teams from starting new actions once today's (UTC)
+spend reaches $5; the supervisor escalates once, and work resumes the next day. Gates keep judging: Jev is
+cheap, and the money budgets are about is in team actions.
+
+**A swarm.** One process, several projects, one scheduler that caps concurrent model calls, Jev requests per
+minute and sandbox runs:
+
+```bash
+uv run agentswarm swarm examples/swarm-quickstart.yaml --task "notes-a=Write a note" --task "notes-b=Write a note"
+```
+
+Each project keeps its own board, decision log, repository and budget. If one project fails, it is reported
+and the others finish; the command exits 1. `examples/swarm-live.yaml` runs the greeter and the handbook
+together with real models.
+
+Where: `board/spend.py`, `control/budget.py`, `control/scheduler.py`, `swarm.py`.
+
+## Step 14 — What keeps it safe
+
+An independent audit ([CODEX_AUDIT.md](../CODEX_AUDIT.md)) looked for the places where happy-path tests
+don't reach, and Phase 7 closed them:
+
+- **Code a model wrote can't reach the host.** Commands run on a throwaway copy of the checkout without
+  `.git`; host git runs with hooks off and without your keys; every file the framework or a tool reads or
+  writes stays inside the project, links included.
+- **A crash can't lose a promotion.** A level branch moves in three recorded steps, and the next step repairs
+  a move that was interrupted.
+- **One owner.** A second process can't open a running project (`status` still works: it only reads the
+  board). A worker whose claim was taken over has its result thrown away.
+- **Evidence means evidence.** A test that couldn't run is never proof of a bug, a hidden-test outage is
+  never ground truth, and parked or dropped work is left alone by every controller.
+
+Where: [design/phase-7-hardening.md](design/phase-7-hardening.md), and section 15 of the reference.
 
 ---
 
@@ -415,18 +497,14 @@ Where: `judging/judgement.py` (`ModeTable`), `judging/tuning.py`, `judging/audit
 | router, supervisor, escalation queue | which judge sits at which gate; which points are active |
 | teams as classes (executor, analyzers, decomposer) | constraints, budgets, supervisor limits, presets |
 
-A document project (Phase 5) is meant to be only the right-hand column: the same engine with document
-teams, a document judge and a document preset. The handbook example's checker is already in
-`examples/handbook/`.
+The document domain (step 12) is the proof: only the right-hand column changed, plus three small reviewer
+classes and one judge.
 
 ## What's still ahead
 
-- **Phase 4** results: the active evaluation and audit (above).
-- **Phase 5, documents** ([design](design/phase-5-documents.md)): quotes as evidence instead of tests; writer,
-  outliner, consistency, fact and audience reviewers; a `document` preset; a handbook through
-  `draft → reviewed → final → published`.
-- **Phase 6, several projects** ([design](design/phase-6-multi-project.md)): spend recorded on the board,
-  a shared scheduler with fair grants and rate limits, budgets enforced, `agentswarm swarm`.
+- **Proving the gate's false-promotion rate:** more evaluation tasks, until about 73 known promotions.
+- The backlog's deferred items: conflict refresh before retry, timeouts on git commands, several processes
+  per project, event schema versioning, CI ([BACKLOG.md](BACKLOG.md)).
 
 ## Where to read more
 

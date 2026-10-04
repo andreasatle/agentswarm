@@ -1,6 +1,6 @@
 # Phase 6: Several projects, one scheduler
 
-Status: **in progress** (decided on the recommendations). Proposal sections: §14.2 (scheduler), §14.1
+Status: **complete** (decided on the recommendations). Proposal sections: §14.2 (scheduler), §14.1
 (budgets), §16 (project isolation).
 
 **Exit criterion (§19):** two projects run concurrently within their budgets.
@@ -85,3 +85,16 @@ SWARM [--task PROJECT=TEXT]...`; `examples/swarm-quickstart.yaml` runs two quick
   spend past it on every waiting artifact. It is now checked before every action.
 - **The exit criterion holds in tests** (`tests/test_swarm.py`): two projects run concurrently (model runs
   overlap), the one with room finishes, the one with a $2 budget stops at exactly $2 and reports it once.
+
+**Step 5 (live run, 2026-10-04).** `examples/swarm-live.yaml`: the greeter (software preset, Jev in
+shadow) and the handbook (document preset, Jev active for sizing) in one process, sharing a scheduler
+(`max_model_calls: 2`, `max_sandboxes: 2`), gemma4:e4b through Ollama, Docker sandboxes.
+- **Both projects progressed at the same time.** `status`, read during the run, showed the greeter at
+  experimental while the handbook was at final.
+- **Both stopped at their human gates:**
+  - the greeter at candidate, after the integration tester and red team signed off (9 model runs);
+  - the handbook at final, after its three reviewers (12 model runs; the same two minor findings as the
+    solo run, since the model runs at temperature 0).
+- **Spend was $0.00:** local models, unpriced and reported as such.
+- **The exit criterion, "two projects run concurrently within their budgets", holds live as well as in
+  the offline test** (which also covers a budget stop and a failing project).

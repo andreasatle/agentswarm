@@ -1,0 +1,9 @@
+# The greeter (software) and the handbook (document) at once, sharing one scheduler. Needs Docker, Ollama
+# with gemma4:e4b and a Jev key in .env, like the projects themselves.
+#   uv run agentswarm swarm examples/swarm-live.yaml \
+#       --task "greeter=Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!'. Add tests." \
+#       --task "handbook=Write a short handbook for running a book club: choosing books, running a meeting, keeping members"
+scheduler: {max_model_calls: 2, max_sandboxes: 2}
+projects:
+  - {config: greeter/project.yaml, root: ~/agentswarm-runs/swarm-live/greeter}
+  - {config: handbook/project.yaml, root: ~/agentswarm-runs/swarm-live/handbook}

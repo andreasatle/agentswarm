@@ -5,34 +5,23 @@ and when it is due. When an item is done, delete it here in the same commit.
 
 | Item | Why deferred | Due | Decided in |
 | --- | --- | --- | --- |
-| **Jev relevance filters for teams** (§12.1 "Team relevance filter", listed under Phase 2 in §19) | The executor, the only team, decides relevance deterministically from history. A Jev filter pays off once tester/reviewer teams exist. | Phase 3, with the first non-executor team | Phase 2 design, Q3 |
-| **Human workflow for escalated artifacts** | Escalated artifacts stay parked; nothing un-parks them. | Phase 3 (supervisor, escalation queue §14.1) | Phase 1 review |
-| **Promotion beyond `experimental`** | Level branches mix many artifacts; "promote artifact X to candidate" needs a design first. | Before Phase 3 adds the candidate level | Phase 0 review |
-| **`LLMDecider` fallback** (§12.4) | In shadow mode a Jev outage only loses log entries. | Phase 4 (Jev active) | Phase 2 design |
-| **Retries for Jev calls** | Same as above: harmless in shadow mode. | Phase 4 | Phase 2 step 1 |
-| **Score and Choice answers in gate policies** | The first judge is Noul only; thresholds for the others need calibration data. | Phase 4 | Phase 2 design |
-| **Per-item checks and the LLM explainer** (§11.6, sources 3 and 4) | Not needed for the first judge. | Phase 3 or 4 | Phase 2 design |
-| **Model-tier cascade** (§13.3) | One model per team is enough until routing is calibrated. | Phase 4 | Phase 1 plan |
-| **Async Jev calls** | Gates are synchronous today. | Phase 6 (scheduler) | Phase 2 design, Q5 |
-| **Faster test suite** | The suite-validation and mutation tests start ~60 pytest processes; the full run takes ~70 s. Mark them `slow` and run them in CI or on demand if this starts to hurt. | When the full run passes ~2 min | Phase 2 step 7 |
-| **`in_scope` truth for model-executor runs** | Only scripted runs have a known `in_scope`; model runs get it from spot checks only. A scope rule (allowed paths per task) could add a weak automatic source. | Phase 3 or 4 | Phase 2 step 6 |
-| **Sharpen the judge's question wording** | First real run: Jev lowers p(in_scope) for trivial tests, mixing two questions. §12.2 asks for one narrow property per question. Tune with calibration data. | Phase 4 | Phase 2, first real run |
-| **A harder task suite** | In the first full run the model executor solved all 14 greeter tasks, so model runs gave no negative examples. Tasks the executor sometimes fails would. | Phase 4 (calibration) | Phase 2 result |
-| **Spend budgets** (`budgets.usd_per_day`, §14.1) | Needs per-call cost tracking from the model layer. | Phase 6 (scheduler) | Phase 3 step 8 |
-| **Explicit revert of a merged artifact** (§9) | `resolve --drop` retires an artifact but its merged code stays on the level branches. Reverting it is an explicit, logged action the proposal reserves for a person or the supervisor. | Phase 4 or later | Phase 3 step 9 |
+| **Score and Choice answers in gate policies** | Every judge so far is Noul only; thresholds for the others need calibration data. | When a judge needs graded answers | Phase 2 design |
+| **Per-item checks and the LLM explainer** (§11.6, sources 3 and 4) | Not needed by the current judges. | When a judge needs them | Phase 2 design |
+| **Async Jev calls** | Gates now run in worker threads (Phase 6), so projects overlap; a native async client would only save threads. | If thread count matters | Phase 2 design, Q5 |
+| **Faster test suite** | The full run takes ~2 minutes (suite validation and mutation tests start many pytest processes). Mark them `slow` and run them in CI or on demand. | Now due: with CI | Phase 2 step 7 |
+| **`in_scope` truth for model-executor runs** | Only scripted runs have a known `in_scope`; model runs get it from spot checks only. A scope rule (allowed paths per task) could add a weak automatic source. | With the next evaluation work | Phase 2 step 6 |
+| **Explicit revert of a merged artifact** (§9) | `resolve --drop` retires an artifact but its merged code stays on the level branches. Reverting it is an explicit, logged action the proposal reserves for a person or the supervisor. | When dropping merged work is needed | Phase 3 step 9 |
 
-## Next session: remaining work (revised 2026-10-03 after CODEX_AUDIT.md)
+Done and removed in the 2026-10-04 cleanup (each in its phase's design doc): relevance filters and the
+escalation workflow (Phase 3), promotion beyond the base level (release trains, Phase 3), the LLM fallback,
+Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend budgets (Phase 6).
 
-- **Phase 7 (hardening) is complete** (docs/design/phase-7-hardening.md); the live runs and the held-out
-  evaluation below can go ahead.
-- Phase 4: eval-3 (in sample) and eval-4 (held out, 16 tasks) are audited; see the phase-4 doc. Every bound
-  holds except that false promotions (1/41 pooled, 0/16 held out) aren't yet *proven* to be at or below 5%.
-  That takes about 73 known promotions without error. Due: before relying on the active gate unattended;
-  grows with every evaluation task added.
-- Phase 5 step 6: live run of the handbook project, after Phase 7.
-- Phase 6 step 5: live swarm run of greeter + handbook (needs a swarm YAML), after Phase 7.
-- Docs: update TUTORIAL, REFERENCE and README for the document domain, swarm, spend/budgets, scheduler,
-  `model_tiers`, `usd_per_million` and test counts. Reconcile stale "deferred" entries (audit §6,
-  optional cleanup) and remove the spend-budgets backlog item.
-- From the audit, deferred past Phase 7: F08 conflict refresh, the rest of F14, fencing for several
-  owners, event schema versioning, indexed queries, CI.
+## Open items (updated 2026-10-04)
+
+- **Prove the active gate's false-promotion rate.** eval-3 (in sample) and eval-4 (held out) give 1/41
+  false promotions pooled and 0/16 held out. The 95% upper bound gets to 5% only at about 73 known
+  promotions without error (about one per task). Add held-out tasks (or real outcomes) until then. Due:
+  before relying on the active gate unattended.
+- From the audit, deferred past Phase 7: F08 conflict refresh before retry, timeouts on git commands (the
+  rest of F14), fencing for several owners of one project, event schema versioning, indexed board queries,
+  CI.

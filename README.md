@@ -11,8 +11,10 @@ logged and scored against what turned out to be true.
 - [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md) and [docs/design/](docs/design/): the design and every
   decision made while building it; [docs/BACKLOG.md](docs/BACKLOG.md): what was postponed, and why.
 
-Status: build-plan Phases 0–3 done, Phase 4 (Jev acting) finishing, Phases 5 (documents) and 6 (several
-projects at once) designed.
+Status: every phase of the build plan is done (teams and levels, Jev acting where it has earned it, documents
+as a second domain, several projects at once), plus a hardening phase from an independent audit
+([CODEX_AUDIT.md](CODEX_AUDIT.md)). One item is open: proving the active gate's false-promotion rate with more
+evaluation data.
 
 ## Quick tutorial
 
@@ -84,6 +86,20 @@ uv run agentswarm evaluate examples/greeter/evaluation/hard/suite.yaml --workdir
 ```bash
 uv run agentswarm audit ~/agentswarm-runs/eval-2/decisions.sqlite
 ```
+
+**6. Documents, and several projects at once.** The same engine writes a handbook (draft → reviewed → final →
+published, with reviewers whose every complaint must quote the text), and a swarm runs projects side by side
+under one scheduler with a daily budget each:
+
+```bash
+uv run agentswarm swarm examples/swarm-quickstart.yaml --task "notes-a=Write a note" --task "notes-b=Write a note"
+```
+
+```bash
+uv run agentswarm swarm examples/swarm-live.yaml --task "greeter=Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!'. Add tests." --task "handbook=Write a short handbook for running a book club"
+```
+
+`agentswarm status CONFIG --root DIR` shows a project's spend, escalations and history, even while it runs.
 
 Project roots must be under your home folder, so Docker (Colima, Docker Desktop) can mount them.
 
