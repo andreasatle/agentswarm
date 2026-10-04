@@ -130,7 +130,11 @@ with Phase 4 and Phase 8 data.
 
 ## Steps
 
-1. `probe:` in the team config: the analyzers' probe folder, file pattern and check move out of code.
+1. Software settings out of shared code (found by an audit, 2026-10-04): `probe:` in the team config (the
+   analyzers' probe folder, file pattern and check move out of `AnalysisToolbox`); the default sandbox
+   image moves from `SandboxConfig` into each preset (today every document project silently gets the
+   Python image); `PYTHONDONTWRITEBYTECODE` moves from both sandboxes into the software preset's sandbox
+   environment.
 2. `agentswarm_checks` with the `layout` check; the sandbox image with ruff, basedpyright and hatchling.
 3. The software preset's checks (`layout`, `package`, `lint`, `types`, `unit_tests`) and its default
    constraints for the executor.
