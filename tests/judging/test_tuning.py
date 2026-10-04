@@ -1,9 +1,11 @@
 import pytest
+import yaml
 
+from agentswarm.core.config import Threshold
 from agentswarm.judging.calibration import Labelled
 from agentswarm.judging.decisions import InMemoryDecisions, Outcome, OutcomeSource
 from agentswarm.judging.judges import ChangeReadiness, Judge, JudgeCatalog
-from agentswarm.judging.tuning import ThresholdTuner, TuningReport, Wilson
+from agentswarm.judging.tuning import QuestionTuning, Side, ThresholdTuner, TuningReport, Wilson
 from tests.support.drafts import Drafts
 from tests.support.samples import Judged, Samples
 
@@ -73,7 +75,46 @@ class TestThresholdTuner:
         tunings = ThresholdTuner(min_support=20).tune(store, JudgeCatalog.standard())
         ready = {(t.judge_version == current, t.field): t.ready for t in tunings}
         assert ready == {(False, "complete"): False, (True, "complete"): True}
-        assert "complete: {pass: 0.95, fail: 0.05}" in TuningReport.of(tunings).thresholds_yaml()
+        yaml = TuningReport.of(tunings, JudgeCatalog.standard()).thresholds_yaml()
+        assert "complete: {pass: 0.95, fail: 0.05}" in yaml
+        assert "NOT READY (in_scope: no tuned thresholds; tests_relevant: no tuned thresholds)" in yaml
+
+
+class TestThresholdsYaml:
+    @staticmethod
+    def tuning(field: str, passing: float, failing: float, ready: bool = True) -> QuestionTuning:
+        side = Side(threshold=0.0, decided=10, correct=10, coverage=0.5)
+        return QuestionTuning(
+            point="gate:raw->experimental",
+            judge="ChangeReadiness",
+            judge_version="v",
+            current=True,
+            field=field,
+            n=40,
+            passing=side.model_copy(update={"threshold": passing}),
+            failing=side.model_copy(update={"threshold": failing}),
+            ready=ready,
+        )
+
+    def test_writes_thresholds_exactly_and_they_load_as_configuration(self) -> None:
+        tunings = [self.tuning("complete", 0.904, 0.901), self.tuning("in_scope", 0.37, 0.2)]
+        tunings.append(self.tuning("tests_relevant", 0.8412, 0.0312))
+        yaml_text = TuningReport.of(tunings, JudgeCatalog.standard()).thresholds_yaml()
+        assert yaml_text.startswith("# gate:raw->experimental: ready\n")
+        loaded = yaml.safe_load(yaml_text)["thresholds"]
+        assert loaded["complete"] == {"pass": 0.904, "fail": 0.901}  # not rounded into pass == fail
+        assert {f: Threshold.model_validate(t).pass_at for f, t in loaded.items()} == {
+            "complete": 0.904,
+            "in_scope": 0.37,
+            "tests_relevant": 0.8412,
+        }
+
+    def test_a_question_not_ready_comments_the_block_out(self) -> None:
+        tunings = [self.tuning("complete", 0.9, 0.1), self.tuning("in_scope", 0.37, 0.2, ready=False)]
+        tunings.append(self.tuning("tests_relevant", 0.84, 0.03))
+        yaml_text = TuningReport.of(tunings, JudgeCatalog.standard()).thresholds_yaml()
+        assert "NOT READY (in_scope: not ready)" in yaml_text
+        assert yaml.safe_load(yaml_text) is None  # nothing to paste by accident
 
 
 class TestWilson:

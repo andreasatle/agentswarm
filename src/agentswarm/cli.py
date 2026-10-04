@@ -232,7 +232,8 @@ class Cli:
     def tune(self, args: argparse.Namespace) -> int:
         tuner = ThresholdTuner(args.precision, args.min_support)
         with SqliteDecisions(self._existing(args.decisions)) as decisions:
-            self._show(TuningReport.of(tuner.tune(decisions, JudgeCatalog.standard())).render())
+            judges = JudgeCatalog.standard()
+            self._show(TuningReport.of(tuner.tune(decisions, judges), judges).render())
         return 0
 
     def audit(self, args: argparse.Namespace) -> int:

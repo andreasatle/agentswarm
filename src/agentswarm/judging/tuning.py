@@ -17,8 +17,9 @@ import math
 from collections.abc import Callable, Sequence
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
+from agentswarm.core.config import Threshold
 from agentswarm.judging.calibration import Labelled, LabelledAnswers
 from agentswarm.judging.decisions import DecisionStore
 from agentswarm.judging.judges import JudgeCatalog
@@ -158,25 +159,50 @@ class ThresholdTuner:
 
 class TuningReport(Frozen):
     questions: tuple[QuestionTuning, ...]
+    fields: dict[str, tuple[str, ...]]  # every question each judge asks, by judge name
 
     @classmethod
-    def of(cls, tunings: Sequence[QuestionTuning]) -> Self:
-        return cls(questions=tuple(tunings))
+    def of(cls, tunings: Sequence[QuestionTuning], judges: JudgeCatalog) -> Self:
+        names = {q.judge for q in tunings}
+        return cls(questions=tuple(tunings), fields={name: judges.get(name).fields() for name in names})
 
     def thresholds_yaml(self) -> str:
-        """The `thresholds:` for each gate whose current-wording questions all have both thresholds."""
+        """The `thresholds:` for each gate, exactly as tuned (CODEX_AUDIT.md F11).
+
+        Ready to paste only when every question the judge asks has a ready row and the result validates
+        as configuration; otherwise the block is commented out and says why. Values are written in full:
+        rounding could merge or invert thresholds, or admit answers the measured policy excluded.
+        """
         blocks: list[str] = []
         for point in sorted({q.point for q in self.questions if q.point.startswith("gate:")}):
-            current = [q for q in self.questions if q.point == point and q.current]
-            if not current or any(q.passing is None or q.failing is None for q in current):
+            current = {q.field: q for q in self.questions if q.point == point and q.current}
+            tuned = {f: q for f, q in current.items() if q.passing is not None and q.failing is not None}
+            if not tuned:
                 continue
-            entries = ", ".join(
-                f"{q.field}: {{pass: {q.passing.threshold:.2f}, fail: {q.failing.threshold:.2f}}}"
-                for q in current
-                if q.passing is not None and q.failing is not None
-            )
-            blocks.append(f"# {point}\nthresholds: {{{entries}}}")
+            judge = next(iter(current.values())).judge
+            problems = [f"{f}: no tuned thresholds" for f in self.fields[judge] if f not in tuned]
+            problems += [f"{f}: not ready" for f, q in tuned.items() if not q.ready]
+            entries: list[str] = []
+            for field, q in tuned.items():
+                assert q.passing is not None and q.failing is not None
+                values = {"pass": q.passing.threshold, "fail": q.failing.threshold}
+                try:
+                    Threshold.model_validate(values)
+                except ValidationError:
+                    problems.append(f"{field}: pass {values['pass']!r} is not above fail {values['fail']!r}")
+                entries.append(f"{field}: {{pass: {values['pass']!r}, fail: {values['fail']!r}}}")
+            line = f"thresholds: {{{', '.join(entries)}}}"
+            if problems:
+                blocks.append(
+                    f"# {point}: NOT READY ({'; '.join(problems)}); for exploration only:\n# {line}"
+                )
+            else:
+                blocks.append(f"# {point}: ready\n{line}")
         return "\n".join(blocks) or "# no gate has enough data for thresholds yet"
 
     def render(self) -> str:
-        return "\n\n".join([*(q.render() for q in self.questions), self.thresholds_yaml()])
+        caveat = (
+            "# 'ready' is measured on the decisions the thresholds were chosen from: confirm them on tasks\n"
+            "# they were not tuned on (agentswarm evaluate, then audit) before relying on them."
+        )
+        return "\n\n".join([*(q.render() for q in self.questions), self.thresholds_yaml(), caveat])

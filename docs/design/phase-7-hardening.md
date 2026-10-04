@@ -234,3 +234,14 @@ These come next, in this order:
 - Task suites have `test_failure_exit_codes`, default `(1,)`.
 - **Housekeeping:** a line in step 6's test was over the length limit because I edited it after linting;
   it is fixed here.
+
+**Step 7b (exact thresholds, F11).**
+- **`TuningReport.thresholds_yaml`** writes every threshold with Python's round-trip `repr`, as
+  selected. Two decimals could merge 0.904/0.901 into an invalid pass = fail, or admit answers the
+  measured policy excluded.
+- **A block is ready to paste only when** every question the judge asks has a tuned row, every row is
+  ready, and each pair validates as `Threshold`. Otherwise it is commented out with the reasons, so
+  `yaml.safe_load` finds nothing to paste by accident. The report knows each judge's questions from the
+  catalog.
+- **The report ends with a caveat:** "ready" is in-sample, so confirm on tasks the thresholds weren't
+  tuned on. That held-out run is already planned after this phase.
