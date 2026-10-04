@@ -9,7 +9,15 @@ from agentswarm.core.domain import TeamName
 from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
 from agentswarm.judging.judgement import Judgement, Judgements
 from agentswarm.llm.workers import Meter, Worker, WorkerProvider
-from agentswarm.teams.analyzer import IntegrationTester, RedTeam
+from agentswarm.teams.analyzer import (
+    ContractTester,
+    EdgeValueTester,
+    ErrorTester,
+    IntegrationTester,
+    ProbingAnalyzer,
+    RedTeam,
+    TextTester,
+)
 from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
@@ -138,7 +146,15 @@ class TeamCatalog:
                     resources.relevance_for(team),
                 ),
             )
-        for use, analyzer in (("integration_tester", IntegrationTester), ("red_team", RedTeam)):
+        probing: tuple[tuple[str, type[ProbingAnalyzer]], ...] = (
+            ("integration_tester", IntegrationTester),
+            ("red_team", RedTeam),
+            ("edge_value_tester", EdgeValueTester),  # the narrow red teams (Phase 8)
+            ("text_tester", TextTester),
+            ("error_tester", ErrorTester),
+            ("contract_tester", ContractTester),
+        )
+        for use, analyzer in probing:
             catalog.register(
                 use,
                 lambda team, resources, analyzer=analyzer: analyzer(

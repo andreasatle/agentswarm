@@ -11,7 +11,15 @@ from agentswarm.judging.decisions import InMemoryDecisions
 from agentswarm.judging.judgement import Judgements
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.llm.workers import FakeWorker, FakeWorkers
-from agentswarm.teams.analyzer import IntegrationTester, RedTeam
+from agentswarm.teams.analyzer import (
+    ContractTester,
+    EdgeValueTester,
+    ErrorTester,
+    IntegrationTester,
+    NarrowRedTeam,
+    RedTeam,
+    TextTester,
+)
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor
 from agentswarm.workspace.sandbox import LocalSandbox
@@ -66,6 +74,25 @@ class TestTeamCatalog:
             Resources.make(),
         )
         assert isinstance(tester, IntegrationTester)
+
+    @pytest.mark.parametrize(
+        ("use", "kind"),
+        [
+            ("edge_value_tester", EdgeValueTester),
+            ("text_tester", TextTester),
+            ("error_tester", ErrorTester),
+            ("contract_tester", ContractTester),
+        ],
+    )
+    def test_builds_the_narrow_red_teams(self, use: str, kind: type[NarrowRedTeam]) -> None:
+        config = TeamConfig(use=use, watches=Samples.EXPERIMENTAL, model="fake", checks=("tests",))
+        resources = Resources.make()
+        catalog = TeamCatalog.standard()
+        team = catalog.build(config, resources)
+        assert isinstance(team, kind)
+        assert team.name == use
+        assert kind.FOCUS in kind.INSTRUCTIONS
+        assert "Stay within your focus" in kind.INSTRUCTIONS
 
     def test_analyzers_need_a_check_to_run_tests_with(self) -> None:
         with pytest.raises(ValueError, match="needs a check"):

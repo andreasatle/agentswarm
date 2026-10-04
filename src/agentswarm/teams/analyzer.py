@@ -340,3 +340,62 @@ You are the red team. The change in the data has been merged into the shared cod
 - Report a problem only if a test you ran fails because of the change; name that test in the report.
   Behaviour the task explicitly allowed is not a problem. If nothing breaks, report no problems.
 - Do not report style or naming."""
+
+
+class NarrowRedTeam(ProbingAnalyzer):
+    """A red team that tries one kind of attack only (Phase 8).
+
+    Several narrow teams fail differently from each other, so a bug one misses another may catch; one broad
+    team tends to miss the same things every time. Each subclass names its attack in `FOCUS`.
+    """
+
+    FOCUS: ClassVar[str]
+    RULES: ClassVar[str] = """
+- Use show_change and read_file to see exactly what the change does.
+- Write pytest files with run_test that try only the inputs above. Assert what the task and a careful
+  user would expect.
+- Report a problem only if a test you ran fails because of the change; name that test in the report.
+  Behaviour the task explicitly allowed is not a problem. If nothing breaks, report no problems.
+- Stay within your focus: other teams look at everything else. Do not report style or naming."""
+
+    @classmethod
+    def instructions_for(cls, focus: str) -> str:
+        return (
+            f"You are a red team with one focus. The change in the data has been merged. {focus}\n{cls.RULES}"
+        )
+
+
+class EdgeValueTester(NarrowRedTeam):
+    KIND: ClassVar[FindingKind] = FindingKind.EDGE_CASE
+    FOCUS: ClassVar[str] = (
+        "Try only edge values: empty strings and lists, zero, negative numbers, very large numbers, and the "
+        "exact boundaries the task names (just inside and just outside them)."
+    )
+    INSTRUCTIONS: ClassVar[str] = NarrowRedTeam.instructions_for(FOCUS)
+
+
+class TextTester(NarrowRedTeam):
+    KIND: ClassVar[FindingKind] = FindingKind.EDGE_CASE
+    FOCUS: ClassVar[str] = (
+        "Try only unusual text: non-ASCII letters, emoji, leading and trailing whitespace, quotes, commas "
+        "and other separators, newlines, and very long strings."
+    )
+    INSTRUCTIONS: ClassVar[str] = NarrowRedTeam.instructions_for(FOCUS)
+
+
+class ErrorTester(NarrowRedTeam):
+    KIND: ClassVar[FindingKind] = FindingKind.TEST_FAILURE
+    FOCUS: ClassVar[str] = (
+        "Try only misuse: wrong argument types, missing or extra arguments, and every case where the task "
+        "says an error must be raised. Check that exactly that error is raised, and nothing else."
+    )
+    INSTRUCTIONS: ClassVar[str] = NarrowRedTeam.instructions_for(FOCUS)
+
+
+class ContractTester(NarrowRedTeam):
+    KIND: ClassVar[FindingKind] = FindingKind.INCOMPLETE
+    FOCUS: ClassVar[str] = (
+        "Check only the contract: every example and rule the task states, word for word. Write one test per "
+        "stated example and per rule, with the exact expected output."
+    )
+    INSTRUCTIONS: ClassVar[str] = NarrowRedTeam.instructions_for(FOCUS)
