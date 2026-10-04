@@ -40,7 +40,13 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
   (name, instructions, finding kind, evidence). A project names its preset by name or path, so new types
   need no code, and the fixed list of domains goes. Due: when the user wants a third concrete project type,
   which then drives and validates the format (decided with the user, 2026-10-04, under the scope rule:
-  generalize from real cases, not imagined ones).
+  generalize from real cases, not imagined ones). Refinements: presets get sub-labels (`software/python`,
+  `software/node`, `document/markdown`), plain files in a folder, and users can add their own. Nesting is
+  single inheritance only (`extends:` one parent, chains allowed), with one merge rule (a child's key
+  replaces the parent's; teams matched by name; lists never merged item by item), and `agentswarm config`
+  shows the resolved result and which file each setting came from. Binary formats such as Word are outputs,
+  not working formats: `document/word` would extend `document/markdown` with an export step (e.g. pandoc),
+  since the file tools, git diffs and quoting reviewers all need text.
 - From the audit, deferred past Phase 7: F08 conflict refresh before retry, timeouts on git commands (the
   rest of F14), fencing for several owners of one project, event schema versioning, indexed board queries,
   CI.
