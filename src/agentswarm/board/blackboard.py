@@ -112,8 +112,10 @@ class BoardViews:
                 ]
                 self._unjudged.pop(event.artifact, None)
                 self._accepted.discard(event.artifact)  # an approval is for one gate
-                if event.commit is not None:
-                    self._merge_commit.setdefault(event.artifact, event.commit)  # the first one: the merge
+                # The first commit is the artifact's merge into the first shared level. An umbrella never
+                # merges: its commits are snapshots of the level it joined (CODEX_AUDIT.md F09).
+                if event.commit is not None and event.artifact not in self._umbrellas:
+                    self._merge_commit.setdefault(event.artifact, event.commit)
             case Rejected():
                 self._findings[event.artifact] = list(event.findings)
                 self._unjudged.pop(event.artifact, None)

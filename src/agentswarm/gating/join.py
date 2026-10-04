@@ -116,12 +116,11 @@ class JoinPromoter:
         """Every merged part's own change, one after the other (nested umbrellas contribute their parts)."""
         diffs: list[str] = []
         for child in views.children(umbrella.id):
-            merge = views.merge_commit(child.id)
-            if merge is not None:
+            if views.is_umbrella(child.id):
+                diffs.append(self._children_diff(views, child))
+            elif (merge := views.merge_commit(child.id)) is not None:
                 base, head = Repository.merged_change(merge)
                 diffs.append(f"# {child.id}: {child.task}\n{self._repository.diff(base, head)}")
-            elif views.is_umbrella(child.id):
-                diffs.append(self._children_diff(views, child))
         return "\n".join(diffs)
 
     def _escalate(self, umbrella: Artifact, target: Level, detail: str) -> Escalated:

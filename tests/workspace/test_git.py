@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from agentswarm.core.config import LevelLadder
-from agentswarm.core.domain import Level
+from agentswarm.core.domain import ArtifactId, Level
 from agentswarm.workspace.git import Git, Repository
 from tests.support.samples import Samples
 
@@ -44,6 +44,22 @@ class TestRepository:
         wt.write("hello.txt", "hi\n")
         wt.commit("hello")
         assert "hello.txt" in repo.diff_stat(artifact)
+
+
+class TestMergedChange:
+    def test_shows_only_the_artifacts_own_change_when_branches_overlap(self, tmp_path: Path) -> None:
+        repo = Repo(tmp_path).repository
+        first, second = Samples.artifact(ArtifactId("a-0001")), Samples.artifact(ArtifactId("a-0002"))
+        for artifact, name in ((first, "a.txt"), (second, "b.txt")):  # both fork before either merges
+            wt = repo.checkout_artifact(artifact)
+            wt.write(name, f"{name}\n")
+            wt.commit(name)
+            wt.remove()
+        level = repo.checkout_level(Level("experimental"))
+        assert level.merge(first.branch, "merge a") and level.merge(second.branch, "merge b")
+        diff = repo.diff(*Repository.merged_change(level.head()))
+        assert "b.txt" in diff
+        assert "a.txt" not in diff  # landed first; not deleted by the second artifact
 
 
 class TestWorktree:

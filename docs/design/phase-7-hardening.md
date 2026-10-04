@@ -125,3 +125,18 @@ These come next, in this order:
   - a command's writes are discarded;
   - bounded output;
   - a timeout kills child processes.
+
+**Step 2 (diff semantics).**
+- **An artifact's change is now `merge^1..merge`**, what its merge brought into the level, conflict
+  resolution included. It was `merge^1` against `merge^2`, which showed work that landed earlier as
+  deleted. Analyzers, relevance, context stats, drift and join all use `Repository.merged_change`, so
+  the fix is in one place.
+  - Test: two branches fork before either merges.
+- **Umbrellas no longer get a `merge_commit`.** The blackboard records one only for artifacts that
+  merge; an umbrella's `Promoted.commit` is a level snapshot. This also fixed two consequences of the
+  same overloading:
+  - the release train's commit→artifact map could map a child's merge commit to its umbrella;
+  - analyzers could "review" an umbrella against a level-tip diff.
+- **`_children_diff`** checks for an umbrella before looking for a merge. A separate typed "joined
+  snapshot" field wasn't needed: nothing reads it.
+- The phase-3 design doc keeps its original wording as history; the tutorial is updated.

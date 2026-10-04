@@ -170,7 +170,7 @@ order (`run` repeats project *steps* until nothing happens):
 3. Passing artifacts went to the **merge queue**: merge onto `experimental`, run the checks again **on the
    merged result**, keep the merge only if they pass. So `experimental` always passes its own checks.
 4. The board recorded `Promoted`, including the merge commit. Later teams find an artifact's own change in
-   that merge commit (`merge^1...merge^2`), even after other work lands.
+   that merge commit (`merge^1..merge`, what the merge brought into the level), even after other work lands.
 
 Try breaking it: edit the check to always fail and run again with a new root; the artifacts get
 `Rejected` with a blocker finding, and the fake executor tries again.

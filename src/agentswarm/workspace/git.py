@@ -217,8 +217,12 @@ class Repository:
 
     @staticmethod
     def merged_change(merge_commit: str) -> tuple[str, str]:
-        """The (base, head) of the change a merge commit brought in: its first and second parents."""
-        return f"{merge_commit}^1", f"{merge_commit}^2"
+        """The (base, head) of the change a merge commit brought into its level: first parent to the merge.
+
+        Not first parent to second: when other work landed after the branch forked, the branch lacks it,
+        and comparing the parents would show that work as deleted by this change (CODEX_AUDIT.md F05).
+        """
+        return f"{merge_commit}^1", merge_commit
 
     def checkout_merged(self, merge_commit: str, name: str) -> Worktree:
         """A read-only look at an artifact after it joined a shared level: detached at its merge commit."""

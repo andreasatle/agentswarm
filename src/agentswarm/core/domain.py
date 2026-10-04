@@ -246,7 +246,7 @@ class Promoted(Frozen):
     to_level: Level
     gate_decision: DecisionId | None  # link to the decision log; None for a gate without a judge
     # The commit the target level points to afterwards: the merge commit when the artifact first joins a
-    # shared level (then merge^1...merge^2 is exactly its change), the new tip on later promotions.
+    # shared level (then merge^1..merge is exactly what it brought in), the new tip on later promotions.
     commit: str | None = None
 
     @property

@@ -16,6 +16,7 @@ from agentswarm.core.domain import (
     Rejected,
     Released,
     SignedOff,
+    Sized,
 )
 from tests.support.samples import Samples
 
@@ -61,6 +62,18 @@ class TestBlackboardViews:
         assert views.artifact(Samples.A).level == Samples.EXPERIMENTAL
         assert views.open_findings(Samples.A) == []
         assert views.unjudged_commit(Samples.A) is None
+
+    def test_the_first_promotion_records_the_merge_commit(self) -> None:
+        b = Board()
+        b.board.append([Samples.created(), Samples.commit()])
+        views = b.board.append([b.promoted().model_copy(update={"commit": "m1"})])
+        assert views.merge_commit(Samples.A) == "m1"
+
+    def test_an_umbrella_has_no_merge_commit(self) -> None:
+        b = Board()
+        b.board.append([Samples.created(), Sized(artifact=Samples.A, fits=False)])
+        views = b.board.append([b.promoted().model_copy(update={"commit": "level-tip"})])
+        assert views.merge_commit(Samples.A) is None
 
     def test_rejection_replaces_open_findings(self) -> None:
         b = Board()
