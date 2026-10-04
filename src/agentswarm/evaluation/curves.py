@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.core.clock import SystemClock
-from agentswarm.core.domain import ProjectId, Routed
+from agentswarm.core.domain import CommitPushed, ProjectId, Routed
 from agentswarm.evaluation.compare import ComparisonFiles, ComparisonReport, RunMeasure
 from agentswarm.teams.routing import Observation
 from agentswarm.workspace.lock import RootIdentity
@@ -20,7 +20,8 @@ class CurveData:
 
     @classmethod
     def observations(cls, workdir: Path) -> tuple[list[Observation], int]:
-        """(observations, runs skipped: no routing record, or hidden tests that couldn't run)."""
+        """(observations, runs skipped: no routing record, hidden tests that couldn't run, or work done by
+        another model than the routed one)."""
         results = ComparisonFiles.results(workdir)
         text = results.read_text()
         report = ComparisonReport.model_validate_json(text)
@@ -46,11 +47,15 @@ class CurveData:
         clock = SystemClock()
         with SqliteEventLog(root / "blackboard.sqlite", project, clock) as log:
             envelopes = log.read()
-        routes = [
-            e.event for e in envelopes if isinstance(e.event, Routed) and e.event.difficulty is not None
-        ]
+        events = [e.event for e in envelopes]
+        routes = [e for e in events if isinstance(e, Routed) and e.difficulty is not None]
         if not routes:
             return None
         first = routes[0]  # the task's own artifact is routed first; children of a split come later
         assert first.difficulty is not None
+        # The result belongs to the routed model only if it did all the work: after a rejection a tiered
+        # executor steps up, and then a stronger model's work is what was scored.
+        commits = [e for e in events if isinstance(e, CommitPushed) and e.artifact == first.artifact]
+        if any(c.model != first.model for c in commits):
+            return None
         return Observation(model_id=first.model_id, difficulty=first.difficulty, success=measure.solved)
