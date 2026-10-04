@@ -7,9 +7,28 @@ cd "$tutorial/.."
 RUNS="${AGENTSWARM_RUNS:-$HOME/agentswarm-runs}/tutorial"
 mkdir -p "$RUNS"
 
-# Print a command, then run it.
+# Print one argument so the shell reads it back unchanged: as it is when it's a plain word, else in double
+# quotes, or single quotes when it contains a character double quotes would expand (or zsh's !).
+quoted() {
+    case "$1" in
+        "" | *[!A-Za-z0-9_./:=@%+,-]*)
+            case "$1" in
+                *[\"\$\`\\!]*)
+                    local quote="'" escaped="'\\''"  # inside single quotes, ' is written as '\''
+                    printf " '%s'" "${1//$quote/$escaped}" ;;
+                *) printf ' "%s"' "$1" ;;
+            esac ;;
+        *) printf ' %s' "$1" ;;
+    esac
+}
+
+# Print a command, quoted so it can be copied and run as it is, then run it.
 run() {
-    printf '\n+ %s\n' "$*"
+    printf '\n+'
+    for argument in "$@"; do
+        quoted "$argument"
+    done
+    printf '\n'
     "$@"
 }
 
