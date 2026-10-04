@@ -117,10 +117,12 @@ many agents are prompts on one loaded model, which is itself part of the case fo
 3. The review benchmark (planted bugs and bug-free controls), as a second kind of experiment.
 4. Routing: the difficulty question, per-model curves fitted from results, the router, a `routed`
    setup.
-5. The setups in `examples/goldilocks/` (models that fit in memory together) and the live runs: the
+5. A complexity-graded suite (levels 2–4) and a multi-team setup with the decomposer; see the decision
+   below.
+6. The setups in `examples/goldilocks/` (models that fit in memory together) and the live runs: the
    building comparison on the hard and held-out suites, the review comparison on the same tasks'
    references.
-6. Results, honestly reported here and in the tutorial, including where small swarms lose, and whether
+7. Results, honestly reported here and in the tutorial, including where small swarms lose, and whether
    the model curves cross.
 
 ## Not in this phase
@@ -254,3 +256,23 @@ many agents are prompts on one loaded model, which is itself part of the case fo
 - **The review benchmark runs on half the held-out tasks** (decided with the user, to keep the run to a few
   hours): every second task in suite order, so the choice is mechanical, not hand-picked. That gives 8
   planted bugs and 8 clean controls per reviewing setup.
+
+**The complexity gradient (decided with the user, while the runs were going).**
+- **The greeter suites only map the easy end.** Every task is one function in one file, which a single model
+  can solve in one go. There a multi-team setup can only add overhead, so the results so far say nothing
+  about the hypothesis, which is about *complex* work. Token cost isn't the criterion either: what matters
+  is whether the multi-team setup solves problems a single model can't.
+- **The prediction is a crossover:** single models do well up to some complexity and then fall off, while
+  a multi-team setup degrades more slowly. Testing it needs tasks graded by complexity:
+  - level 2: several interacting functions in one module, with shared rules and edge cases;
+  - level 3: a small package of several modules with a data model and persistence;
+  - level 4: a feature across the package, such as a command-line interface with configuration and error
+    handling.
+
+  Hidden tests check the integration, and each reference solution passes them while the seed fails them.
+  Solve rate is plotted per setup against complexity level.
+- **For those tasks the multi-team setup includes the decomposer,** left out of the greeter runs because
+  there was nothing to split.
+- **Naming:** results call the setups *single-model* and *multi-team*. "Swarm" suggests many identical agents
+  with emergent behaviour; AgentSwarm is closer to an organisation of specialised teams.
+
