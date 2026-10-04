@@ -46,8 +46,11 @@ version = views.version(artifact_id)
 print("unjudged commit:", unjudged)  # c0ffee
 print("version:", version)  # 2: the artifact changed twice
 
-# Fold the log again from scratch: the same views.
+# Keep the views the board has built up, event by event, then fold the whole log again into new views.
+# Two separate objects with the same content: the log alone is enough to recreate the state.
+before = board.current()
 replayed = board.rebuild()
-current = board.current()
-same = replayed == current
+separate = replayed is not before
+same = replayed == before
+print("rebuilt views are a new object:", separate)  # True
 print("replay gives the same views:", same)  # True
