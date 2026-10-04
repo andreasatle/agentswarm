@@ -286,7 +286,10 @@ class ProjectConfig(Strict):
             if gate.requires:
                 raise ValueError(f"{name} judges single changes; only gates above it can require sign-offs")
         elif gate.judge is not None:
-            raise ValueError(f"{name}: judges above the lowest level arrive in Phase 4 (see docs/BACKLOG.md)")
+            raise ValueError(
+                f"{name}: only the gate out of the lowest level has a judge; gates above it promote on "
+                "sign-offs, hard checks and people (see docs/BACKLOG.md)"
+            )
 
     def gate_from(self, level: Level) -> GateConfig | None:
         return next((g for g in self.gates if g.from_level == level), None)

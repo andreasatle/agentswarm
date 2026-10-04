@@ -10,6 +10,7 @@ and when it is due. When an item is done, delete it here in the same commit.
 | **Async Jev calls** | Gates now run in worker threads (Phase 6), so projects overlap; a native async client would only save threads. | If thread count matters | Phase 2 design, Q5 |
 | **Faster test suite** | The full run takes ~2 minutes (suite validation and mutation tests start many pytest processes). Mark them `slow` and run them in CI or on demand. | Now due: with CI | Phase 2 step 7 |
 | **`in_scope` truth for model-executor runs** | Only scripted runs have a known `in_scope`; model runs get it from spot checks only. A scope rule (allowed paths per task) could add a weak automatic source. | With the next evaluation work | Phase 2 step 6 |
+| **Judges on train gates** | Gates above the lowest level promote a prefix of many artifacts on sign-offs, hard checks and people; a judge there would need a question about a batch, not one change. The config refuses it. | When a domain needs judgement above the base level | Phase 3 design |
 | **Explicit revert of a merged artifact** (§9) | `resolve --drop` retires an artifact but its merged code stays on the level branches. Reverting it is an explicit, logged action the proposal reserves for a person or the supervisor. | When dropping merged work is needed | Phase 3 step 9 |
 
 Done and removed in the 2026-10-04 cleanup (each in its phase's design doc): relevance filters and the

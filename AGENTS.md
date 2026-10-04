@@ -6,16 +6,18 @@ The design is in [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md). Section numbers
 
 ```
 src/agentswarm/
-  core/        domain model (§7), project configuration (§17), clock
-  board/       event log, blackboard views, claims, artifact context (§8)
-  workspace/   git repositories and worktrees (§9), sandboxes (§13.4)
-  gating/      hard checks, gates, merge queue, promoter (§11)
-  judging/     judge specs, threshold policy, deciders, decision log (§12, §15)
+  core/        domain model (§7), project configuration and domain presets (§17), clock
+  board/       event log, blackboard views, claims, artifact context, spend (§8)
+  workspace/   git repositories and worktrees (§9), sandboxes (§13.4), confined file access,
+               the root lock and identity
+  gating/      hard checks, gates, merge queue, promoters, release trains, joins, level publication (§11)
+  judging/     judge specs, threshold policy, deciders, decision log, calibration, tuning, audit (§12, §15)
   jev/         the Jev client and typed question specs
   llm/         chat models and workers: the only place LangChain is imported (§13)
-  teams/       the team loop, executor teams, team catalog (§10)
-  evaluation/  task suites with known answers, evaluation runs
-  project.py   wires one project together; cli.py is the command line
+  teams/       the team loop, executors, analyzers, decomposer, document teams, team catalog (§10)
+  control/     plain-code controllers: finding router, supervisor, escalations, scheduler, budgets (§14)
+  evaluation/  task suites with known answers, evaluation runs, mutation testing
+  project.py   wires one project together; swarm.py runs several; cli.py is the command line
 tests/         mirrors src/agentswarm/; shared helpers live in tests/support/
 ```
 

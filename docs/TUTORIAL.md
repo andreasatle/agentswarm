@@ -143,6 +143,11 @@ A claim is appended **only if the log hasn't moved** since the registry checked 
 (optimistic concurrency; SQLite's `BEGIN IMMEDIATE` underneath). Two teams racing for the same artifact can't
 both win, and a crashed team's work is picked up again when its lease runs out. No locks between teams.
 
+Each claim has an id, and a team publishes its result through the registry, which checks that nobody
+took the artifact over meanwhile: if the lease ran out and another team claimed it, the late result is
+thrown away instead of overwriting newer work. Across processes there is one rule: only one process may
+have a project open (a lock file in the project root).
+
 Where: `board/claims.py`. The race is tested in `tests/board/test_claims.py` by forcing the bad interleaving.
 
 ## Step 3 — Levels are branches; a first run
@@ -170,10 +175,14 @@ order (`run` repeats project *steps* until nothing happens):
 2. The **promoter** for the gate `raw → experimental` saw two unjudged commits. For each: claim, check out
    *exactly that commit* (detached, so the branch never moves), run the **hard checks** (here: every note
    has text) in the sandbox.
-3. Passing artifacts went to the **merge queue**: merge onto `experimental`, run the checks again **on the
-   merged result**, keep the merge only if they pass. So `experimental` always passes its own checks.
-4. The board recorded `Promoted`, including the merge commit. Later teams find an artifact's own change in
-   that merge commit (`merge^1..merge`, what the merge brought into the level), even after other work lands.
+3. Passing artifacts went to the **merge queue**: merge onto `experimental`'s tip in a detached checkout,
+   run the checks again **on the merged result**, and only if they pass move the `experimental` branch.
+   So `experimental` always passes its own checks, and never shows an unchecked merge.
+4. The branch moved in three recorded steps: `PromotionStarted`, the move itself (only if the branch hadn't
+   moved meanwhile), then `Promoted` with the merge commit. If the process dies in between, the next run
+   finds the open record and settles it from where the branch actually is. Later teams find an artifact's
+   own change in its merge commit (`merge^1..merge`, what the merge brought into the level), even after
+   other work lands.
 
 Try breaking it: edit the check to always fail and run again with a new root; the artifacts get
 `Rejected` with a blocker finding, and the fake executor tries again.
@@ -201,8 +210,14 @@ with plain text instead; the worker then asks once more for just the structured 
 still fail, or the model says it isn't done, the work is committed and **escalated**, not thrown away.
 
 **The sandbox.** Hard checks run code a model wrote, so they run in Docker: a fresh container per run, no
-network, read-only root, dropped capabilities, CPU/memory/process limits, only the worktree mounted, your
-uid, no keys in the environment.
+network, read-only root, dropped capabilities, CPU/memory/process limits, your uid, no keys in the
+environment. What is mounted is a **throwaway copy** of the worktree without its `.git`: whatever the code
+writes is discarded with the copy, so it can never reach git on your machine. Output is capped, and a
+timeout kills the container.
+
+A check ends in one of three ways: **passed**, **failed** (it ran and found a problem: for pytest, exit 1)
+or **error** (a timeout, a missing tool, a crash of the runner). Errors still block a gate, but they never
+count as evidence that the code is wrong.
 
 Where: `teams/executor.py` (`ExecutorTeam`, `WorktreeToolbox`), `llm/workers.py` (`LangChainWorker`: the
 only place LangChain is imported, with `llm/models.py`), `workspace/sandbox.py`.
@@ -243,8 +258,9 @@ uv run agentswarm calibrate ~/agentswarm-runs/greeter-2/decisions.sqlite
 ```
 
 Every decision records its exact input, Jev's answers, the ruling, the mode, the Jev version that answered,
-and a **judge version**: a hash of the questions' wording. Changing a word starts a new version, and no
-report ever mixes versions, because answers to old wording say nothing about new wording.
+and a **judge version**: a hash of the questions' wording. Changing a word starts a new version. Reports
+group decisions by **cohort** (decision point, judge version and the concrete Jev version) and never mix
+them, because answers to old wording, or from another model, say nothing about this one.
 
 Where: `judging/judges.py`, `judging/policy.py`, `judging/judgement.py`, `judging/decisions.py`,
 `jev/` (the client: HTTPS only, base URL fixed in code, the only reader of the key, retries for timeouts
@@ -295,7 +311,8 @@ Above the lowest level, teams never commit: only the merge queue writes level br
 work with the code around it?) and the **red team** (does it break on hostile input?).
 
 - **Evidence first.** An analyzer may report only problems backed by a test it wrote and ran that fails.
-  Claims without one are dropped, so weak findings never block anything.
+  Claims without one are dropped, so weak findings never block anything. A test that couldn't run at all
+  (an error, not a failure) is no evidence either.
 - **Relevance filters.** Before working, each analyzer asks Jev whether the change is worth its effort. In
   shadow mode it works anyway, and whether it found something becomes the automatic outcome of that
   decision. In the live run above, Jev said "not worth it" twice (0.08 and 0.15), the analyzers found
@@ -303,7 +320,8 @@ work with the code around it?) and the **red team** (does it break on hostile in
 - **Sign-offs.** An analyzer ends with `SignedOff` for the version it examined; a gate above can require it.
 - **The finding router.** Teams only report; plain code acts. Each open major or blocker finding above the
   lowest level becomes one **fix artifact** at the lowest level (its task carries the finding and the
-  failing test), and the finding is resolved when the fix reaches the finding's level.
+  failing test), and the finding is resolved when the fix reaches the finding's level. Minor findings stay
+  on the board for a person and are not routed.
 
 Where: `teams/analyzer.py`, `teams/relevance.py`, `control/router.py`.
 
@@ -332,7 +350,11 @@ uv run agentswarm resolve examples/greeter/project.yaml --root ~/agentswarm-runs
   failed join), never the hard checks, and it covers one gate only.
 - `--drop`: retire the artifact (its merged code stays; reverting is a separate action).
 
-Run `agentswarm run` again after resolving; the next step acts on it.
+While an escalation is open the artifact is **parked**: no team works on it, the router makes no fixes for
+it, and a release train stops before it (except for the human gate's own request for approval). A dropped
+artifact is left alone the same way, but its already-merged code still rides the train. Run
+`agentswarm run` again after resolving; the next step acts on it. `agentswarm status` works even while a
+project runs: it only reads the board.
 
 Where: `gating/train.py`, `control/escalations.py`.
 

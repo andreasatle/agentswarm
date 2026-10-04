@@ -116,7 +116,7 @@ One YAML file per project, validated into `ProjectConfig` when loaded. Unknown k
 
 Validation rules: teams watch known levels; gates connect adjacent levels and name defined checks; teams
 name defined models and checks; `requires:` names teams watching the gate's lower level; the gate out of
-the lowest level can't require sign-offs; judges above the lowest level are refused (Phase 4 backlog);
+the lowest level can't require sign-offs; a judge sits only on the gate out of the lowest level (trains promote on sign-offs; backlog);
 `jev.fallback` names a defined model; a team sets `model` or `model_tiers`, not both.
 
 ### `models.<name>`
