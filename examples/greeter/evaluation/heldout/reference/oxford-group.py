@@ -1,0 +1,15 @@
+"""Reference solution: the seed's greeter.py with this task done."""
+
+
+def hello(name: str) -> str:
+    return f"Hello, {name}!"
+
+
+def greet_group(names: list[str]) -> str:
+    if not names:
+        raise ValueError("no names")
+    if len(names) == 1:
+        return hello(names[0])
+    if len(names) == 2:
+        return hello(f"{names[0]} and {names[1]}")
+    return hello(", ".join(names[:-1]) + ", and " + names[-1])

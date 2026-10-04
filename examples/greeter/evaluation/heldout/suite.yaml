@@ -1,0 +1,136 @@
+# Held-out greeter suite (Phase 7 follow-up): tasks the gate's thresholds were never tuned on, to check
+# out of sample that the tuned thresholds keep the gate within its bounds. Same project as ../suite.yaml.
+project: ../project.yaml
+judge: ChangeReadiness
+test_command:
+- python
+- -m
+- pytest
+- -q
+- -p
+- no:cacheprovider
+tasks:
+- id: reverse-name
+  task: Add a function greet_backwards(name) to greeter.py that returns the hello greeting with the name reversed
+    (greet_backwards('Ada') returns 'Hello, adA!'). An empty name raises ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_reverse_name.py
+  reference:
+    greeter.py: reference/reverse-name.py
+- id: greet-pair
+  task: Add a function greet_pair(first, second) to greeter.py that returns 'Hello, <first> and <second>!' (greet_pair('Ada',
+    'Bob') returns 'Hello, Ada and Bob!'). Add tests.
+  hidden_tests:
+  - hidden/test_greet_pair.py
+  reference:
+    greeter.py: reference/greet-pair.py
+- id: whisper
+  task: Add a function whisper(name) to greeter.py that returns the hello greeting entirely in lower case, with
+    the final '!' replaced by '...' (whisper('Ada') returns 'hello, ada...'). Add tests.
+  hidden_tests:
+  - hidden/test_whisper.py
+  reference:
+    greeter.py: reference/whisper.py
+- id: hello-times
+  task: Add a function hello_times(name, n) to greeter.py that returns the hello greeting repeated n times, separated
+    by single spaces (hello_times('Ada', 2) returns 'Hello, Ada! Hello, Ada!'). If n is less than 1, raise ValueError.
+    Add tests.
+  hidden_tests:
+  - hidden/test_hello_times.py
+  reference:
+    greeter.py: reference/hello-times.py
+- id: oxford-group
+  task: 'Add a function greet_group(names) to greeter.py that greets a list of names with an Oxford comma: one name
+    gives ''Hello, Ada!'', two give ''Hello, Ada and Bob!'', three or more give ''Hello, Ada, Bob, and Cy!'' (commas
+    between all, '', and'' before the last). An empty list raises ValueError. Add tests.'
+  hidden_tests:
+  - hidden/test_oxford_group.py
+  reference:
+    greeter.py: reference/oxford-group.py
+- id: nickname
+  task: 'Add a function greet_nick(name, nicknames) to greeter.py that greets the nickname from the dict nicknames
+    if the name has one, and the name itself otherwise (greet_nick(''Robert'', {''Robert'': ''Bob''}) returns ''Hello,
+    Bob!''). Add tests.'
+  hidden_tests:
+  - hidden/test_nickname.py
+  reference:
+    greeter.py: reference/nickname.py
+- id: short-hello
+  task: Add a function short_hello(name, limit) to greeter.py that returns the hello greeting if it is at most limit
+    characters long; otherwise it shortens the name and puts '...' after it so that the whole greeting is exactly
+    limit characters (short_hello('Alexandra', 15) returns 'Hello, Alex...!'). If limit is less than 12, raise ValueError.
+    Add tests.
+  hidden_tests:
+  - hidden/test_short_hello.py
+  reference:
+    greeter.py: reference/short-hello.py
+- id: ascii-hello
+  task: Add a function ascii_hello(name) to greeter.py that greets the name with every non-ASCII character removed
+    (ascii_hello('Zoë') returns 'Hello, Zo!'). If nothing is left of the name, raise ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_ascii_hello.py
+  reference:
+    greeter.py: reference/ascii-hello.py
+- id: weekday
+  task: Add a function greet_weekday(name, day) to greeter.py that returns 'Happy <Weekday>, <name>!' where day
+    is 0 for Monday through 6 for Sunday (greet_weekday('Ada', 4) returns 'Happy Friday, Ada!'). Any other day raises
+    ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_weekday.py
+  reference:
+    greeter.py: reference/weekday.py
+- id: secret-hello
+  task: Add a function secret_hello(name, shift) to greeter.py that returns the hello greeting with every letter
+    Caesar-shifted by shift places, wrapping around the alphabet and keeping upper and lower case; other characters
+    stay as they are (secret_hello('Ada', 1) returns 'Ifmmp, Beb!'). Negative shifts go backwards. Add tests.
+  hidden_tests:
+  - hidden/test_secret_hello.py
+  reference:
+    greeter.py: reference/secret-hello.py
+- id: hello-json
+  task: 'Add a function hello_json(name) to greeter.py that returns a JSON object as a string with one key, ''greeting'',
+    holding the hello greeting (json.loads(hello_json(''Ada'')) == {''greeting'': ''Hello, Ada!''}). Add tests.'
+  hidden_tests:
+  - hidden/test_hello_json.py
+  reference:
+    greeter.py: reference/hello-json.py
+- id: name-stats
+  task: Add a function name_stats(name) to greeter.py that returns the hello greeting followed by ' Your name has
+    <n> letters.', counting only alphabetic characters, and saying 'letter' instead of 'letters' when n is 1 (name_stats('Ada')
+    returns 'Hello, Ada! Your name has 3 letters.'). Add tests.
+  hidden_tests:
+  - hidden/test_name_stats.py
+  reference:
+    greeter.py: reference/name-stats.py
+- id: palindrome
+  task: Add a function greet_palindrome(name) to greeter.py that returns the hello greeting, followed by ' Your
+    name is a palindrome.' when the name reads the same backwards, ignoring case and spaces (greet_palindrome('Hannah')
+    returns 'Hello, Hannah! Your name is a palindrome.'). Add tests.
+  hidden_tests:
+  - hidden/test_palindrome.py
+  reference:
+    greeter.py: reference/palindrome.py
+- id: greet-csv
+  task: Add a function greet_csv(text) to greeter.py that takes comma-separated names, strips spaces around each,
+    skips empty entries, and returns a list of hello greetings in order (greet_csv(' Ada, ,Bob ') returns ['Hello,
+    Ada!', 'Hello, Bob!']). Add tests.
+  hidden_tests:
+  - hidden/test_greet_csv.py
+  reference:
+    greeter.py: reference/greet-csv.py
+- id: padded
+  task: Add a function hello_padded(name, width, fill) to greeter.py that centres the hello greeting in width characters
+    using the single character fill (str.center), and returns the greeting unchanged if width is smaller than it.
+    If fill is not exactly one character, raise ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_padded.py
+  reference:
+    greeter.py: reference/padded.py
+- id: countdown
+  task: Add a function countdown_hello(name, n) to greeter.py that returns the lines 'n...', 'n-1...' down to '1...'
+    followed by the hello greeting, joined by newlines (countdown_hello('Ada', 2) returns '2...\n1...\nHello, Ada!').
+    n = 0 gives just the greeting; a negative n raises ValueError. Add tests.
+  hidden_tests:
+  - hidden/test_countdown.py
+  reference:
+    greeter.py: reference/countdown.py
