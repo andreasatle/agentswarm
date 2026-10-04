@@ -3,6 +3,8 @@
 suite: ../greeter/evaluation/heldout/suite.yaml
 kind: review
 bugs_per_task: 1
+# Every second task in suite order (half the suite, to keep the run to a few hours; not hand-picked).
+tasks: [reverse-name, whisper, oxford-group, short-hello, weekday, hello-json, palindrome, padded]
 setups:
   broad-small: review-broad-small.yaml
   narrow-small: review-narrow-small.yaml

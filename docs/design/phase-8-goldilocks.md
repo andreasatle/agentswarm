@@ -251,3 +251,6 @@ many agents are prompts on one loaded model, which is itself part of the case fo
     structured answer even when asked for nothing else; a second ask is cheap.
 - **Smoke result:** all five setups solved `greet-pair`. Big took 381 s against 31 s for small, with
   4× the tokens; the swarm took 218 s with 6× the tokens of small.
+- **The review benchmark runs on half the held-out tasks** (decided with the user, to keep the run to a few
+  hours): every second task in suite order, so the choice is mechanical, not hand-picked. That gives 8
+  planted bugs and 8 clean controls per reviewing setup.
