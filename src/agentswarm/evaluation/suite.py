@@ -20,7 +20,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentswarm.core.config import JevMode, ProjectConfig
-from agentswarm.gating.checks import CheckResult
+from agentswarm.gating.checks import CheckResult, CheckStatus
 from agentswarm.workspace.git import Repository
 from agentswarm.workspace.sandbox import Sandbox
 
@@ -43,6 +43,7 @@ class TaskSuite(Frozen):
     project: Path
     judge: str = "ChangeReadiness"
     test_command: tuple[str, ...] = ("python", "-m", "pytest", "-q", "-p", "no:cacheprovider")
+    test_failure_exit_codes: tuple[int, ...] = (1,)  # pytest: tests ran and failed; others are errors
     test_timeout_s: float = 120.0
     tasks: tuple[EvalTask, ...] = Field(min_length=1)
 
@@ -101,10 +102,17 @@ class HiddenTests:
 
     DIRECTORY = "_hidden"  # where the tests are placed in the checkout; outside any package of the project
 
-    def __init__(self, command: tuple[str, ...], timeout_s: float, sandbox: Sandbox) -> None:
+    def __init__(
+        self,
+        command: tuple[str, ...],
+        timeout_s: float,
+        sandbox: Sandbox,
+        failure_exit_codes: tuple[int, ...],
+    ) -> None:
         self._command = command
         self._timeout_s = timeout_s
         self._sandbox = sandbox
+        self._failure_exit_codes = failure_exit_codes
 
     def run(self, repository: Repository, commit: str, tests: tuple[Path, ...], name: str) -> CheckResult:
         worktree = repository.checkout_detached(commit, f"_hidden-{name}")
@@ -114,4 +122,5 @@ class HiddenTests:
             result = self._sandbox.run((*self._command, self.DIRECTORY), worktree.path, self._timeout_s)
         finally:
             worktree.remove()
-        return CheckResult(name=f"hidden tests ({name})", passed=result.passed, output=result.output[-4000:])
+        status = CheckStatus.of(result, self._failure_exit_codes)
+        return CheckResult(name=f"hidden tests ({name})", status=status, output=result.output[-4000:])

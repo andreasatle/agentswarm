@@ -111,6 +111,10 @@ class CheckConfig(Strict):
     command: tuple[str, ...] = Field(min_length=1)
     timeout_s: float = 600.0
     kind: FindingKind = FindingKind.TEST_FAILURE  # the finding emitted when it fails
+    # Exit codes meaning "ran, and found a problem" (pytest: 1). Any other non-zero exit, a timeout or a
+    # command that can't start is an error running the check: it still blocks a gate, but is never
+    # evidence of a defect. Unset: every non-zero exit is a failure (CODEX_AUDIT.md F13).
+    failure_exit_codes: tuple[int, ...] | None = None
 
 
 class Threshold(Strict):

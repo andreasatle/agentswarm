@@ -28,7 +28,7 @@ from agentswarm.core.domain import (
     SignedOff,
     TeamName,
 )
-from agentswarm.gating.checks import CheckResult, CommandCheck
+from agentswarm.gating.checks import CheckResult, CheckStatus, CommandCheck
 from agentswarm.judging.judges import JudgeState
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.relevance import RelevanceCheck, RelevanceFilter
@@ -84,11 +84,13 @@ class AnalysisToolbox:
         self._worktree.write(path, content)
         result = self._runner.run_on(self._worktree.path, [path])
         self.runs[name] = result
+        if result.status is CheckStatus.ERROR:
+            return f"ERROR: the test could not run properly (this is not evidence)\n{result.output}"
         return f"{'PASSED' if result.passed else 'FAILED'}\n{result.output}"
 
     def failed(self, name: str) -> bool:
         run = self.runs.get(name)
-        return run is not None and not run.passed
+        return run is not None and run.failed  # an error running the test proves nothing
 
     def test_source(self, name: str) -> str:
         return self._worktree.read(f"{self.DIRECTORY}/{name}")

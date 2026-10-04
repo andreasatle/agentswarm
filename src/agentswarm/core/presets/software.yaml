@@ -4,7 +4,7 @@
 levels: [raw, experimental, candidate, production]
 
 checks:
-  unit_tests: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300}
+  unit_tests: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1]}
 
 teams:
   - {use: executor, watches: raw, model: coder, checks: [unit_tests]}

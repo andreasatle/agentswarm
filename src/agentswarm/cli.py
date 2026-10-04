@@ -377,7 +377,10 @@ class EvaluationReport:
 
     @staticmethod
     def line(result: TaskResult) -> str:
-        hidden = ",".join("pass" if p else "fail" for p in result.hidden_tests_passed) or "-"
+        hidden = (
+            ",".join({True: "pass", False: "fail", None: "error"}[p] for p in result.hidden_tests_passed)
+            or "-"
+        )
         mutation = ",".join("-" if s is None else f"{s:.2f}" for s in result.mutation_scores) or "-"
         note = f"  ({result.note[:80]})" if result.note else ""
         return (

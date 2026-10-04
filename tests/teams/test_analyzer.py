@@ -180,6 +180,16 @@ class TestAnalysisToolbox:
         assert "_analysis" not in toolbox.list_files()
         assert not toolbox.failed("test_ok.py")
 
+    async def test_a_test_that_cannot_run_is_not_evidence(self, tmp_path: Path) -> None:
+        m = Merged(tmp_path)
+        worktree = m.h.repository.checkout_detached(m.h.repository.tip("experimental"), "probe")
+        pytest_like = CheckConfig(
+            command=(sys.executable, "-c", "import sys; sys.exit(2)"), failure_exit_codes=(1,)
+        )
+        toolbox = AnalysisToolbox(worktree, "diff", CommandCheck("tests", pytest_like, LocalSandbox()))
+        assert toolbox.run_test("test_broken.py", "import nothing_here\n").startswith("ERROR")
+        assert not toolbox.failed("test_broken.py")
+
 
 class ProbeReviewer(ReviewingAnalyzer):
     INSTRUCTIONS: ClassVar[str] = "Review the text."

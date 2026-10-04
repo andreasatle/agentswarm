@@ -216,3 +216,21 @@ These come next, in this order:
   project-wide escalations (such as the budget) and PAUSED. `status`, `run` and `swarm` all show it.
 - **Gate and fallback spend** after a budget is exhausted stays allowed, by design (see Q5).
 - **Tests:** a failing project beside a healthy one, partial-failure metering, and the report header.
+
+**Step 7a (failure versus error, F13).**
+- **`CheckResult` carries `CheckStatus`** (passed, failed or error) instead of a bool. A check config
+  can list `failure_exit_codes`, the exits meaning "ran and found a problem". Any other non-zero exit,
+  a timeout or a command that can't start is an error. Without the list, every non-zero exit is a
+  failure, as before.
+  - The software preset and the greeter evaluation set `[1]` for pytest; pytest's 2–5 are collection
+    errors, interruptions and usage errors.
+- **Gates still fail closed**: an error blocks the promotion like a failure.
+- **What an error no longer counts as:**
+  - analyzer evidence: the tool tells the model "ERROR … this is not evidence", and the claim is
+    dropped;
+  - a hidden-test outcome: no `complete` outcome is recorded, and the report shows `error`;
+  - a mutation result: any mutant run that errors gives no score at all, rather than a wrong one. A
+    timeout still kills the mutant, by the usual convention.
+- Task suites have `test_failure_exit_codes`, default `(1,)`.
+- **Housekeeping:** a line in step 6's test was over the length limit because I edited it after linting;
+  it is fixed here.

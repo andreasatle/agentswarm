@@ -129,7 +129,10 @@ class TestSwarm:
         ]
         assert len(budget_reports) == 1 and "budget exhausted" in budget_reports[0].reason
         report = Report.render(tight)
-        assert report.startswith("spent: $2.00") and "ESCALATED (project): supervisor: budget exhausted" in report
+        assert (
+            report.startswith("spent: $2.00")
+            and "ESCALATED (project): supervisor: budget exhausted" in report
+        )
         assert flight.peak >= 2  # model runs of the two projects overlapped
         assert set(swarm.scheduler.granted) == {"roomy", "tight"}
         swarm.close()

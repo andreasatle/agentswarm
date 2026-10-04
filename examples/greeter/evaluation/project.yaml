@@ -18,7 +18,7 @@ models:
   coder: {model: "ollama:gemma4:e4b", temperature: 0}
 
 checks:
-  unit_tests: {command: [python, -m, pytest, -q, -p, no:cacheprovider], kind: test_failure, timeout_s: 120}
+  unit_tests: {command: [python, -m, pytest, -q, -p, no:cacheprovider], kind: test_failure, timeout_s: 120, failure_exit_codes: [1]}
 
 teams:
   - use: executor

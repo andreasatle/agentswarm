@@ -20,6 +20,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
+from agentswarm.gating.checks import CheckStatus
 from agentswarm.workspace.git import Repository, Worktree
 from agentswarm.workspace.sandbox import Sandbox
 
@@ -185,10 +186,17 @@ class MutationTesting:
 
     MIN_SCORE = 0.5  # tests_relevant is true from this kill ratio on
 
-    def __init__(self, command: tuple[str, ...], timeout_s: float, sandbox: Sandbox) -> None:
+    def __init__(
+        self,
+        command: tuple[str, ...],
+        timeout_s: float,
+        sandbox: Sandbox,
+        failure_exit_codes: tuple[int, ...] = (1,),
+    ) -> None:
         self._command = command
         self._timeout_s = timeout_s
         self._sandbox = sandbox
+        self._failure_exit_codes = failure_exit_codes
         self._generator = MutantGenerator()
 
     def run(self, repository: Repository, commit: str, base: str, name: str) -> MutationReport | None:
@@ -217,17 +225,29 @@ class MutationTesting:
             if path.endswith(".py") and not ChangedLines.is_test(path)
             for mutant in self._generator.mutants(path, worktree.read(path), lines)
         ]
-        if not mutants or not self._passes(worktree, tests):
+        if not mutants or self._outcome(worktree, tests) is not self.SURVIVED:
             return None
         killed = 0
         for mutant in mutants:
             original = worktree.read(mutant.path)
             worktree.write(mutant.path, mutant.source)
             try:
-                killed += not self._passes(worktree, tests)
+                outcome = self._outcome(worktree, tests)
             finally:
                 worktree.write(mutant.path, original)
+            if outcome is None:
+                return None  # the tests could not run: no score rather than a wrong one (CODEX_AUDIT.md F13)
+            killed += outcome is self.KILLED
         return MutationReport(test_files=tests, mutants=len(mutants), killed=killed)
 
-    def _passes(self, worktree: Worktree, tests: tuple[str, ...]) -> bool:
-        return self._sandbox.run((*self._command, *tests), worktree.path, self._timeout_s).passed
+    SURVIVED, KILLED = "survived", "killed"
+
+    def _outcome(self, worktree: Worktree, tests: tuple[str, ...]) -> str | None:
+        """The tests pass (survived), fail or hang (killed, the usual convention), or couldn't run (None)."""
+        result = self._sandbox.run((*self._command, *tests), worktree.path, self._timeout_s)
+        status = CheckStatus.of(result, self._failure_exit_codes)
+        if status is CheckStatus.PASSED:
+            return self.SURVIVED
+        if status is CheckStatus.FAILED or result.timed_out:
+            return self.KILLED
+        return None

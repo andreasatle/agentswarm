@@ -20,6 +20,7 @@ from agentswarm.core.domain import DecisionId, Escalated, Level
 from agentswarm.evaluation.faults import ScriptedExecutor, Variant
 from agentswarm.evaluation.mutation import MutationTesting
 from agentswarm.evaluation.suite import EvalTask, HiddenTests, TaskSuite
+from agentswarm.gating.checks import CheckStatus
 from agentswarm.judging.decisions import Decision, DecisionStore, Outcome, OutcomeSource
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.catalog import TeamCatalog
@@ -33,7 +34,7 @@ class TaskResult(BaseModel):
     variant: Variant
     level: Level  # where the task's artifact ended up
     decisions: tuple[DecisionId, ...]  # the gate decisions made for it, oldest first
-    hidden_tests_passed: tuple[bool, ...]  # per decision
+    hidden_tests_passed: tuple[bool | None, ...]  # per decision; None when the tests couldn't run
     mutation_scores: tuple[float | None, ...]  # per decision; None when mutation testing had no answer
     note: str = ""  # why there is no decision, if there is none (e.g. the executor escalated)
 
@@ -69,8 +70,9 @@ class EvaluationRun:
         self._clock = clock or SystemClock()
         self._config = suite.project_config(active)
         sandbox = Sandboxes.build(self._config.sandbox)
-        self._hidden = HiddenTests(suite.test_command, suite.test_timeout_s, sandbox)
-        self._mutation = MutationTesting(suite.test_command, suite.test_timeout_s, sandbox)
+        codes = suite.test_failure_exit_codes
+        self._hidden = HiddenTests(suite.test_command, suite.test_timeout_s, sandbox, codes)
+        self._mutation = MutationTesting(suite.test_command, suite.test_timeout_s, sandbox, codes)
 
     @staticmethod
     def real_services(task: EvalTask) -> ProjectServices:
@@ -127,9 +129,14 @@ class EvaluationRun:
         catalog.register("executor", lambda team, resources: ScriptedExecutor(team.watches, task, variant))
         return catalog
 
-    def _hidden_outcome(self, project: Project, task: EvalTask, variant: Variant, decision: Decision) -> bool:
+    def _hidden_outcome(
+        self, project: Project, task: EvalTask, variant: Variant, decision: Decision
+    ) -> bool | None:
+        """Whether the hidden tests pass; None, and no outcome recorded, when they couldn't run."""
         name = f"{task.id}-{variant}-{decision.id}"
         result = self._hidden.run(project.repository, decision.commit, task.hidden_tests, name)
+        if result.status is CheckStatus.ERROR:
+            return None  # an outage is not ground truth (CODEX_AUDIT.md F13)
         self._record(decision, "complete", result.passed, OutcomeSource.HIDDEN_TESTS, result.output)
         return result.passed
 

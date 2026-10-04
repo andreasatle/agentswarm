@@ -1,6 +1,7 @@
 """Hard checks: deterministic commands run in the sandbox on an artifact's files (proposal §11.2, step 1)."""
 
 from collections.abc import Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
@@ -8,17 +9,42 @@ from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import CheckConfig
 from agentswarm.core.domain import FindingKind
-from agentswarm.workspace.sandbox import Sandbox
+from agentswarm.workspace.sandbox import Sandbox, SandboxResult
 
 
 class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class CheckStatus(StrEnum):
+    PASSED = "passed"
+    FAILED = "failed"  # it ran and found a problem
+    ERROR = "error"  # it couldn't run properly: a timeout, a missing tool, a crash of the runner itself
+
+    @classmethod
+    def of(cls, result: SandboxResult, failure_exit_codes: tuple[int, ...] | None) -> "CheckStatus":
+        if result.exit_code == 0:
+            return cls.PASSED
+        if result.exit_code is None:
+            return cls.ERROR
+        if failure_exit_codes is None or result.exit_code in failure_exit_codes:
+            return cls.FAILED
+        return cls.ERROR
+
+
 class CheckResult(Frozen):
     name: str
-    passed: bool
+    status: CheckStatus
     output: str  # the tail of stdout and stderr
+
+    @property
+    def passed(self) -> bool:
+        return self.status is CheckStatus.PASSED
+
+    @property
+    def failed(self) -> bool:
+        """It ran and found a problem: evidence. An error running it is not."""
+        return self.status is CheckStatus.FAILED
 
 
 class HardCheck(Protocol):
@@ -57,7 +83,8 @@ class CommandCheck:
     def run_on(self, cwd: Path, paths: Sequence[str]) -> CheckResult:
         """Run the check's command on specific paths (appended as arguments), e.g. one test file."""
         result = self._sandbox.run((*self._config.command, *paths), cwd, self._config.timeout_s)
-        return CheckResult(name=self._name, passed=result.passed, output=result.output[-self.OUTPUT_LIMIT :])
+        status = CheckStatus.of(result, self._config.failure_exit_codes)
+        return CheckResult(name=self._name, status=status, output=result.output[-self.OUTPUT_LIMIT :])
 
 
 class CheckSet:

@@ -42,7 +42,7 @@ class CheckReport(Frozen):
         if not self.results:
             return "no checks configured"
         return "\n\n".join(
-            f"{r.name}: {'passed' if r.passed else 'FAILED'}" + ("" if r.passed else f"\n{r.output}")
+            f"{r.name}: {'passed' if r.passed else r.status.upper()}" + ("" if r.passed else f"\n{r.output}")
             for r in self.results
         )
 
