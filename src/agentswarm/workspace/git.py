@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import LevelLadder
 from agentswarm.core.domain import Artifact, Level
+from agentswarm.workspace.files import ConfinedFiles
 
 
 class GitError(Exception):
@@ -29,12 +30,19 @@ class GitIdentity(BaseModel):
 class Git:
     """Runs git commands with a fixed identity and no user or system configuration.
 
-    Ignoring the user's config keeps behaviour identical across machines (no hooks, signing or aliases).
+    Ignoring the user's config keeps behaviour identical across machines (no signing or aliases). Hooks and
+    the filesystem monitor are switched off on every call, and git gets a minimal environment, so neither a
+    repository's own files nor the caller's credentials can make it run anything (CODEX_AUDIT.md F01).
     """
+
+    SAFETY = ("-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false")
 
     def __init__(self, identity: GitIdentity | None = None) -> None:
         identity = identity or GitIdentity()
-        self._env = os.environ | {
+        self._env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": str(Path.home()),
+            "LANG": "C.UTF-8",
             "GIT_AUTHOR_NAME": identity.name,
             "GIT_AUTHOR_EMAIL": identity.email,
             "GIT_COMMITTER_NAME": identity.name,
@@ -53,68 +61,82 @@ class Git:
     def attempt(self, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         """Run git and return the result whatever the exit code, for commands that may legitimately fail."""
         return subprocess.run(
-            ["git", *args], cwd=cwd, env=self._env, capture_output=True, text=True, check=False
+            ["git", *self.SAFETY, *args], cwd=cwd, env=self._env, capture_output=True, text=True, check=False
         )
 
 
 class Worktree:
-    """A checkout of one branch in its own directory, so teams never share a working directory."""
+    """A checkout of one branch in its own directory, so teams never share a working directory.
 
-    def __init__(self, path: Path, ref: str, repository: "Repository") -> None:
+    Git runs with the Git directory recorded when the worktree was created, never the one the worktree's
+    `.git` file names at the time: that file is inside the checkout, where it could be replaced.
+    """
+
+    def __init__(self, path: Path, ref: str, repository: "Repository", git_dir: str) -> None:
         self.path = path
         self.ref = ref  # the branch checked out, or the commit for a detached worktree
         self._repository = repository
         self._git = repository.git
+        self._location = (f"--git-dir={git_dir}", f"--work-tree={path}")
+        self._files = ConfinedFiles(path)
 
     def write(self, relative: str, content: str) -> None:
-        target = self.path / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content)
+        self._files.write(relative, content)
 
-    def read(self, relative: str) -> str:
-        return (self.path / relative).read_text()
+    def read(self, relative: str, limit: int | None = None) -> str:
+        return self._files.read(relative, limit)
 
     def delete(self, relative: str) -> None:
-        (self.path / relative).unlink()
+        self._files.delete(relative)
+
+    def relative(self, path: str) -> str:
+        """`path` normalised; raises UnsafePath if it could leave the worktree or touch Git metadata."""
+        return self._files.relative(path)
+
+    def _run(self, *args: str) -> str:
+        return self._git.run(self.path, *self._location, *args)
+
+    def _attempt(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return self._git.attempt(self.path, *self._location, *args)
 
     def files(self) -> list[str]:
         """Tracked files plus new files not ignored by .gitignore, sorted."""
-        out = self._git.run(self.path, "ls-files", "--cached", "--others", "--exclude-standard")
+        out = self._run("ls-files", "--cached", "--others", "--exclude-standard")
         return sorted({line for line in out.splitlines() if (self.path / line).is_file()})
 
     def diff_against(self, ref: str, context_lines: int = 3) -> str:
         """What HEAD changes relative to where it forked from `ref` (git diff ref...HEAD)."""
-        return self._git.run(self.path, "diff", f"--unified={context_lines}", f"{ref}...HEAD")
+        return self._run("diff", f"--unified={context_lines}", f"{ref}...HEAD")
 
     def diff_between(self, base: str, head: str) -> str:
-        return self._git.run(self.path, "diff", base, head)
+        return self._run("diff", base, head)
 
     def merge_base(self, ref: str) -> str:
         """The commit where HEAD forked from `ref`: what `diff_against(ref)` measures against."""
-        return self._git.run(self.path, "merge-base", ref, "HEAD")
+        return self._run("merge-base", ref, "HEAD")
 
     def has_changes(self) -> bool:
-        return self._git.run(self.path, "status", "--porcelain") != ""
+        return self._run("status", "--porcelain") != ""
 
     def commit(self, message: str) -> str:
         """Commit every change in the worktree and return the new commit's sha."""
-        self._git.run(self.path, "add", "--all")
-        self._git.run(self.path, "commit", "--quiet", "--allow-empty", "-m", message)
+        self._run("add", "--all")
+        self._run("commit", "--quiet", "--allow-empty", "-m", message)
         return self.head()
 
     def head(self) -> str:
-        return self._git.run(self.path, "rev-parse", "HEAD")
+        return self._run("rev-parse", "HEAD")
 
     def merge(self, commit: str, message: str) -> bool:
         """Merge `commit` with a merge commit. On conflict, abort and return False."""
-        result = self._git.attempt(self.path, "merge", "--no-ff", "--quiet", "-m", message, commit)
+        result = self._attempt("merge", "--no-ff", "--quiet", "-m", message, commit)
         if result.returncode != 0:
-            self._git.attempt(self.path, "merge", "--abort")
+            self._attempt("merge", "--abort")
             return False
         return True
 
     def reset_hard(self, commit: str) -> None:
-        self._git.run(self.path, "reset", "--quiet", "--hard", commit)
+        self._run("reset", "--quiet", "--hard", commit)
 
     def remove(self) -> None:
         self._repository.remove_worktree(self)
@@ -206,13 +228,17 @@ class Repository:
         """A fresh worktree of `branch` at worktrees/<name>. Commits in it move the branch."""
         path = self._fresh_worktree_path(name)
         self.git.run(self.path, "worktree", "add", "--quiet", str(path), branch)
-        return Worktree(path, branch, self)
+        return Worktree(path, branch, self, self._git_dir(path))
 
     def checkout_detached(self, commit: str, name: str) -> Worktree:
         """A fresh worktree at `commit` on a detached HEAD: nothing done in it moves any branch."""
         path = self._fresh_worktree_path(name)
         self.git.run(self.path, "worktree", "add", "--quiet", "--detach", str(path), commit)
-        return Worktree(path, commit, self)
+        return Worktree(path, commit, self, self._git_dir(path))
+
+    def _git_dir(self, path: Path) -> str:
+        """The new worktree's Git directory, read while nothing else has touched the checkout."""
+        return self.git.run(path, "rev-parse", "--absolute-git-dir")
 
     def _fresh_worktree_path(self, name: str) -> Path:
         """worktrees/<name>, with any stale worktree left there by a crash removed."""

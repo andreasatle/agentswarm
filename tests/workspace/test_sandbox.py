@@ -1,10 +1,11 @@
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from agentswarm.core.config import SandboxConfig, SandboxKind
-from agentswarm.workspace.sandbox import DockerSandbox, LocalSandbox, Sandboxes
+from agentswarm.workspace.sandbox import DockerSandbox, LocalSandbox, Process, Sandboxes
 
 
 class TestLocalSandbox:
@@ -33,6 +34,38 @@ class TestLocalSandbox:
         result = LocalSandbox().run(["sleep", "5"], tmp_path, 0.1)
         assert result.timed_out
         assert not result.passed
+
+    def test_commands_run_on_a_copy_without_git_metadata(self, tmp_path: Path) -> None:
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        (worktree / ".git").write_text("gitdir: /somewhere/trusted\n")
+        (worktree / "code.py").write_text("x = 1\n")
+        script = (
+            "import pathlib, sys; "
+            "print('git visible' if pathlib.Path('.git').exists() else 'no git'); "
+            "pathlib.Path('.git').write_text('gitdir: evil'); pathlib.Path('code.py').write_text('x = 2')"
+        )
+        result = LocalSandbox().run([sys.executable, "-c", script], worktree, 30)
+        assert result.passed
+        assert "no git" in result.output
+        assert (worktree / ".git").read_text() == "gitdir: /somewhere/trusted\n"
+        assert (worktree / "code.py").read_text() == "x = 1\n"
+        assert [p.name for p in tmp_path.iterdir()] == ["worktree"]  # the copy is gone
+
+    def test_keeps_only_the_start_and_end_of_long_output(self, tmp_path: Path) -> None:
+        script = "print('START' + 'x' * 400_000 + 'END')"
+        result = LocalSandbox().run([sys.executable, "-c", script], tmp_path, 30)
+        assert result.output.startswith("START")
+        assert result.output.rstrip().endswith("END")
+        assert "bytes of output omitted" in result.output
+        assert len(result.output) < 2 * Process.KEEP + 200
+
+    def test_timeout_kills_child_processes_too(self, tmp_path: Path) -> None:
+        marker = tmp_path / "survived"
+        script = f"import subprocess; subprocess.Popen(['sh', '-c', 'sleep 1; touch {marker}']).wait()"
+        assert LocalSandbox().run([sys.executable, "-c", script], tmp_path, 0.3).timed_out
+        time.sleep(1.5)
+        assert not marker.exists()
 
 
 class TestDockerSandbox:

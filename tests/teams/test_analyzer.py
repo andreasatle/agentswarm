@@ -221,3 +221,13 @@ class TestReviewingAnalyzer:
         assert toolbox.read_file("../outside").startswith("error")
         assert "greeter.py" in toolbox.list_files()
         assert [t.__name__ for t in toolbox.tools()] == ["list_files", "read_file", "show_change"]
+
+    def test_reading_tools_do_not_follow_links_out_of_the_project(self, tmp_path: Path) -> None:
+        m = Merged(tmp_path)
+        secret = tmp_path / "secret.txt"
+        secret.write_text("secret")
+        worktree = m.h.repository.checkout_detached(m.h.repository.tip("experimental"), "read")
+        (worktree.path / "link.txt").symlink_to(secret)
+        assert ReadingToolbox(worktree, "diff").read_file("link.txt").startswith("error")
+        runner = CommandCheck("tests", CheckConfig(command=("true",)), LocalSandbox())
+        assert AnalysisToolbox(worktree, "diff", runner).read_file("link.txt").startswith("error")

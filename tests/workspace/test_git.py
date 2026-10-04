@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from agentswarm.core.config import LevelLadder
 from agentswarm.core.domain import Level
 from agentswarm.workspace.git import Git, Repository
@@ -92,3 +94,39 @@ class TestWorktree:
         assert not level.merge(repo.tip(b.branch), "merge b")
         assert level.head() == before
         assert level.read("shared.txt") == "from a\n"
+
+
+class TestGitTrust:
+    """A checkout's contents must not make host Git run anything (CODEX_AUDIT.md F01)."""
+
+    HOOK = "#!/bin/sh\ntouch {sentinel}\n"
+
+    def test_a_forged_git_pointer_in_the_worktree_is_ignored(self, tmp_path: Path) -> None:
+        repo = Repo(tmp_path).repository
+        artifact = Samples.artifact()
+        wt = repo.checkout_artifact(artifact)
+        evil = Repository.create(wt.path / "evil", tmp_path / "evil-worktrees", LADDER, Git())
+        hook = evil.path / ".git" / "hooks" / "pre-commit"
+        sentinel = tmp_path / "hook-ran"
+        hook.write_text(self.HOOK.format(sentinel=sentinel))
+        hook.chmod(0o755)
+        (wt.path / ".git").write_text(f"gitdir: {evil.path / '.git'}\n")
+        wt.write("hello.txt", "hi\n")
+        sha = wt.commit("hello")
+        assert not sentinel.exists()
+        assert repo.tip(artifact.branch) == sha
+
+    def test_hooks_in_the_repository_do_not_run(self, tmp_path: Path) -> None:
+        repo = Repo(tmp_path).repository
+        sentinel = tmp_path / "hook-ran"
+        hook = repo.path / ".git" / "hooks" / "pre-commit"
+        hook.write_text(self.HOOK.format(sentinel=sentinel))
+        hook.chmod(0o755)
+        wt = repo.checkout_artifact(Samples.artifact())
+        wt.write("hello.txt", "hi\n")
+        wt.commit("hello")
+        assert not sentinel.exists()
+
+    def test_git_does_not_see_the_callers_secrets(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SOME_API_KEY", "secret")
+        assert "SOME_API_KEY" not in Git()._env  # pyright: ignore[reportPrivateUsage]

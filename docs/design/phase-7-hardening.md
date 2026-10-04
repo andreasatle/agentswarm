@@ -1,6 +1,6 @@
 # Phase 7: Hardening before live runs
 
-Status: **planned** (from the independent audit in [CODEX_AUDIT.md](../../CODEX_AUDIT.md), 2026-10-03).
+Status: **in progress** (from the independent audit in [CODEX_AUDIT.md](../../CODEX_AUDIT.md), 2026-10-03).
 
 The remaining live runs for Phases 5–6 and the out-of-sample test for Phase 4 come after this phase,
 because several of the audit's findings would make those runs unsafe or their results untrustworthy:
@@ -99,3 +99,29 @@ These come next, in this order:
 - Event schema versioning.
 - Indexed board queries.
 - CI.
+
+## Decisions made during implementation
+
+**Step 1 (trust boundary).**
+- **`RunCopy`:** both sandboxes run commands on a throwaway copy of the worktree, without `.git`
+  and `__pycache__`, with symlinks copied as links. The copy sits next to the worktree, so Colima can
+  mount it. Whatever a command writes is discarded, which is what checks, hidden tests and mutation
+  runs need anyway. Local and Docker now behave the same. Each run costs one copy; the projects are
+  small.
+- **Host Git** runs with `core.hooksPath=/dev/null`, `core.fsmonitor=false` and a minimal environment
+  (PATH, HOME, LANG and the identity), so provider keys no longer reach git.
+- **Worktrees** run git with `--git-dir/--work-tree` recorded when the worktree is created, so a
+  replaced `.git` file is never followed. This is defence in depth: with `RunCopy`, nothing untrusted
+  writes the worktree any more.
+- **`workspace/files.py:ConfinedFiles`** backs `Worktree.read/write/delete`, so every host-side access
+  is confined: model tools and framework scratch writes (`_analysis`, `_hidden`, mutations) alike. It
+  refuses `.git` anywhere in a path and links that lead outside, and bounds reads. The executor's
+  separate `_safe` check and the reviewers' weaker string checks are gone.
+- **`Process`** sends output to a temporary file and keeps its first and last 64 KB; a timeout kills
+  the whole process group (or the container). Docker's control commands now have timeouts.
+- **Tests:**
+  - the audit's probes: a forged `.git` pointer with a hook, a hook in the repository, symlinks through
+    both reviewer toolboxes;
+  - a command's writes are discarded;
+  - bounded output;
+  - a timeout kills child processes.

@@ -33,6 +33,7 @@ from agentswarm.judging.judges import JudgeState
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.relevance import RelevanceCheck, RelevanceFilter
 from agentswarm.teams.runner import Relevance
+from agentswarm.workspace.files import UnsafePath
 from agentswarm.workspace.git import Repository, Worktree
 
 
@@ -62,11 +63,9 @@ class AnalysisToolbox:
 
     def read_file(self, path: str) -> str:
         """Return the content of the file at `path`, relative to the project root."""
-        if path.startswith(("/", "..")) or ".." in path.split("/"):
-            return "error: path must stay inside the project"
         try:
-            return self._worktree.read(path)[: self.READ_LIMIT]
-        except (OSError, UnicodeDecodeError) as error:
+            return self._worktree.read(path, self.READ_LIMIT)
+        except (OSError, UnicodeDecodeError, UnsafePath) as error:
             return f"error: {error}"
 
     def show_change(self) -> str:
@@ -256,11 +255,9 @@ class ReadingToolbox:
 
     def read_file(self, path: str) -> str:
         """Return the content of the file at `path`, relative to the project root."""
-        if path.startswith(("/", "..")) or ".." in path.split("/"):
-            return "error: path must stay inside the project"
         try:
-            return self._worktree.read(path)[: self.READ_LIMIT]
-        except (OSError, UnicodeDecodeError) as error:
+            return self._worktree.read(path, self.READ_LIMIT)
+        except (OSError, UnicodeDecodeError, UnsafePath) as error:
             return f"error: {error}"
 
     def show_change(self) -> str:

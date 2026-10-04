@@ -3,7 +3,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,6 +23,7 @@ from agentswarm.core.domain import (
 from agentswarm.gating.checks import CheckResult, HardCheck
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.runner import Relevance
+from agentswarm.workspace.files import UnsafePath
 from agentswarm.workspace.git import Worktree
 
 
@@ -45,10 +45,6 @@ class CheckReport(Frozen):
             f"{r.name}: {'passed' if r.passed else 'FAILED'}" + ("" if r.passed else f"\n{r.output}")
             for r in self.results
         )
-
-
-class ToolError(Exception):
-    """A tool call the model made was invalid; the message goes back to the model."""
 
 
 class WorktreeToolbox:
@@ -74,9 +70,8 @@ class WorktreeToolbox:
     def read_file(self, path: str) -> str:
         """Return the full content of the file at `path`, relative to the project root."""
         try:
-            relative = self._safe(path)
-            content = self._worktree.read(relative)
-        except (ToolError, OSError, UnicodeDecodeError) as error:
+            content = self._worktree.read(path, self.READ_LIMIT + 1)
+        except (OSError, UnicodeDecodeError, UnsafePath) as error:
             return f"error: {error}"
         if len(content) > self.READ_LIMIT:
             return content[: self.READ_LIMIT] + f"\n... (truncated at {self.READ_LIMIT} characters)"
@@ -85,18 +80,18 @@ class WorktreeToolbox:
     def write_file(self, path: str, content: str) -> str:
         """Create or overwrite the file at `path`, relative to the project root, with `content`."""
         try:
-            relative = self._safe(path)
+            relative = self._worktree.relative(path)
             self._worktree.write(relative, content)
-        except (ToolError, OSError) as error:
+        except (OSError, UnsafePath) as error:
             return f"error: {error}"
         return f"wrote {relative} ({len(content)} characters)"
 
     def delete_file(self, path: str) -> str:
         """Delete the file at `path`, relative to the project root."""
         try:
-            relative = self._safe(path)
+            relative = self._worktree.relative(path)
             self._worktree.delete(relative)
-        except (ToolError, OSError) as error:
+        except (OSError, UnsafePath) as error:
             return f"error: {error}"
         return f"deleted {relative}"
 
@@ -106,18 +101,6 @@ class WorktreeToolbox:
 
     def check_report(self) -> CheckReport:
         return CheckReport(results=tuple(check.run(self._worktree.path) for check in self._checks))
-
-    def _safe(self, path: str) -> str:
-        """The path normalised relative to the worktree, refusing anything that could escape it."""
-        candidate = PurePosixPath(path)
-        if candidate.is_absolute() or ".." in candidate.parts:
-            raise ToolError(f"path must be relative and stay inside the project: {path!r}")
-        if not candidate.parts or candidate.parts[0] == ".git":
-            raise ToolError(f"not a writable project path: {path!r}")
-        resolved = (self._worktree.path / candidate).resolve()
-        if not resolved.is_relative_to(self._worktree.path.resolve()):
-            raise ToolError(f"path leaves the project through a link: {path!r}")
-        return str(candidate)
 
 
 class ExecutorRequest(Frozen):
