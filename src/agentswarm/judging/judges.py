@@ -172,6 +172,23 @@ class SizeCheck(BaseModel):
     ]
 
 
+class TaskDifficulty(BaseModel):
+    """How hard is a task, for choosing a model (Phase 8, routing)?
+
+    The answer is a score, not a verdict: the router uses 1 - p(simple) as the task's difficulty and looks
+    up each model's measured success at that difficulty. The score only has to order tasks, easy before
+    hard; the models' curves do the calibration.
+    """
+
+    simple: Annotated[
+        NoulAnswer,
+        Ask(
+            "Is this a simple task: one small, clearly specified change that needs no design decisions and "
+            "has no tricky rules or edge cases?"
+        ),
+    ]
+
+
 class SplitCheck(BaseModel):
     """Is a proposed split real progress? (§10.4, progress guard)"""
 
@@ -248,6 +265,7 @@ class JudgeCatalog:
         catalog.register(AdversarialRelevance)
         catalog.register(SizeCheck)
         catalog.register(SplitCheck)
+        catalog.register(TaskDifficulty)
         catalog.register(JoinCheck)
         catalog.register(DriftCheck)
         catalog.alias(

@@ -140,9 +140,10 @@ class Project:
             owned.append(decisions)
         decider = services.decider
         decomposes = any(t.use in TeamResources.PLANNERS for t in config.teams)
-        needs_judges = (
-            any(g.judge for g in config.gates) or any(t.relevance for t in config.teams) or decomposes
-        )
+        judged_gates = any(g.judge for g in config.gates)
+        relevance_filters = any(t.relevance for t in config.teams)
+        routes = any(t.routing for t in config.teams)
+        needs_judges = judged_gates or relevance_filters or decomposes or routes
         workers = services.workers or LangChainWorkers(ChatModels(config.models))
         ledger = SpendLedger(board)
         if decider is None and needs_judges:
@@ -171,6 +172,7 @@ class Project:
             config.levels,
             [t.use for t in config.teams],
             lambda team, model: ledger.meter(team, model, config.models[model].usd_per_million),
+            {name: model.model for name, model in config.models.items()},
         )
         runners = [
             TeamRunner(

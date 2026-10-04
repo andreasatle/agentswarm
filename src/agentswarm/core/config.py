@@ -163,6 +163,13 @@ class ModelConfig(Strict):
         return self.model.split(":", 1)[0]
 
 
+class RoutingConfig(Strict):
+    """Choose a team's starting model tier by the task's difficulty (Phase 8, teams/routing.py)."""
+
+    curves: Path | None = None  # fitted model curves (`agentswarm curves`); none yet: only log difficulty
+    target: float = Field(default=0.8, gt=0.0, le=1.0)  # start on the cheapest tier predicted this good
+
+
 class TeamConfig(Strict):
     use: str  # name in the team catalog
     watches: Level
@@ -175,6 +182,7 @@ class TeamConfig(Strict):
     constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
     relevance: str | None = None  # a Jev relevance judge asked before working (analyzer teams)
     max_depth: int = Field(default=3, ge=1)  # decomposition: how deep tasks may be split
+    routing: RoutingConfig | None = None  # executors: ask Jev for the task's difficulty before starting
 
 
 class SupervisorConfig(Strict):
@@ -296,8 +304,22 @@ class ProjectConfig(Strict):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """Load a config file. A relative `seed` is resolved against the file's directory."""
-        config = cls.model_validate(yaml.safe_load(path.read_text()))
+        """Load a config file. Relative `seed` and routing `curves` paths are resolved against its folder."""
+        text = path.read_text()
+        raw = yaml.safe_load(text)
+        config = cls.model_validate(raw)
+        base = path.parent
         if config.seed is not None and not config.seed.is_absolute():
-            config = config.model_copy(update={"seed": (path.parent / config.seed).resolve()})
-        return config
+            seed = (base / config.seed).resolve()
+            config = config.model_copy(update={"seed": seed})
+        teams = tuple(cls._resolve_curves(team, base) for team in config.teams)
+        return config.model_copy(update={"teams": teams})
+
+    @staticmethod
+    def _resolve_curves(team: TeamConfig, base: Path) -> TeamConfig:
+        routing = team.routing
+        if routing is None or routing.curves is None or routing.curves.is_absolute():
+            return team
+        curves = (base / routing.curves).resolve()
+        resolved = routing.model_copy(update={"curves": curves})
+        return team.model_copy(update={"routing": resolved})

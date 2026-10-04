@@ -30,6 +30,7 @@ from agentswarm.core.domain import (
     Released,
     Resolution,
     Resumed,
+    Routed,
     SignedOff,
     Sized,
     Spent,
@@ -127,6 +128,8 @@ class BoardViews:
                 self._moving[event.branch] = event
             case PromotionSettled():
                 self._moving.pop(event.branch, None)
+            case Routed():
+                pass  # kept in the artifact's history, where the executor reads its starting tier
             case Rejected():
                 self._findings[event.artifact] = list(event.findings)
                 self._unjudged.pop(event.artifact, None)

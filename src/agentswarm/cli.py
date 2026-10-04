@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     Released,
     Resolution,
     Resumed,
+    Routed,
     SignedOff,
     Sized,
     Spent,
@@ -44,6 +45,7 @@ from agentswarm.evaluation.compare import (
     Experiment,
     ExperimentKind,
 )
+from agentswarm.evaluation.curves import CurveData
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -57,6 +59,7 @@ from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.project import Project, ProjectServices
 from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
+from agentswarm.teams.routing import ModelCurves, Observation
 
 
 class Report:
@@ -93,6 +96,11 @@ class Report:
                 return "fits one branch" if event.fits else f"split into {', '.join(event.children)}"
             case Promoted():
                 return f"promoted {event.from_level} -> {event.to_level}"
+            case Routed():
+                score = event.difficulty
+                difficulty = f"difficulty {score:.2f}" if score is not None else "no score"
+                how = "chosen from curves" if event.acted else "cheapest tier"
+                return f"routed to {event.model} ({difficulty}, {how})"
             case PromotionStarted():
                 return f"moving {event.branch} to {event.target[:10]}"
             case PromotionSettled():
@@ -132,6 +140,7 @@ class Cli:
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
+        curves WORKDIR... --out FILE               fit model curves over task difficulty from comparisons
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
                                                    bugs for their reviewers (review); compare them
         audit DECISIONS [--point POINT]            how often an active gate was wrong, against outcomes
@@ -176,6 +185,8 @@ class Cli:
                 return asyncio.run(self.evaluate(args))
             case "compare":
                 return asyncio.run(self.compare(args))
+            case "curves":
+                return self.curves(args)
             case "calibrate":
                 return self.calibrate(args)
             case "tune":
@@ -237,6 +248,25 @@ class Cli:
         report.write(results)
         self._show("\n" + report.render())
         self._show(f"\nEvery run and the summary: {results}")
+        return 0
+
+    def curves(self, args: argparse.Namespace) -> int:
+        """Fit each model's success curve over task difficulty from build comparisons (Phase 8)."""
+        observations: list[Observation] = []
+        for folder in args.workdirs:
+            workdir = Path(folder).expanduser()
+            found, skipped = CurveData.observations(workdir)
+            observations += found
+            self._show(f"{workdir}: {len(found)} runs with a difficulty and an outcome, {skipped} without")
+        if not observations:
+            raise SystemExit(
+                "no routed runs with outcomes: give the setups' executors `routing: {}` and compare"
+            )
+        curves = ModelCurves.fit(observations, args.bands)
+        out = Path(args.out).expanduser()
+        curves.write(out)
+        self._show("\n" + curves.render())
+        self._show(f"\nCurves written to {out}; use them with `routing: {{curves: {out}}}`")
         return 0
 
     async def evaluate(self, args: argparse.Namespace) -> int:
@@ -356,6 +386,11 @@ class Cli:
         )
         compare.add_argument("experiment", help="the experiment's YAML file: a suite and setups")
         compare.add_argument("--workdir", required=True, help="a new directory for the projects and results")
+
+        curves = commands.add_parser("curves", help="fit model success curves over task difficulty")
+        curves.add_argument("workdirs", nargs="+", help="workdirs of build comparisons")
+        curves.add_argument("--bands", type=int, default=3, help="difficulty bands (default 3)")
+        curves.add_argument("--out", required=True, help="where to write the curves (JSON)")
 
         evaluate = commands.add_parser("evaluate", help="run a task suite and print the calibration report")
         evaluate.add_argument("suite", help="the suite's YAML file")

@@ -17,11 +17,13 @@ from agentswarm.core.domain import (
     Promoted,
     Rejected,
     Resolution,
+    Routed,
     Sized,
     TeamName,
 )
 from agentswarm.gating.checks import CheckResult, HardCheck
 from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.teams.routing import Router
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.files import UnsafePath
 from agentswarm.workspace.git import Worktree
@@ -215,8 +217,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
         constraints: Sequence[str] = (),
         name: TeamName = TeamName("executor"),
         requires_sizing: bool = False,
+        router: Router | None = None,  # chooses the starting tier by the task's difficulty (Phase 8)
     ) -> None:
         super().__init__(watches, name, requires_sizing)
+        self._router = router
         self._tiers: tuple[Tier, ...] | None = tuple(workers) if isinstance(workers, Sequence) else None
         self._single = workers if not isinstance(workers, Sequence) else None
         if self._tiers is not None and not self._tiers:
@@ -227,16 +231,21 @@ You are the executor in a software team. Implement the task in `instruction.goal
     async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
         artifact = ctx.artifact
         toolbox = WorktreeToolbox(worktree, self._checks)
-        model, worker = self.tier_for(ctx)
+        routed = self._route(ctx, worktree)  # a Routed event on the first attempt, when routing is on
+        start = self.starting_tier(ctx, routed)
+        model, worker = self.tier_for(ctx, start)
+        events: list[Event] = [routed] if routed is not None else []
+        request = self.request(ctx, worktree)
         try:
-            report = await worker.run(self.INSTRUCTIONS, self.request(ctx, worktree), ExecutorReport, toolbox)
+            report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
         except WorkerError as error:
-            return self._escalate(ctx, worktree, f"executor failed: {error}")
+            return events + self._escalate(ctx, worktree, f"executor failed: {error}")
         if not worktree.has_changes():
-            return [Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")]
+            no_changes = Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")
+            return [*events, no_changes]
 
         sha = worktree.commit(f"{artifact.id}: {report.summary}")
-        events: list[Event] = [CommitPushed(artifact=artifact.id, commit=sha, model=model)]
+        events.append(CommitPushed(artifact=artifact.id, commit=sha, model=model))
         checks = toolbox.check_report()
         if not checks.passed:
             events.append(Escalated(artifact=artifact.id, reason=f"checks still fail:\n{checks.summary()}"))
@@ -246,14 +255,44 @@ You are the executor in a software team. Implement the task in `instruction.goal
             )
         return events
 
-    def tier_for(self, ctx: ArtifactContext) -> tuple[str | None, Worker]:
-        """The cheapest tier first, one tier up per rejection so far, staying on the strongest."""
+    def tier_for(self, ctx: ArtifactContext, start: int = 0) -> tuple[str | None, Worker]:
+        """From the starting tier, one tier up per rejection so far, staying on the strongest."""
         if self._tiers is None:
             assert self._single is not None
             return None, self._single
         rejections = sum(isinstance(e, Rejected) for e in ctx.history)
-        tier = self._tiers[min(rejections, len(self._tiers) - 1)]
+        index = min(start + rejections, len(self._tiers) - 1)
+        tier = self._tiers[index]
         return tier.model, tier.worker
+
+    def starting_tier(self, ctx: ArtifactContext, routed_now: Routed | None) -> int:
+        """Where the tiers start: the route chosen on the first attempt, or the cheapest tier."""
+        earlier = [e for e in ctx.history if isinstance(e, Routed)]
+        routed = routed_now if routed_now is not None else (earlier[0] if earlier else None)
+        if routed is None or self._tiers is None:
+            return 0
+        names = [t.model for t in self._tiers]
+        return names.index(routed.model) if routed.model in names else 0
+
+    def _route(self, ctx: ArtifactContext, worktree: Worktree) -> Routed | None:
+        """Ask the router once per artifact, before its first attempt."""
+        if self._router is None or self._tiers is None:
+            return None
+        if any(isinstance(e, Routed) for e in ctx.history):
+            return None
+        head = worktree.head()
+        choice = self._router.choose(ctx, head)
+        tier = self._tiers[choice.tier]
+        model_id = self._router.model_id(choice.tier)
+        return Routed(
+            artifact=ctx.artifact.id,
+            team=self.name,
+            model=tier.model,
+            model_id=model_id,
+            difficulty=choice.difficulty,
+            decision=choice.decision,
+            acted=choice.acted,
+        )
 
     @staticmethod
     def _escalate(ctx: ArtifactContext, worktree: Worktree, reason: str) -> list[Event]:

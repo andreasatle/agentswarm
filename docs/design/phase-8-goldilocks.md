@@ -186,3 +186,35 @@ many agents are prompts on one loaded model, which is itself part of the case fo
     teams;
   - setups with no reviewers are refused up front.
 - **Review runs always go one setup at a time**, for the memory reason in step 2.
+
+**Step 4 (routing).**
+- **`TaskDifficulty`** is a judge with one model-agnostic question ("is this a simple task: one small,
+  clearly specified change, with no design decisions and no tricky rules?"). The difficulty is 1 −
+  p(simple). Route decisions get no outcome of their own: they aren't calibrated as yes/no answers; the
+  model curves do the calibration.
+- **`teams/routing.py`:**
+  - `ModelCurves` holds each model's success per difficulty band (3 by default), keyed by the real model
+    id;
+  - a band's prediction adds one imagined success and one failure (Laplace), so two lucky runs don't read
+    as 100%, and an empty band predicts nothing;
+  - `crossings()` reports bands where a model that is weaker overall clearly beats a stronger one (by more
+    than 20 points, both with 3 or more runs). That checks condition 1 with data.
+- **`Router.choose`:**
+  - asks Jev at `route:<team>`;
+  - when that point is active and curves exist, starts on the cheapest tier predicted to succeed at or
+    above `target`, else on the strongest;
+  - in shadow mode, without curves, or when Jev can't answer, keeps the cheapest tier and records the
+    difficulty, which is how data for the curves is collected.
+- **`ExecutorTeam`:**
+  - routes once per artifact, before its first attempt, recording a `Routed` event (model name, model id,
+    difficulty, decision, and whether the route came from curves);
+  - later attempts read the starting tier back from that event, and a rejection steps up from there.
+- **`routing: {curves: FILE, target: 0.8}`** on a team turns it on, with the path relative to the config
+  file. `routing: {}` only logs difficulty. A project that routes needs a decider, like one with judged
+  gates.
+- **`agentswarm curves WORKDIR... --out FILE`:**
+  - reads build comparisons' `results.json` and each run's `Routed` event, and joins them into
+    (model, difficulty, solved) observations;
+  - prints the curves and any crossings, and writes them as JSON;
+  - when a task was split, only the task's own artifact counts, since the children's difficulty isn't the
+    task's.

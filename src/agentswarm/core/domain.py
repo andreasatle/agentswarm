@@ -257,6 +257,26 @@ class Promoted(Frozen):
         return self.artifact
 
 
+class Routed(Frozen):
+    """Which model an executor started an artifact on, and why (Phase 8, routing).
+
+    Recorded once per artifact, before its first attempt; later attempts step up the tiers from there.
+    """
+
+    kind: Literal["routed"] = "routed"
+    artifact: ArtifactId
+    team: TeamName
+    model: str  # the name in the project's `models`
+    model_id: str  # the model itself, "<provider>:<model>", which curves are keyed by
+    difficulty: float | None  # 1 - p(simple) from Jev; None when Jev couldn't answer
+    decision: DecisionId | None
+    acted: bool  # whether the route was chosen from curves (active) or the cheapest tier was kept
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class PromotionStarted(Frozen):
     """Written just before a level's branch moves (CODEX_AUDIT.md F03).
 
@@ -322,6 +342,7 @@ type Event = Annotated[
     | Resumed
     | Spent
     | Promoted
+    | Routed
     | PromotionStarted
     | PromotionSettled
     | Rejected

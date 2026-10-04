@@ -1,6 +1,6 @@
 """The team catalog: team definitions by name, instantiated per project from its configuration (§10.3)."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import ClassVar, Self
 
 from agentswarm.board.artifacts import ArtifactFactory
@@ -22,6 +22,7 @@ from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
 from agentswarm.teams.relevance import RelevanceFilter
+from agentswarm.teams.routing import ModelCurves, Router
 from agentswarm.teams.runner import Team
 
 
@@ -37,7 +38,9 @@ class TeamResources:
         ladder: LevelLadder,
         team_uses: Sequence[str],
         meters: Callable[[str, str], Meter] | None = None,  # (team, model) -> meter, for spend
+        model_ids: Mapping[str, str] | None = None,  # model name -> "<provider>:<model>", for routing
     ) -> None:
+        self._model_ids = dict(model_ids or {})
         self._meters = meters
         self._workers = workers
         self._checks = checks
@@ -67,6 +70,17 @@ class TeamResources:
             Tier(model, self._workers.worker(model, team.max_model_calls, self._meter(team, model)))
             for model in models
         ]
+
+    def router_for(self, team: TeamConfig) -> Router | None:
+        """The team's router, if its configuration asks for one (Phase 8)."""
+        routing = team.routing
+        if routing is None:
+            return None
+        names = team.model_tiers or ((team.model,) if team.model is not None else ())
+        model_ids = [self._model_ids.get(name, name) for name in names]
+        curves = ModelCurves.load(routing.curves) if routing.curves is not None else None
+        judgement = self._judgements.build("TaskDifficulty")
+        return Router(judgement, f"route:{team.use}", model_ids, curves, routing.target)
 
     def worker_for(self, team: TeamConfig) -> Worker:
         if team.model is None:
@@ -113,6 +127,7 @@ class TeamCatalog:
                 team.watches,
                 team.constraints,
                 requires_sizing=resources.plans(),
+                router=resources.router_for(team),
             ),
         )
         catalog.register(
