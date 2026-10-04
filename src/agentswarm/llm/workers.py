@@ -15,8 +15,10 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
 from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.tools import BaseTool
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel
 
@@ -77,11 +79,15 @@ class LangChainWorker:
             response_format=output,
             middleware=[ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end")],
         )
+        tokens = Tokens()
         try:
-            state = await agent.ainvoke({"messages": [HumanMessage(Prompts.data(payload))]})
+            state = await agent.ainvoke(
+                {"messages": [HumanMessage(Prompts.data(payload))]}, config={"callbacks": [tokens]}
+            )
         except Exception as error:  # provider and parsing failures surface as many types
             raise WorkerError(f"{type(error).__name__}: {error}") from error
-        self._report(Tokens.of(state.get("messages", [])))
+        finally:
+            self._report(tokens.usage)  # the calls that completed, even when a later one failed
         result = state.get("structured_response")
         if isinstance(result, output):
             return result
@@ -103,12 +109,14 @@ class LangChainWorker:
         self, instructions: str, messages: Sequence[BaseMessage], output: type[T]
     ) -> T:
         structured = self._model.with_structured_output(output, include_raw=True)
-        reply = await structured.ainvoke(
-            [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)]
-        )
-        raw = reply.get("raw") if isinstance(reply, dict) else None
-        if isinstance(raw, AIMessage):
-            self._report(Tokens.of([raw]))
+        tokens = Tokens()
+        try:
+            reply = await structured.ainvoke(
+                [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)],
+                config={"callbacks": [tokens]},
+            )
+        finally:
+            self._report(tokens.usage)
         answer = reply.get("parsed") if isinstance(reply, dict) else reply
         return answer if isinstance(answer, output) else output.model_validate(answer)
 
@@ -123,18 +131,31 @@ class LangChainWorker:
         return [StructuredTool.from_function(method) for method in toolbox.tools()]
 
 
-class Tokens:
+class Tokens(BaseCallbackHandler):
+    """Counts the tokens of every model call as it completes (CODEX_AUDIT.md F17).
+
+    A callback rather than the agent's final state: when a later call fails, the earlier ones were still
+    paid for, and the state is lost with the exception.
+    """
+
+    def __init__(self) -> None:
+        self.usage = Usage()
+
+    def on_llm_end(self, response: LLMResult, **kwargs: object) -> None:
+        for generations in response.generations:
+            for generation in generations:
+                if isinstance(generation, ChatGeneration):
+                    self.usage = self.usage + self.of(generation.message)
+
     @staticmethod
-    def of(messages: Sequence[BaseMessage]) -> Usage:
-        """The usage LangChain reports on AI messages (`usage_metadata`), summed."""
-        usage = Usage()
-        for message in messages:
-            if isinstance(message, AIMessage) and message.usage_metadata:
-                usage = usage + Usage(
-                    input_tokens=message.usage_metadata.get("input_tokens", 0),
-                    output_tokens=message.usage_metadata.get("output_tokens", 0),
-                )
-        return usage
+    def of(message: BaseMessage) -> Usage:
+        """The usage LangChain reports on an AI message (`usage_metadata`)."""
+        if not isinstance(message, AIMessage) or not message.usage_metadata:
+            return Usage()
+        return Usage(
+            input_tokens=message.usage_metadata.get("input_tokens", 0),
+            output_tokens=message.usage_metadata.get("output_tokens", 0),
+        )
 
 
 class Transcript:

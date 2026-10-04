@@ -200,3 +200,19 @@ These come next, in this order:
 - **F16:** a split check in shadow mode never blocks; the split goes ahead when the size check is
   active.
 - **Tests:** runner, router, train and decomposer each get one case.
+
+**Step 6 (swarm shutdown, spend).**
+- **A failing project is reported, never raised.** `Swarm._run` catches any exception: a project
+  still busy at the round limit is `StillBusy`, a `RuntimeError` subclass (no longer every
+  `RuntimeError`); anything else is `failed`, logged with its traceback. `gather` therefore always
+  waits for every project.
+- **`agentswarm swarm` closes the projects after `asyncio.run` returns.** `asyncio.run` shuts down the
+  default executor, which waits for every `to_thread` worker, so nothing closes under a running
+  thread. The command exits 1 if any project failed.
+- **`Tokens` is now a LangChain callback** that counts each model call as it completes, for agent runs
+  and the final-answer call alike. The meter runs in a `finally`, so a run that fails after some
+  successful calls still records them (F17). This replaces summing the agent's final messages.
+- **Reports start with the spend so far** (and how many model runs were unpriced), the last five
+  project-wide escalations (such as the budget) and PAUSED. `status`, `run` and `swarm` all show it.
+- **Gate and fallback spend** after a budget is exhausted stays allowed, by design (see Q5).
+- **Tests:** a failing project beside a healthy one, partial-failure metering, and the report header.

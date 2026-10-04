@@ -1,6 +1,8 @@
 from datetime import timedelta
 
+import pytest
 from langchain.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 from pydantic import BaseModel
 
 from agentswarm.board.blackboard import Blackboard
@@ -9,7 +11,7 @@ from agentswarm.board.spend import SpendLedger
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import Price
 from agentswarm.core.domain import Spent, Usage
-from agentswarm.llm.workers import LangChainWorker, Tokens
+from agentswarm.llm.workers import LangChainWorker, Tokens, WorkerError
 from tests.support.fakes import FakeToolModel
 from tests.support.samples import Samples
 
@@ -67,7 +69,9 @@ class TestTokens:
             AIMessage(content="b"),
             AIMessage(content="c", usage_metadata={"input_tokens": 5, "output_tokens": 1, "total_tokens": 6}),
         ]
-        assert Tokens.of(messages) == Usage(input_tokens=15, output_tokens=3)
+        tokens = Tokens()
+        tokens.on_llm_end(LLMResult(generations=[[ChatGeneration(message=m)] for m in messages]))
+        assert tokens.usage == Usage(input_tokens=15, output_tokens=3)
 
     async def test_a_worker_reports_its_usage_to_its_meter(self) -> None:
         reply = AIMessage(
@@ -79,6 +83,18 @@ class TestTokens:
         await LangChainWorker(FakeToolModel(messages=iter([reply])), meter=heard.append).run(
             "Do it.", Request(task="t"), Summary
         )
+        assert heard == [Usage(input_tokens=120, output_tokens=30)]
+
+    async def test_calls_that_completed_are_metered_when_a_later_call_fails(self) -> None:
+        first = AIMessage(
+            content="",
+            tool_calls=[{"name": "look_around", "args": {}, "id": "c1"}],
+            usage_metadata={"input_tokens": 120, "output_tokens": 30, "total_tokens": 150},
+        )
+        heard: list[Usage] = []
+        worker = LangChainWorker(FakeToolModel(messages=iter([first])), meter=heard.append)  # no second reply
+        with pytest.raises(WorkerError):
+            await worker.run("Do it.", Request(task="t"), Summary)
         assert heard == [Usage(input_tokens=120, output_tokens=30)]
 
 

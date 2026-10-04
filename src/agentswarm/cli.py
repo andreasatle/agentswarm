@@ -99,7 +99,11 @@ class Report:
 
     @classmethod
     def render(cls, views: BoardViews) -> str:
-        blocks: list[str] = []
+        usd, unpriced = views.spent()
+        header = [f"spent: ${usd:.2f}" + (f" ({unpriced} unpriced model runs)" if unpriced else "")]
+        header += [f"ESCALATED (project): {e.reason}" for e in views.project_escalations()[-5:]]
+        header += ["PAUSED"] if views.paused else []
+        blocks: list[str] = ["\n".join(header)]
         for artifact in views.artifacts():
             lines = [f"{artifact.id} [{artifact.level}] {artifact.task}"]
             lines += [
@@ -108,7 +112,9 @@ class Report:
                 if not isinstance(e, Claimed | Released)
             ]
             blocks.append("\n".join(lines))
-        return "\n\n".join(blocks) or "(no artifacts)"
+        if len(blocks) == 1:
+            blocks.append("(no artifacts)")
+        return "\n\n".join(blocks)
 
 
 class Cli:
@@ -169,7 +175,7 @@ class Cli:
             case "escalations" | "resolve" | "resume":
                 return self.escalations(args)
             case "swarm":
-                return asyncio.run(self.swarm(args))
+                return self.swarm(args)
             case _:
                 raise ValueError(f"unknown command {args.command!r}")
 
@@ -240,7 +246,8 @@ class Cli:
             self._show(check.run(args.limit).render())
         return 0
 
-    async def swarm(self, args: argparse.Namespace) -> int:
+    def swarm(self, args: argparse.Namespace) -> int:
+        """Closes the projects only after `asyncio.run` returns, which waits for their worker threads."""
         swarm = Swarm.open(SwarmConfig.load(Path(args.swarm)))
         try:
             for item in args.task:
@@ -250,14 +257,13 @@ class Cli:
                         f"--task must look like PROJECT=TEXT with a project of the swarm: {item!r}"
                     )
                 swarm.projects[name].create_artifact(task)
-            for run in await swarm.run(args.max_rounds):
-                status = f"{run.rounds} rounds" if run.rounds is not None else f"still busy: {run.error}"
-                self._show(
-                    f"=== {run.project} ({status})\n{Report.render(swarm.projects[run.project].views())}\n"
-                )
+            runs = asyncio.run(swarm.run(args.max_rounds))
+            for run in runs:
+                report = Report.render(swarm.projects[run.project].views())
+                self._show(f"=== {run.project} ({run.status})\n{report}\n")
         finally:
             swarm.close()
-        return 0
+        return 1 if any(run.failed for run in runs) else 0
 
     def escalations(self, args: argparse.Namespace) -> int:
         """Reads and writes only the board and the decision log: no models or Jev key needed."""

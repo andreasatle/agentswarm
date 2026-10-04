@@ -62,6 +62,8 @@ class BoardViews:
     _accepted: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _dropped: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _spent: list[tuple[datetime, float]] = field(default_factory=list[tuple[datetime, float]])
+    _unpriced: int = 0  # Spent events for models without a price
+    _project_escalations: list[Escalated] = field(default_factory=list[Escalated])
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
     _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
@@ -103,6 +105,7 @@ class BoardViews:
                     self._umbrellas.add(event.artifact)
             case Spent():
                 self._spent.append((envelope.at, event.usd))
+                self._unpriced += not event.priced
             case Paused():
                 self.paused = True
             case Resumed():
@@ -131,6 +134,8 @@ class BoardViews:
                 if event.artifact is not None:
                     self._unjudged.pop(event.artifact, None)
                     self._escalations[event.artifact] = event
+                else:
+                    self._project_escalations.append(event)
             case EscalationResolved():
                 self._escalations.pop(event.artifact, None)
                 match event.resolution:
@@ -180,6 +185,14 @@ class BoardViews:
 
     def open_findings(self, id: ArtifactId) -> list[Finding]:
         return [f for f in self._findings.get(id, []) if f.id not in self._resolved]
+
+    def spent(self) -> tuple[float, int]:
+        """All spend so far: US dollars, and how many model runs had no price (counted as $0)."""
+        return sum(usd for _, usd in self._spent), self._unpriced
+
+    def project_escalations(self) -> list[Escalated]:
+        """Escalations about the whole project, such as an exhausted budget, oldest first."""
+        return list(self._project_escalations)
 
     def spent_since(self, since: datetime) -> float:
         """US dollars spent on models since a moment (e.g. the start of the day)."""

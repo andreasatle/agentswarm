@@ -12,6 +12,7 @@ threads (see Project.step), so the projects really overlap.
 
 import asyncio
 import dataclasses
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Self
@@ -21,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.control.scheduler import Scheduler, SchedulerConfig
 from agentswarm.core.config import ProjectConfig
-from agentswarm.project import Project, ProjectServices
+from agentswarm.project import Project, ProjectServices, StillBusy
 
 
 class Frozen(BaseModel):
@@ -51,8 +52,15 @@ class SwarmConfig(Frozen):
 
 class ProjectRun(Frozen):
     project: str
-    rounds: int | None  # rounds that took action, or None if it was still busy at the round limit
-    error: str = ""
+    rounds: int | None  # rounds that took action, or None if it stopped early
+    error: str = ""  # why it stopped early
+    failed: bool = False  # it raised an error, as opposed to still being busy at the round limit
+
+    @property
+    def status(self) -> str:
+        if self.failed:
+            return f"FAILED: {self.error}"
+        return f"{self.rounds} rounds" if self.rounds is not None else f"still busy: {self.error}"
 
 
 class Swarm:
@@ -95,7 +103,8 @@ class Swarm:
             raise ValueError(f"project roots must be distinct in a swarm: {[str(r) for r in roots]}")
 
     async def run(self, max_rounds: int = 50) -> list[ProjectRun]:
-        """Run every project until it is idle, concurrently."""
+        """Run every project until it is idle, concurrently. A project that fails is reported, not raised:
+        every project has finished when this returns."""
         return list(
             await asyncio.gather(*(self._run(name, p, max_rounds) for name, p in self.projects.items()))
         )
@@ -104,8 +113,15 @@ class Swarm:
     async def _run(name: str, project: Project, max_rounds: int) -> ProjectRun:
         try:
             return ProjectRun(project=name, rounds=await project.run_until_idle(max_rounds))
-        except RuntimeError as error:  # still busy at the round limit: report it, the others carry on
+        except StillBusy as error:  # report it; the others carry on
             return ProjectRun(project=name, rounds=None, error=str(error))
+        except (
+            Exception
+        ) as error:  # one project's failure never stops or closes the others (CODEX_AUDIT.md F06)
+            logging.getLogger(__name__).exception("project %s failed", name)
+            return ProjectRun(
+                project=name, rounds=None, error=f"{type(error).__name__}: {error}", failed=True
+            )
 
     def close(self) -> None:
         for project in self.projects.values():

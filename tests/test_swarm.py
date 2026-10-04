@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel
 
 from agentswarm.board.spend import Meter
+from agentswarm.cli import Report
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import Escalated, Usage
@@ -58,6 +59,19 @@ class CostlyWorkers:
 
     def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
         return CostlyWorker(meter, self._flight)
+
+
+class BrokenWorkers:
+    """Models whose every run fails with an error nothing expects."""
+
+    class Broken:
+        async def run[T: BaseModel](
+            self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
+        ) -> T:
+            raise ValueError("boom")
+
+    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+        return self.Broken()
 
 
 class Swarms:
@@ -114,6 +128,8 @@ class TestSwarm:
             if isinstance(e.event, Escalated) and e.event.artifact is None
         ]
         assert len(budget_reports) == 1 and "budget exhausted" in budget_reports[0].reason
+        report = Report.render(tight)
+        assert report.startswith("spent: $2.00") and "ESCALATED (project): supervisor: budget exhausted" in report
         assert flight.peak >= 2  # model runs of the two projects overlapped
         assert set(swarm.scheduler.granted) == {"roomy", "tight"}
         swarm.close()
@@ -131,3 +147,23 @@ class TestSwarm:
             assert "unique" in str(error)
         else:
             raise AssertionError("a duplicate project name was accepted")
+
+    async def test_a_failing_project_is_reported_and_the_others_finish(self, tmp_path: Path) -> None:
+        def services(config: ProjectConfig) -> ProjectServices:
+            workers = BrokenWorkers() if config.project == "broken" else CostlyWorkers(Flight())
+            return ProjectServices(
+                workers=workers, decisions=InMemoryDecisions(), clock=FakeClock(Samples.AT)
+            )
+
+        swarm = Swarm.open(
+            SwarmConfig.load(Swarms.write(tmp_path, {"broken": 100.0, "healthy": 100.0})), services
+        )
+        swarm.projects["broken"].create_artifact("Never written")
+        for i in range(2):
+            swarm.projects["healthy"].create_artifact(f"Healthy note {i}")
+        runs = {run.project: run for run in await swarm.run()}
+
+        assert runs["broken"].failed and runs["broken"].status == "FAILED: ValueError: boom"
+        assert not runs["healthy"].failed and runs["healthy"].rounds is not None
+        assert len(swarm.projects["healthy"].views().artifacts_at(Samples.EXPERIMENTAL)) == 2
+        swarm.close()

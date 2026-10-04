@@ -39,6 +39,10 @@ from agentswarm.workspace.lock import RootLock
 from agentswarm.workspace.sandbox import Sandboxes
 
 
+class StillBusy(RuntimeError):
+    """The project was still taking actions when the round limit was reached."""
+
+
 class Closeable(Protocol):
     def close(self) -> None: ...
 
@@ -213,7 +217,7 @@ class Project:
         for round in range(max_rounds):
             if await self.step() == 0:
                 return round
-        raise RuntimeError(f"project {self.config.project!r} still busy after {max_rounds} rounds")
+        raise StillBusy(f"project {self.config.project!r} still busy after {max_rounds} rounds")
 
     def views(self) -> BoardViews:
         return self.board.current()
