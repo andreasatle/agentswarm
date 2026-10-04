@@ -169,3 +169,26 @@ leaves unobserved values to escalate. Tuned: complete 0.63 / 0.33, in_scope 0.37
 bound fails on sample size and is in-sample. Phase 4 stays open until a cohort-separated re-audit and a
 held-out task set, after Phase 7 (see CODEX_AUDIT.md F10, F11).
 
+
+**eval-4: held-out run (Phase 7 follow-up; out of sample).** 16 new tasks in
+`examples/greeter/evaluation/heldout/` that the thresholds were never tuned on, with the gate active and
+the tuned thresholds. One cohort (judge `fdae65beb643`, jev-1.13.0). eval-3 re-audited per cohort is
+also a single cohort, so its numbers stand.
+
+| | eval-4 (held out) | eval-3 + eval-4 pooled | bound |
+| --- | --- | --- | --- |
+| false promotions | 0/16 (upper 19%) | 1/41 = 2.4% (upper 12.6%) | 5% |
+| false rejections | 0/96 (upper 4%) | 0/158 (upper 2.4%) | 10% |
+| escalations | 1/126 (upper 4%) | 2/234 = 0.9% (upper 3.1%) | 30% |
+
+- **Out of sample, the gate made no wrong ruling.** The `complete` question still separates perfectly:
+  every answer at or below 0.34 was a true "no", every one at or above 0.47 a true "yes". Its
+  calibration is shifted (ECE 0.25), which thresholds absorb.
+- **False rejections and escalations are within their bounds** even by the cautious upper bound.
+- **False promotions are not proven to be at or below 5%.** That would take about 73 known promotions
+  with no error, or about 110 with one. Each task yields about one known promotion, and the two runs
+  together have 41.
+- **Phase 4 stays open on that one item.** Everything measured points the right way; the remaining gap
+  is sample size, not an observed failure.
+- Also: 2 of 16 executor runs ended without a report (gemma4:e4b at the model-call limit), and one
+  correct `secret-hello` solution was held at raw by an unsure ruling, which is the one escalation.

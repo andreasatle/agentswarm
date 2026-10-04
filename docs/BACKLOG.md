@@ -25,9 +25,10 @@ and when it is due. When an item is done, delete it here in the same commit.
 
 - **Phase 7 (hardening) is complete** (docs/design/phase-7-hardening.md); the live runs and the held-out
   evaluation below can go ahead.
-- Phase 4: eval-3 (gate active, in-sample) is audited. False promotion was 1/25 with an upper bound of
-  20%, failing the 5% bound; false rejection and escalation are within bounds. Next, a cohort-separated
-  re-audit (F10) and a held-out task set, after Phase 7 step 7.
+- Phase 4: eval-3 (in sample) and eval-4 (held out, 16 tasks) are audited; see the phase-4 doc. Every bound
+  holds except that false promotions (1/41 pooled, 0/16 held out) aren't yet *proven* to be at or below 5%.
+  That takes about 73 known promotions without error. Due: before relying on the active gate unattended;
+  grows with every evaluation task added.
 - Phase 5 step 6: live run of the handbook project, after Phase 7.
 - Phase 6 step 5: live swarm run of greeter + handbook (needs a swarm YAML), after Phase 7.
 - Docs: update TUTORIAL, REFERENCE and README for the document domain, swarm, spend/budgets, scheduler,
