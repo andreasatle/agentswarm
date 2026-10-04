@@ -1,6 +1,6 @@
 # Phase 7: Hardening before live runs
 
-Status: **in progress** (from the independent audit in [CODEX_AUDIT.md](../../CODEX_AUDIT.md), 2026-10-03).
+Status: **complete** (all eight steps; 406 tests pass, including Docker) (from the independent audit in [CODEX_AUDIT.md](../../CODEX_AUDIT.md), 2026-10-03).
 
 The remaining live runs for Phases 5–6 and the out-of-sample test for Phase 4 come after this phase,
 because several of the audit's findings would make those runs unsafe or their results untrustworthy:
@@ -269,3 +269,27 @@ These come next, in this order:
   log are never given software-gate truths.
 - **Not done here:** a generic outcome-provider interface for document evaluation. It is still
   deliberately out of scope; the evaluator now says so instead of failing halfway.
+
+**Step 8 (startup, F15).**
+- **`Project.validate`** checks, before anything touches the disk, that every team and judge the
+  configuration names exists. A mistyped team no longer leaves a half-created root behind.
+- **`Project.open` is exception-safe.** Everything it opens goes on the owned list as soon as it
+  exists, and a failure closes it all, the root lock included, so the root isn't left locked.
+- **`workspace/lock.py:RootIdentity`** records the project name and levels in `<root>/identity.json`
+  on first open, and refuses a configuration that names another project or other levels. Policy (teams,
+  models, thresholds, budgets) may still change between runs. Roots from before this step adopt the
+  identity of the first configuration that opens them.
+- **Already covered by step 3:** `status` reads only the board, and the swarm checks names and roots
+  before opening.
+
+## Audit status after Phase 7
+
+- **Fixed:** F01–F07, F09–F13, F15, F16, F17, and F14 in part (bounded output, timeouts killing the
+  process group, bounded reads, timeouts on Docker's control commands).
+- **Deferred (backlog):**
+  - F08: a deterministic conflict refresh before retry;
+  - the rest of F14: timeouts on git subprocesses;
+  - fencing for several owners of one project (Q1);
+  - event schema versioning;
+  - indexed board queries;
+  - CI.

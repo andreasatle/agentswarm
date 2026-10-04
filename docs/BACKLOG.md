@@ -23,8 +23,8 @@ and when it is due. When an item is done, delete it here in the same commit.
 
 ## Next session: remaining work (revised 2026-10-03 after CODEX_AUDIT.md)
 
-- **Phase 7 (hardening) first:** see docs/design/phase-7-hardening.md. The live runs and the held-out
-  evaluation wait for it, because F01/F05/F13 make them unsafe or their results unreliable.
+- **Phase 7 (hardening) is complete** (docs/design/phase-7-hardening.md); the live runs and the held-out
+  evaluation below can go ahead.
 - Phase 4: eval-3 (gate active, in-sample) is audited. False promotion was 1/25 with an upper bound of
   20%, failing the 5% bound; false rejection and escalation are within bounds. Next, a cohort-separated
   re-audit (F10) and a held-out task set, after Phase 7 step 7.

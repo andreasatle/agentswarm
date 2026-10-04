@@ -164,6 +164,12 @@ class TeamCatalog:
             team.max_depth,
         )
 
+    def knows(self, name: str) -> bool:
+        return name in self._factories
+
+    def names(self) -> list[str]:
+        return sorted(self._factories)
+
     def register(self, name: str, factory: TeamFactory) -> None:
         if name in self._factories:
             raise ValueError(f"team {name!r} is already registered")

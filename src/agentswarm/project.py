@@ -35,7 +35,7 @@ from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
 from agentswarm.teams.runner import TeamRunner
 from agentswarm.workspace.git import Git, Repository
-from agentswarm.workspace.lock import RootLock
+from agentswarm.workspace.lock import RootIdentity, RootLock
 from agentswarm.workspace.sandbox import Sandboxes
 
 
@@ -92,18 +92,36 @@ class Project:
     def open(cls, config: ProjectConfig, root: Path, services: ProjectServices | None = None) -> Self:
         """Open the project at `root`, creating its log and repository on first use."""
         services = services or ProjectServices()
+        cls.validate(config, services)  # before anything touches the disk
         root.mkdir(parents=True, exist_ok=True)
-        lock = RootLock.acquire(root)
+        owned: list[Closeable] = [RootLock.acquire(root)]
         try:
-            return cls._build(config, root, services, lock)
+            RootIdentity(project=config.project, levels=tuple(config.levels.levels)).claim(root)
+            return cls._build(config, root, services, owned)
         except BaseException:
-            lock.close()
+            for resource in reversed(owned):  # whatever was opened before the failure
+                resource.close()
             raise
 
+    @staticmethod
+    def validate(config: ProjectConfig, services: ProjectServices) -> None:
+        """Every team and judge the configuration names exists (CODEX_AUDIT.md F15)."""
+        unknown = [t.use for t in config.teams if not services.teams.knows(t.use)]
+        if unknown:
+            raise ValueError(f"unknown teams {unknown}; known: {services.teams.names()}")
+        named = [g.judge for g in config.gates if g.judge] + [
+            t.relevance for t in config.teams if t.relevance
+        ]
+        for judge in named:
+            services.judges.get(judge)  # raises, naming the known judges
+
     @classmethod
-    def _build(cls, config: ProjectConfig, root: Path, services: ProjectServices, lock: RootLock) -> Self:
+    def _build(
+        cls, config: ProjectConfig, root: Path, services: ProjectServices, owned: list[Closeable]
+    ) -> Self:
         clock, lease = services.clock, services.lease
         log = SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), clock)
+        owned.append(log)
         board = Blackboard(log)
         claims = ClaimRegistry(board, clock)
         repository = Repository.open_or_create(
@@ -116,7 +134,6 @@ class Project:
         checks = CheckSet(config.checks, sandbox)
         budget = Budget(config.budgets.usd_per_day, clock)
 
-        owned: list[Closeable] = [lock, log]
         decisions = services.decisions
         if decisions is None:
             decisions = SqliteDecisions(root / "decisions.sqlite")
