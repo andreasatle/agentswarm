@@ -1,0 +1,195 @@
+# Complexity-graded greeter suite (Phase 8): level 2 = several interacting functions in one module, level 3 =
+# a small package with a data model and validation or persistence, level 4 = a feature across a package
+# with a command-line interface, files and error handling. Same project as ../suite.yaml; the level is the
+# first words of each task. Hidden tests check behaviour across modules, not single functions.
+project: ../project.yaml
+judge: ChangeReadiness
+test_command:
+- python
+- -m
+- pytest
+- -q
+- -p
+- no:cacheprovider
+test_timeout_s: 180.0
+tasks:
+- id: greet-styles
+  task: '(level 2) In greeter.py, add greet(name, style=''plain'', title=None). Styles: ''plain'' returns hello(name)
+    (''Hello, Ada!''); ''formal'' returns ''Good day, Ada.'', or with a title ''Good day, Dr. Ada.''; ''shout''
+    returns the plain greeting in upper case (''HELLO, ADA!''). An unknown style raises ValueError. A title is only
+    allowed with the formal style: with any other style it raises ValueError. The name is stripped of surrounding
+    whitespace first, and an empty name raises ValueError in every style. Add tests.'
+  hidden_tests:
+  - hidden/test_greet_styles.py
+  reference:
+    greeter.py: reference/greet-styles/greeter.py
+- id: normalize-names
+  task: (level 2) In greeter.py, add normalize_name(raw) and greet_normalized(raw). normalize_name strips the name,
+    collapses runs of whitespace into one space, and capitalises each word (first letter upper case, the rest lower
+    case), except the particles 'van', 'von', 'de', 'der' and 'la', which stay lower case unless they are the first
+    word. Parts joined by a hyphen are capitalised separately ('anne-marie' becomes 'Anne-Marie'). An empty or whitespace-only
+    name raises ValueError. greet_normalized returns hello() of the normalized name. Add tests.
+  hidden_tests:
+  - hidden/test_normalize_names.py
+  reference:
+    greeter.py: reference/normalize-names/greeter.py
+- id: greeting-log
+  task: (level 2) In greeter.py, add parse_greeting(text), tally(greetings) and most_greeted(greetings). parse_greeting
+    takes a greeting exactly of the form 'Hello, <name>!' and returns the name; the name must be non-empty, contain
+    no '!' and have no surrounding spaces; anything else raises ValueError. tally takes a list of strings and returns
+    a dict from each name to how many times it was greeted, skipping strings that aren't greetings. most_greeted
+    returns the name greeted most often, breaking ties alphabetically, or None when there are no valid greetings.
+    Add tests.
+  hidden_tests:
+  - hidden/test_greeting_log.py
+  reference:
+    greeter.py: reference/greeting-log/greeter.py
+- id: localized-fallback
+  task: '(level 2) In greeter.py, add greet_in(name, locale). The greetings are: en ''Hello, <name>!'', es ''¡Hola,
+    <name>!'', fr ''Bonjour, <name> !'' (with a space before the ''!''), de ''Hallo, <name>!''. A locale is a language
+    code with an optional region, like ''es'' or ''es-MX'': two lower-case letters, optionally followed by ''-''
+    and two upper-case letters. A locale with a region falls back to its language, and an unknown language falls
+    back to English. A malformed locale (for example ''ES'', ''es_MX'' or ''english'') raises ValueError. Add tests.'
+  hidden_tests:
+  - hidden/test_localized_fallback.py
+  reference:
+    greeter.py: reference/localized-fallback/greeter.py
+- id: greeting-book
+  task: '(level 3) Create a package greetbook (greetbook/__init__.py, greetbook/book.py, greetbook/store.py). book.py
+    has class GreetingBook and exception DuplicateName (a subclass of ValueError). GreetingBook.add(name, greeting)
+    stores a greeting under a name; the name is stripped and must be non-empty (else ValueError), and adding a name
+    that already exists, compared case-insensitively, raises DuplicateName. get(name) returns the greeting, matching
+    the name case-insensitively, or raises KeyError. remove(name) deletes it, or raises KeyError. names() returns
+    the names sorted case-insensitively, search(prefix) returns the names starting with prefix (case-insensitive),
+    sorted the same way, and len(book) is the number of entries. store.py has save(book, path), which writes JSON
+    {"entries": [{"name": ..., "greeting": ...}, ...]} sorted like names(), and load(path), which returns a GreetingBook:
+    an empty one if the file doesn''t exist, and ValueError if the file isn''t valid. greetbook/__init__.py exports
+    GreetingBook, DuplicateName, save and load. Add tests.'
+  hidden_tests:
+  - hidden/test_greeting_book.py
+  reference:
+    greetbook/__init__.py: reference/greeting-book/greetbook/__init__.py
+    greetbook/book.py: reference/greeting-book/greetbook/book.py
+    greetbook/store.py: reference/greeting-book/greetbook/store.py
+- id: templates
+  task: '(level 3) Create a package greettemplates (greettemplates/__init__.py, template.py, registry.py). template.py
+    has class Template and exception MissingField (a subclass of KeyError). Template(text) parses placeholders written
+    {name}; ''{{'' and ''}}'' stand for literal braces. A field name is one or more letters, digits or underscores;
+    an unclosed ''{'', a stray ''}'' or an empty or invalid field name raises ValueError when the Template is created.
+    fields() returns the field names in order of first appearance, each once. render(**values) fills in the fields;
+    extra values are ignored; a missing value raises MissingField whose args[0] is the field name. registry.py has
+    class TemplateRegistry: register(name, text) stores a Template (an existing name raises ValueError), render(template,
+    /, **values) renders it, with the template''s name positional-only so a field may itself be called ''name''
+    (an unknown template raises KeyError), and names() returns the names sorted. greettemplates/__init__.py exports
+    Template, MissingField and TemplateRegistry. Add tests.'
+  hidden_tests:
+  - hidden/test_templates.py
+  reference:
+    greettemplates/__init__.py: reference/templates/greettemplates/__init__.py
+    greettemplates/template.py: reference/templates/greettemplates/template.py
+    greettemplates/registry.py: reference/templates/greettemplates/registry.py
+- id: reminders
+  task: '(level 3) Create a package reminders (reminders/__init__.py, model.py, schedule.py). model.py has a frozen
+    dataclass Reminder(name, day, message): day is 0 (Monday) to 6 (Sunday); a day out of range, or an empty or
+    whitespace-only name or message, raises ValueError when it''s created. schedule.py has class Schedule: add(reminder)
+    (the same name on the same day twice raises ValueError), remove(name, day) (KeyError if absent), for_day(day)
+    returning that day''s reminders sorted by name, to_text() returning one line per reminder as ''Mon|Ada|Hello''
+    (day abbreviations Mon Tue Wed Thu Fri Sat Sun), ordered by day then name, each line ending with a newline,
+    and the classmethod from_text(text), which parses that format back, ignores blank lines, and raises ValueError
+    mentioning ''line N'' (counting from 1) for a bad line. reminders/__init__.py exports Reminder and Schedule.
+    Add tests.'
+  hidden_tests:
+  - hidden/test_reminders.py
+  reference:
+    reminders/__init__.py: reference/reminders/reminders/__init__.py
+    reminders/model.py: reference/reminders/reminders/model.py
+    reminders/schedule.py: reference/reminders/reminders/schedule.py
+- id: contacts
+  task: '(level 3) Create a package contacts (contacts/__init__.py, model.py, book.py). model.py has a frozen dataclass
+    Contact(name, email): the name must be non-empty after stripping, and the email must have exactly one ''@'',
+    a non-empty part before it, a domain after it that contains a ''.'', and no spaces; otherwise creating it raises
+    ValueError. book.py has class AddressBook: add(contact) (an email already present, compared case-insensitively,
+    raises ValueError), find(name) returning the contacts whose name equals name case-insensitively, sorted by email,
+    by_domain(domain) returning the contacts whose email domain equals domain case-insensitively, sorted by name,
+    and greet_domain(domain) returning greeter.hello(name) for each of those contacts, in the same order. contacts/__init__.py
+    exports Contact and AddressBook. Add tests.'
+  hidden_tests:
+  - hidden/test_contacts.py
+  reference:
+    contacts/__init__.py: reference/contacts/contacts/__init__.py
+    contacts/model.py: reference/contacts/contacts/model.py
+    contacts/book.py: reference/contacts/contacts/book.py
+- id: greet-cli
+  task: '(level 4) Create a package greetcli that runs as `python -m greetcli` (greetcli/__init__.py, __main__.py,
+    styles.py, config.py, cli.py). Commands: `hello NAME [--style plain|formal|shout] [--title TITLE]` prints ''Hello,
+    NAME!'' (plain), ''Good day, NAME.'' or ''Good day, TITLE NAME.'' (formal) or ''HELLO, NAME!'' (shout); `bye
+    NAME` prints ''Goodbye, NAME!''. A global option `--config PATH`, given before the command, names a JSON file
+    {"style": ..., "title": ...} (both keys optional) whose values apply when the flags aren''t given; a flag given
+    on the command line always wins, and an empty --title means no title. Output goes to stdout with exit code 0.
+    Usage errors (an unknown command, a missing name, an unknown style, a title without the formal style) print
+    a message to stderr and exit with code 2. A config file that is missing or isn''t valid JSON prints a message
+    to stderr and exits with code 1. Add tests.'
+  hidden_tests:
+  - hidden/test_greet_cli.py
+  reference:
+    greetcli/__init__.py: reference/greet-cli/greetcli/__init__.py
+    greetcli/__main__.py: reference/greet-cli/greetcli/__main__.py
+    greetcli/styles.py: reference/greet-cli/greetcli/styles.py
+    greetcli/config.py: reference/greet-cli/greetcli/config.py
+    greetcli/cli.py: reference/greet-cli/greetcli/cli.py
+- id: greetbook-cli
+  task: '(level 4) Create a package greetbook that runs as `python -m greetbook --book PATH COMMAND ...`, storing
+    a book of greetings as JSON at PATH (greetbook/__init__.py, __main__.py, book.py, store.py, cli.py). Commands:
+    `add NAME GREETING`, `get NAME` (prints the greeting), `list` (prints ''NAME: GREETING'' per line, sorted by
+    name case-insensitively), `search PREFIX` (prints matching names, one per line, case-insensitive, same order),
+    `remove NAME`. Names are matched case-insensitively and kept as first added; add and remove save the book; a
+    missing file is an empty book. Errors: `get` or `remove` of an unknown name prints ''no entry for NAME'' to
+    stderr and exits 1; adding a name that exists (case-insensitively) prints a message to stderr and exits 1, leaving
+    the file unchanged; a book file that isn''t valid JSON exits 1 with a message; usage errors (no --book, an unknown
+    command, missing arguments) exit 2. Success exits 0. Add tests.'
+  hidden_tests:
+  - hidden/test_greetbook_cli.py
+  reference:
+    greetbook/__init__.py: reference/greetbook-cli/greetbook/__init__.py
+    greetbook/__main__.py: reference/greetbook-cli/greetbook/__main__.py
+    greetbook/book.py: reference/greetbook-cli/greetbook/book.py
+    greetbook/store.py: reference/greetbook-cli/greetbook/store.py
+    greetbook/cli.py: reference/greetbook-cli/greetbook/cli.py
+- id: visit-report
+  task: '(level 4) Create a package visits that runs as `python -m visits INPUT OUTPUT [--min N]` (visits/__init__.py,
+    __main__.py, reading.py, stats.py, report.py). INPUT is a CSV file with the header ''name,date'' (dates as YYYY-MM-DD).
+    Names are stripped and grouped case-insensitively, keeping the first spelling seen. A row with an empty name
+    or a date that isn''t a valid YYYY-MM-DD date is skipped and counted. OUTPUT is written as Markdown: the line
+    ''# Visits'', a blank line, the table header ''| Name | Visits | Last visit |'', the line ''| --- | --- | ---
+    |'', then one row per person ''| NAME | COUNT | DATE |'' (DATE is the latest visit), sorted by count descending,
+    then name case-insensitively; then a blank line, ''## Regulars'', a blank line, and one line ''- Hello, NAME!''
+    per person with at least N visits (default 3) in the table''s order, or the line ''No regulars.'' if there are
+    none; then, only if rows were skipped, a blank line and ''Skipped K invalid rows.''. The file ends with a newline.
+    A missing INPUT, or one without the ''name'' and ''date'' columns, prints a message to stderr and exits 1 without
+    writing OUTPUT. Add tests.'
+  hidden_tests:
+  - hidden/test_visit_report.py
+  reference:
+    visits/__init__.py: reference/visit-report/visits/__init__.py
+    visits/__main__.py: reference/visit-report/visits/__main__.py
+    visits/reading.py: reference/visit-report/visits/reading.py
+    visits/stats.py: reference/visit-report/visits/stats.py
+    visits/report.py: reference/visit-report/visits/report.py
+- id: mail-merge
+  task: (level 4) Create a package merge that runs as `python -m merge TEMPLATE CONTACTS OUTDIR` (merge/__init__.py,
+    __main__.py, template.py, contacts.py, writer.py). TEMPLATE is a text file with {field} placeholders ('{{' and
+    '}}' are literal braces). CONTACTS is a CSV file whose header names the fields; it must have a 'name' column.
+    For each row with a non-empty name (others are skipped), write OUTDIR/SLUG.txt with the template filled in from
+    that row, where SLUG is the name in lower case with every run of characters that aren't letters or digits replaced
+    by '-', and leading and trailing '-' removed; a slug that is already taken gets '-2', '-3' and so on. Create
+    OUTDIR if needed. Finally print 'Wrote N files.' and exit 0. If the template uses a field that isn't a column,
+    or CONTACTS has no 'name' column, or a file is missing, print a message to stderr and exit 1 without writing
+    any file. Add tests.
+  hidden_tests:
+  - hidden/test_mail_merge.py
+  reference:
+    merge/__init__.py: reference/mail-merge/merge/__init__.py
+    merge/__main__.py: reference/mail-merge/merge/__main__.py
+    merge/template.py: reference/mail-merge/merge/template.py
+    merge/contacts.py: reference/mail-merge/merge/contacts.py
+    merge/writer.py: reference/mail-merge/merge/writer.py

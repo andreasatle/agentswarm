@@ -29,12 +29,17 @@ class GreeterSuite:
     SUITE = TaskSuite.load(GREETER_SUITE)
     HARD = TaskSuite.load(GREETER_SUITE.parent / "hard" / "suite.yaml")
     HELD_OUT = TaskSuite.load(GREETER_SUITE.parent / "heldout" / "suite.yaml")
+    COMPLEX = TaskSuite.load(GREETER_SUITE.parent / "complex" / "suite.yaml")
 
     @classmethod
-    def hidden_tests_pass(cls, tmp_path: Path, task: EvalTask, greeter: str) -> bool:
+    def hidden_tests_pass(cls, tmp_path: Path, task: EvalTask, files: dict[str, str]) -> bool:
+        """The task's hidden tests on the seed with `files` (project path -> text) written over it."""
         work = tmp_path / "work"
         shutil.copytree(EXAMPLES / "seed", work)
-        (work / "greeter.py").write_text(greeter)
+        for target, text in files.items():
+            path = work / target
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
         (work / HiddenTests.DIRECTORY).mkdir()
         for test in task.hidden_tests:
             shutil.copy(test, work / HiddenTests.DIRECTORY / test.name)
@@ -47,7 +52,7 @@ class GreeterSuite:
     @classmethod
     def all_tasks(cls) -> list[EvalTask]:
         """Every task of the greeter suites."""
-        return [*cls.SUITE.tasks, *cls.HARD.tasks, *cls.HELD_OUT.tasks]
+        return [*cls.SUITE.tasks, *cls.HARD.tasks, *cls.HELD_OUT.tasks, *cls.COMPLEX.tasks]
 
     @classmethod
     def task(cls, id: str) -> EvalTask:

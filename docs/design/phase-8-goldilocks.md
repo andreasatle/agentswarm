@@ -276,3 +276,14 @@ many agents are prompts on one loaded model, which is itself part of the case fo
 - **Naming:** results call the setups *single-model* and *multi-team*. "Swarm" suggests many identical agents
   with emergent behaviour; AgentSwarm is closer to an organisation of specialised teams.
 
+- **The suite (`examples/greeter/evaluation/complex/`, 12 tasks):**
+  - **level 2:** `greet-styles`, `normalize-names`, `greeting-log`, `localized-fallback`: several interacting
+    functions in `greeter.py`;
+  - **level 3:** `greeting-book`, `templates`, `reminders`, `contacts`: packages of three modules with a data
+    model, validation or JSON persistence;
+  - **level 4:** `greet-cli`, `greetbook-cli`, `visit-report`, `mail-merge`: packages with a command-line
+    interface, files, exit codes and error handling, tested by running `python -m <package>`.
+- **Checked like the other suites:** each reference passes its hidden tests and the untouched seed fails
+  them. The check found three faults in my own first drafts, fixed before committing: a registry whose
+  `render(name, **values)` clashed with a field called `name` (the template's name is now positional-only);
+  a command-line flag that didn't win over the config when empty; a test running from the wrong folder.

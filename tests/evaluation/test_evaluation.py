@@ -22,10 +22,9 @@ class TestGreeterSuite:
     @pytest.mark.parametrize("task_id", [t.id for t in GreeterSuite.all_tasks()])
     def test_reference_solution_passes_and_seed_fails(self, tmp_path: Path, task_id: str) -> None:
         task = GreeterSuite.task(task_id)
-        reference = task.reference["greeter.py"].read_text()
-        seed = (EXAMPLES / "seed" / "greeter.py").read_text()
+        reference = {target: source.read_text() for target, source in task.reference.items()}
         assert GreeterSuite.hidden_tests_pass(tmp_path / "ref", task, reference)
-        assert not GreeterSuite.hidden_tests_pass(tmp_path / "seed", task, seed)
+        assert not GreeterSuite.hidden_tests_pass(tmp_path / "seed", task, {})
 
     def test_has_enough_tasks_including_multi_part_ones(self) -> None:
         assert len(GreeterSuite.SUITE.tasks) >= 10 and len(GreeterSuite.HARD.tasks) >= 10
