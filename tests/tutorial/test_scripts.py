@@ -58,7 +58,7 @@ class TestTutorialScripts:
         ("script", "expected"),
         [
             ("01_board.py", "replay gives the same views: True"),
-            ("02_claims.py", "executor's late result accepted: False"),
+            ("02_claims.py", "red team's late result accepted: False"),
             ("03b_project_api.py", "a-0002 is at experimental"),
         ],
     )

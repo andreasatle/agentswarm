@@ -176,25 +176,33 @@ lease = timedelta(minutes=10)
 executor = TeamName("executor")
 red_team = TeamName("red_team")
 
+# 1. One team at a time: while the executor holds the artifact, the red team is refused.
 mine = claims.claim(artifact_id, executor, lease)
 print("executor's claim:", mine)  # a Claim with an id and an expiry
 
 refused = claims.claim(artifact_id, red_team, lease)
 print("red team's claim while the executor holds it:", refused)  # None: taken
 
-# The executor crashed: its lease runs out, and the red team can take the artifact over.
+# 2. The normal case: the executor finishes and gives the claim back at once, long before it expires.
+assert mine is not None
+claims.release(mine)
+theirs = claims.claim(artifact_id, red_team, lease)
+print("red team's claim right after the release:", theirs)  # a new Claim, no waiting
+
+# 3. The fallback: the red team crashes and never releases. Once its lease runs out, the executor can
+#    take the artifact over again.
 eleven_minutes = timedelta(minutes=11)
 clock.advance(eleven_minutes)
-theirs = claims.claim(artifact_id, red_team, lease)
-print("red team's claim after the lease expired:", theirs)  # a new Claim
+again = claims.claim(artifact_id, executor, lease)
+print("executor's claim after the red team's lease expired:", again)  # a new Claim
 
-# The executor's late result is thrown away: someone else holds the artifact now.
-assert mine is not None
+# 4. If the crashed red team comes back with a result, it is thrown away: someone else holds it now.
+assert theirs is not None
 views = board.current()
 version = views.version(artifact_id)
-published = claims.publish(mine, version, [])
+published = claims.publish(theirs, version, [])
 accepted = published is not None
-print("executor's late result accepted:", accepted)  # False
+print("red team's late result accepted:", accepted)  # False
 ```
 
 A claim is appended **only if the log hasn't moved** since the registry checked that the artifact was free
