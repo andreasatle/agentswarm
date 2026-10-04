@@ -37,6 +37,7 @@ from agentswarm.core.domain import (
     Sized,
     Spent,
 )
+from agentswarm.evaluation.compare import ComparisonFiles, ComparisonReport, ComparisonRun, Experiment
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
@@ -124,6 +125,7 @@ class Cli:
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
+        compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups; compare them
         audit DECISIONS [--point POINT]            how often an active gate was wrong, against outcomes
         calibrate DECISIONS                        the calibration report for a decision log
         tune DECISIONS [--precision P]             thresholds that reach a target precision, per question
@@ -164,6 +166,8 @@ class Cli:
                 return self.status(args)
             case "evaluate":
                 return asyncio.run(self.evaluate(args))
+            case "compare":
+                return asyncio.run(self.compare(args))
             case "calibrate":
                 return self.calibrate(args)
             case "tune":
@@ -204,6 +208,20 @@ class Cli:
             raise SystemExit(f"no project at {root}")
         with SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), SystemClock()) as log:
             self._show(Report.render(Blackboard(log).current()))
+        return 0
+
+    async def compare(self, args: argparse.Namespace) -> int:
+        """Every task of an experiment under every setup; a line per run, then the table (Phase 8)."""
+        experiment_path = Path(args.experiment)
+        experiment = Experiment.load(experiment_path)
+        workdir = Path(args.workdir).expanduser()
+        workdir.mkdir(parents=True, exist_ok=True)
+        comparison = ComparisonRun(experiment, workdir)
+        report = await comparison.run(lambda measure: self._show(ComparisonReport.line(measure)))
+        results = ComparisonFiles.results(workdir)
+        report.write(results)
+        self._show("\n" + report.render())
+        self._show(f"\nEvery run and the summary: {results}")
         return 0
 
     async def evaluate(self, args: argparse.Namespace) -> int:
@@ -317,6 +335,12 @@ class Cli:
             )
         run.add_argument("--task", action="append", default=[], help="a task to add; may be repeated")
         run.add_argument("--max-rounds", type=int, default=50)
+
+        compare = commands.add_parser(
+            "compare", help="run a suite's tasks under several setups and compare them"
+        )
+        compare.add_argument("experiment", help="the experiment's YAML file: a suite and setups")
+        compare.add_argument("--workdir", required=True, help="a new directory for the projects and results")
 
         evaluate = commands.add_parser("evaluate", help="run a task suite and print the calibration report")
         evaluate.add_argument("suite", help="the suite's YAML file")

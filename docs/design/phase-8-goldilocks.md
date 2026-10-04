@@ -110,3 +110,19 @@ tokens per bug, and how many findings were raised on bug-free control runs (fals
   means the task isn't done.
 - **They're registered next to the integration tester and the broad red team**, built the same way:
   model, test runner and an optional relevance filter.
+
+**Step 2 (`agentswarm compare`).**
+- **`evaluation/compare.py`:**
+  - `Experiment` names a suite and setups; paths are relative to the experiment file, and missing files
+    and unknown task ids are errors at load time.
+  - `ComparisonRun` loops tasks outside and setups inside, so an interrupted comparison still has
+    balanced results.
+  - `RunMeasure` records one run; `SetupSummary` and `ComparisonReport` aggregate and render them.
+- **Scoring:** the hidden tests run against the tip of the base level after the project is idle. A setup
+  that merged nothing is scored on the seed, which fails.
+- **Tokens are counted per real model** (`ollama:gemma4:e4b`), not per config name. The test caught that
+  `Spent` records the config's name for the model, and two setups can both call theirs `coder`.
+- **Team model runs only:** Jev decisions and the LLM fallback (`jev*`) aren't counted. They are judging
+  costs, separate from the building cost being compared.
+- **Results:** the command prints a line per run as it finishes, then the table, and writes every run
+  and the summary to `<workdir>/results.json`.
