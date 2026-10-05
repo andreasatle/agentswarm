@@ -126,7 +126,7 @@ the lowest level can't require sign-offs; a judge sits only on the gate out of t
 | Key | Default | Notes |
 | --- | --- | --- |
 | `model` | required | `"<provider>:<model>"`, e.g. `ollama:gemma4:e4b`, `openai:gpt-5`, `anthropic:claude-sonnet-4-6`. Built with LangChain's `init_chat_model`; install the provider's extra (`uv sync --extra ollama`). The model must make real tool calls. |
-| `temperature`, `max_tokens`, `base_url`, `timeout_s` | none | Passed only when set. |
+| `temperature`, `max_tokens`, `base_url`, `timeout_s` | none | Passed only when set. `max_tokens` limits each reply's output; for Ollama it is passed as `num_predict`, the only name Ollama's model reads. |
 | `context_window` | Ollama: 32768 | Tokens the model reads at once (Ollama's `num_ctx`). Ollama's own default, 4096, silently drops the start of longer conversations. Refused for providers whose window is fixed. |
 | `usd_per_million` | none | `{input: 3.0, output: 15.0}`: the price used for spend and budgets. Unpriced models record $0 and are counted as unpriced. |
 

@@ -136,6 +136,13 @@ class TestChatModels:
         model = ChatModels({"m": ModelConfig(model="ollama:gemma4:e4b")}).get("m")
         assert model.model_dump()["num_ctx"] == ChatModels.DEFAULT_CONTEXT["ollama"]
 
+    def test_the_output_limit_reaches_ollama_under_its_own_name(self) -> None:
+        settings = ChatModels.settings(ModelConfig(model="ollama:gemma4:e4b", max_tokens=4096))
+        assert settings["num_predict"] == 4096 and "max_tokens" not in settings
+        model = ChatModels({"m": ModelConfig(model="ollama:gemma4:e4b", max_tokens=4096)}).get("m")
+        assert model.model_dump()["num_predict"] == 4096
+        assert ChatModels.settings(ModelConfig(model="openai:gpt-5", max_tokens=10)) == {"max_tokens": 10}
+
     def test_a_context_window_for_a_provider_with_a_fixed_one_is_refused(self) -> None:
         with pytest.raises(ModelUnavailable, match="fixed for provider 'openai'"):
             ChatModels.settings(ModelConfig(model="openai:gpt-5", context_window=8192))

@@ -13,7 +13,7 @@ from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.escalations import Escalations
 from agentswarm.core.clock import SystemClock
-from agentswarm.core.config import ProjectConfig
+from agentswarm.core.config import ProjectConfig, SandboxConfig
 from agentswarm.core.domain import (
     ArtifactCreated,
     ArtifactId,
@@ -47,6 +47,7 @@ from agentswarm.evaluation.compare import (
 )
 from agentswarm.evaluation.curves import CurveData
 from agentswarm.evaluation.faults import Variant
+from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -63,6 +64,7 @@ from agentswarm.prompts import PromptCatalogue
 from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
 from agentswarm.teams.routing import ModelCurves, Observation
+from agentswarm.workspace.sandbox import Sandboxes
 
 
 class Report:
@@ -146,6 +148,7 @@ class Cli:
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
         curves WORKDIR... --out FILE               fit model curves over task difficulty from comparisons
         probe EXPERIMENT --workdir DIR             one prompt, one answer: models scored on single calls
+        import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
         prompts                                    every model call and Jev question, as the model sees it
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
                                                    bugs for their reviewers (review); compare them
@@ -197,6 +200,8 @@ class Cli:
                 return self.curves(args)
             case "probe":
                 return asyncio.run(self.probe(args))
+            case "import-evalplus":
+                return self.import_evalplus(args)
             case "prompts":
                 self._show(PromptCatalogue.standard().render().rstrip("\n"))
                 return 0
@@ -273,6 +278,18 @@ class Cli:
         self._show(
             f"\nEvery answer: {workdir / ProbeFiles.RESULTS}; the table: {workdir / ProbeFiles.SUMMARY}"
         )
+        return 0
+
+    def import_evalplus(self, args: argparse.Namespace) -> int:
+        """An EvalPlus release file as a task suite; only tasks whose reference passes are written."""
+        kind = EvalPlusFormat(args.format)
+        out = Path(args.out).expanduser()
+        tasks = EvalPlusReader.read(Path(args.file).expanduser(), kind)
+        sandbox = Sandboxes.build(SandboxConfig())
+        check = ImportCheck(sandbox, out / "_scratch", SuiteWriter.TEST_COMMAND, SuiteWriter.TIMEOUT_S)
+        report = SuiteWriter(out, args.name or kind.value, check).write(tasks)
+        self._show(report.render())
+        self._show(f"Suite: {out / 'suite.yaml'}")
         return 0
 
     def curves(self, args: argparse.Namespace) -> int:
@@ -420,6 +437,12 @@ class Cli:
         probe = commands.add_parser("probe", help="put one-prompt probes to several models and score them")
         probe.add_argument("experiment", help="the probe experiment's YAML file: suites, kinds and models")
         probe.add_argument("--workdir", required=True, help="where results go; rerun to resume")
+
+        evalplus = commands.add_parser("import-evalplus", help="turn an EvalPlus release into a task suite")
+        evalplus.add_argument("file", help="an EvalPlus OriginFmt release file (.jsonl.gz)")
+        evalplus.add_argument("--format", required=True, choices=[f.value for f in EvalPlusFormat])
+        evalplus.add_argument("--out", required=True, help="the suite's folder")
+        evalplus.add_argument("--name", help="the project name (default: the format)")
 
         commands.add_parser("prompts", help="print every model call and Jev question (docs/PROMPTS.md)")
 

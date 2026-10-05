@@ -42,6 +42,9 @@ class ChatModels:
             raise ModelUnavailable(f"model {name!r} ({config.model}) is not a concrete chat model")
         return model
 
+    # Settings a provider's chat model names differently. LangChain drops an unknown name without a word:
+    # Ollama's model ignores `max_tokens` and limits output only through `num_predict`.
+    RENAMED: ClassVar[dict[str, dict[str, str]]] = {"ollama": {"max_tokens": "num_predict"}}
     # Providers whose context window is a setting, and the name of that setting. Elsewhere the window is
     # fixed by the model, so setting it is a configuration error rather than something to ignore.
     CONTEXT_SETTING: ClassVar[dict[str, str]] = {"ollama": "num_ctx"}
@@ -53,9 +56,10 @@ class ChatModels:
     def settings(cls, config: ModelConfig) -> dict[str, Any]:
         """The keyword arguments for init_chat_model: what the configuration sets, plus a context window
         for providers whose default one is too small."""
+        renamed = cls.RENAMED.get(config.provider, {})
         candidates: dict[str, object | None] = {
             "temperature": config.temperature,
-            "max_tokens": config.max_tokens,
+            renamed.get("max_tokens", "max_tokens"): config.max_tokens,
             "base_url": config.base_url,
             "timeout": config.timeout_s,
         }
