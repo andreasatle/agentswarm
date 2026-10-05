@@ -42,15 +42,32 @@ class ChatModels:
             raise ModelUnavailable(f"model {name!r} ({config.model}) is not a concrete chat model")
         return model
 
-    @staticmethod
-    def settings(config: ModelConfig) -> dict[str, Any]:
-        """The keyword arguments for init_chat_model: only what the configuration sets."""
+    # Providers whose context window is a setting, and the name of that setting. Elsewhere the window is
+    # fixed by the model, so setting it is a configuration error rather than something to ignore.
+    CONTEXT_SETTING: ClassVar[dict[str, str]] = {"ollama": "num_ctx"}
+    # Ollama's own default is 4096 tokens whatever the model supports, and it silently drops the start of
+    # a longer conversation, instructions included: Phase 8's first runs lost their answers to it.
+    DEFAULT_CONTEXT: ClassVar[dict[str, int]] = {"ollama": 32_768}
+
+    @classmethod
+    def settings(cls, config: ModelConfig) -> dict[str, Any]:
+        """The keyword arguments for init_chat_model: what the configuration sets, plus a context window
+        for providers whose default one is too small."""
         candidates: dict[str, object | None] = {
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
             "base_url": config.base_url,
             "timeout": config.timeout_s,
         }
+        context = config.context_window or cls.DEFAULT_CONTEXT.get(config.provider)
+        if context is not None:
+            setting = cls.CONTEXT_SETTING.get(config.provider)
+            if setting is None:
+                raise ModelUnavailable(
+                    f"{config.model}: the context window is fixed for provider {config.provider!r}; "
+                    f"remove `context_window` (settable for: {sorted(cls.CONTEXT_SETTING)})"
+                )
+            candidates[setting] = context
         return {key: value for key, value in candidates.items() if value is not None}
 
     @classmethod

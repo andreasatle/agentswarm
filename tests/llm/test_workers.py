@@ -127,3 +127,15 @@ class TestChatModels:
     def test_only_configured_settings_are_passed(self) -> None:
         settings = ChatModels.settings(ModelConfig(model="openai:gpt-5", temperature=0.0, timeout_s=30))
         assert settings == {"temperature": 0.0, "timeout": 30}
+
+    def test_ollama_gets_a_real_context_window_by_default_or_the_configured_one(self) -> None:
+        default = ChatModels.settings(ModelConfig(model="ollama:gemma4:e4b"))
+        configured = ChatModels.settings(ModelConfig(model="ollama:gemma4:e4b", context_window=8192))
+        assert default == {"num_ctx": ChatModels.DEFAULT_CONTEXT["ollama"]}
+        assert configured == {"num_ctx": 8192}
+        model = ChatModels({"m": ModelConfig(model="ollama:gemma4:e4b")}).get("m")
+        assert model.model_dump()["num_ctx"] == ChatModels.DEFAULT_CONTEXT["ollama"]
+
+    def test_a_context_window_for_a_provider_with_a_fixed_one_is_refused(self) -> None:
+        with pytest.raises(ModelUnavailable, match="fixed for provider 'openai'"):
+            ChatModels.settings(ModelConfig(model="openai:gpt-5", context_window=8192))
