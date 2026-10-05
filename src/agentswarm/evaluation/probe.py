@@ -526,7 +526,9 @@ class ProbeFiles:
 class ProbeRun:
     """Puts every probe to every model, one model at a time (each loads once), and scores the answers."""
 
-    MAX_MODEL_CALLS = 3  # one answer; the rest leave room for a model that first replies in plain text
+    # One call answers a probe: there are no tools. A model that replies in plain text instead still gets the
+    # worker's final-answer request, and a reply cut off at max_tokens ends the probe after one capped reply.
+    MAX_MODEL_CALLS = 1
 
     def __init__(
         self,
