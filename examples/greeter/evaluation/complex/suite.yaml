@@ -54,7 +54,7 @@ tasks:
   - hidden/test_localized_fallback.py
   reference:
     greeter.py: reference/localized-fallback/greeter.py
-- id: greeting-book
+- id: greetbook
   task: '(level 3) Create a package greetbook (greetbook/__init__.py, greetbook/book.py, greetbook/store.py). book.py
     has class GreetingBook and exception DuplicateName (a subclass of ValueError). GreetingBook.add(name, greeting)
     stores a greeting under a name; the name is stripped and must be non-empty (else ValueError), and adding a name
@@ -66,11 +66,11 @@ tasks:
     an empty one if the file doesn''t exist, and ValueError if the file isn''t valid. greetbook/__init__.py exports
     GreetingBook, DuplicateName, save and load. Add tests.'
   hidden_tests:
-  - hidden/test_greeting_book.py
+  - hidden/test_greetbook.py
   reference:
-    greetbook/__init__.py: reference/greeting-book/greetbook/__init__.py
-    greetbook/book.py: reference/greeting-book/greetbook/book.py
-    greetbook/store.py: reference/greeting-book/greetbook/store.py
+    greetbook/__init__.py: reference/greetbook/greetbook/__init__.py
+    greetbook/book.py: reference/greetbook/greetbook/book.py
+    greetbook/store.py: reference/greetbook/greetbook/store.py
 - id: templates
   task: '(level 3) Create a package greettemplates (greettemplates/__init__.py, template.py, registry.py). template.py
     has class Template and exception MissingField (a subclass of KeyError). Template(text) parses placeholders written

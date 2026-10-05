@@ -47,6 +47,7 @@ class AnalysisToolbox:
     DIRECTORY = "_analysis"  # never committed: the checkout is detached and thrown away
     NAME = re.compile(r"^test_[a-z0-9_]+\.py$")
     READ_LIMIT = 100_000
+    TOOLS: ClassVar[tuple[str, ...]] = ("list_files", "read_file", "show_change", "run_test")
 
     def __init__(self, worktree: Worktree, diff: str, runner: CommandCheck) -> None:
         self._worktree = worktree
@@ -55,7 +56,7 @@ class AnalysisToolbox:
         self.runs: dict[str, CheckResult] = {}
 
     def tools(self) -> Sequence[Callable[..., str]]:
-        return [self.list_files, self.read_file, self.show_change, self.run_test]
+        return [getattr(self, name) for name in self.TOOLS]
 
     def list_files(self) -> str:
         """List every file in the project, one relative path per line."""
@@ -245,13 +246,14 @@ class ReadingToolbox:
     """Read-only tools for reviewers of text: list and read files, and see the change."""
 
     READ_LIMIT = 100_000
+    TOOLS: ClassVar[tuple[str, ...]] = ("list_files", "read_file", "show_change")
 
     def __init__(self, worktree: Worktree, diff: str) -> None:
         self._worktree = worktree
         self._diff = diff
 
     def tools(self) -> Sequence[Callable[..., str]]:
-        return [self.list_files, self.read_file, self.show_change]
+        return [getattr(self, name) for name in self.TOOLS]
 
     def list_files(self) -> str:
         """List every file in the project, one relative path per line."""

@@ -8,6 +8,7 @@ logged and scored against what turned out to be true.
 
 - [tutorial/](tutorial/): the system one layer at a time, with a script to run for every step.
 - [docs/REFERENCE.md](docs/REFERENCE.md): every config key, event, team, judge, report and command.
+- [docs/PROMPTS.md](docs/PROMPTS.md): every prompt a model or Jev sees, generated from the code.
 - [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md) and [docs/design/](docs/design/): the design and every
   decision made while building it; [docs/BACKLOG.md](docs/BACKLOG.md): what was postponed, and why.
 

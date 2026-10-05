@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -57,13 +58,14 @@ class WorktreeToolbox:
     """
 
     READ_LIMIT = 100_000  # characters
+    TOOLS: ClassVar[tuple[str, ...]] = ("list_files", "read_file", "write_file", "delete_file", "run_checks")
 
     def __init__(self, worktree: Worktree, checks: Sequence[HardCheck]) -> None:
         self._worktree = worktree
         self._checks = tuple(checks)
 
     def tools(self) -> Sequence[Callable[..., str]]:
-        return [self.list_files, self.read_file, self.write_file, self.delete_file, self.run_checks]
+        return [getattr(self, name) for name in self.TOOLS]
 
     def list_files(self) -> str:
         """List every file in the project, one relative path per line."""

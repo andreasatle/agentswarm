@@ -240,6 +240,8 @@ Finding kinds: `test_failure`, `build_failure`, `out_of_scope`, `incomplete`, `s
 
 ## 7. Teams
 
+Every team's instructions, payload, tools and answer are in [PROMPTS.md](PROMPTS.md).
+
 | `use` | Watches | Does | Notes |
 | --- | --- | --- | --- |
 | `executor` | lowest | A model edits the artifact's branch with a toolbox (list/read/write/delete files, run checks), commits. | Model tiers; waits for sizing when the project has a decomposer; commits and escalates failing or incomplete work. |
@@ -377,6 +379,7 @@ conditions. `tests_relevant` is true when the change added tests and they kill a
 | `agentswarm tune DECISIONS [--precision P] [--min-support N]` | Threshold recommendations. |
 | `agentswarm audit DECISIONS [--point POINT]` | Gate error rates against the bounds. |
 | `agentswarm label DECISIONS [--limit N]` | Human spot check (answers hidden until you answer). |
+| `agentswarm prompts` | Every model call and Jev question as the model sees it: instructions, a sample payload, tools, answer schema. Its output is [PROMPTS.md](PROMPTS.md). |
 
 A swarm file:
 

@@ -279,7 +279,7 @@ many agents are prompts on one loaded model, which is itself part of the case fo
 - **The suite (`examples/greeter/evaluation/complex/`, 12 tasks):**
   - **level 2:** `greet-styles`, `normalize-names`, `greeting-log`, `localized-fallback`: several interacting
     functions in `greeter.py`;
-  - **level 3:** `greeting-book`, `templates`, `reminders`, `contacts`: packages of three modules with a data
+  - **level 3:** `greetbook`, `templates`, `reminders`, `contacts`: packages of three modules with a data
     model, validation or JSON persistence;
   - **level 4:** `greet-cli`, `greetbook-cli`, `visit-report`, `mail-merge`: packages with a command-line
     interface, files, exit codes and error handling, tested by running `python -m <package>`.

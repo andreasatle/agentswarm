@@ -286,6 +286,14 @@ class JudgeCatalog:
             raise ValueError(f"judge {old!r} is already registered")
         self._judges[old] = self.get(name)
 
+    def judges(self) -> list[Judge]:
+        """Every registered judge once, in registration order (aliases left out)."""
+        distinct: list[Judge] = []
+        for judge in self._judges.values():
+            if judge not in distinct:
+                distinct.append(judge)
+        return distinct
+
     def get(self, name: str) -> Judge:
         judge = self._judges.get(name)
         if judge is None:

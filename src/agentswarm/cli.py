@@ -57,6 +57,7 @@ from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.project import Project, ProjectServices
+from agentswarm.prompts import PromptCatalogue
 from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
 from agentswarm.teams.routing import ModelCurves, Observation
@@ -142,6 +143,7 @@ class Cli:
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
         curves WORKDIR... --out FILE               fit model curves over task difficulty from comparisons
+        prompts                                    every model call and Jev question, as the model sees it
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
                                                    bugs for their reviewers (review); compare them
         audit DECISIONS [--point POINT]            how often an active gate was wrong, against outcomes
@@ -188,6 +190,9 @@ class Cli:
                 return asyncio.run(self.compare(args))
             case "curves":
                 return self.curves(args)
+            case "prompts":
+                self._show(PromptCatalogue.standard().render().rstrip("\n"))
+                return 0
             case "calibrate":
                 return self.calibrate(args)
             case "tune":
@@ -392,6 +397,8 @@ class Cli:
         curves.add_argument("workdirs", nargs="+", help="workdirs of build comparisons")
         curves.add_argument("--bands", type=int, default=3, help="difficulty bands (default 3)")
         curves.add_argument("--out", required=True, help="where to write the curves (JSON)")
+
+        commands.add_parser("prompts", help="print every model call and Jev question (docs/PROMPTS.md)")
 
         evaluate = commands.add_parser("evaluate", help="run a task suite and print the calibration report")
         evaluate.add_argument("suite", help="the suite's YAML file")
