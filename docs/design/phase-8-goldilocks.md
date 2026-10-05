@@ -169,16 +169,38 @@ the kind of call and the difficulty of its payload, using curves per (kind of ca
 atomic benchmark. Every team gets routing without knowing about it. Models aren't switched between steps
 of one tool loop: that would need a truth for "was this a good next step", which nothing provides.
 
-### Revised steps
+### Revised steps (updated 2026-10-05 with the research findings)
 
-8. The atomic benchmark: `agentswarm probe EXPERIMENT --workdir DIR` with the `produce` and `critique`
-   kinds; results per (kind, model), resumable.
-9. Probe runs on the local models that fit in 24 GB: gemma4 e4b, 12b and 26b, qwen2.5-coder 7b and 14b,
-   llama3.1 8b.
-10. Difficulty per probe (Jev's `TaskDifficulty`), curves per (kind, model), and the routing worker.
-11. The end-to-end comparisons (`compare`) rerun with the fixed context window, as the final validation
-    rather than the measuring tool.
-12. Results, honestly reported, as in step 7.
+[RESEARCH.md](../RESEARCH.md) changes what a fair comparison is. Its strongest finding is that several
+independent attempts, selected by tests, beat more elaborate setups at equal cost (P2, P8). So the baseline
+every setup must beat is **one model, n attempts, checks select, same token budget**, and reliability is
+reported as consistency over repeated attempts (P6), not as single successes.
+
+8. **The atomic benchmark** (done): `agentswarm probe` with `produce` and `critique` probes, results per
+   (kind, model), resumable; invalid JSON, cut-off and missing answers recorded as separate outcomes; each
+   answer stored, so it can be rated blind later.
+9. **Probe hardening from the research:**
+   - `repeats: k` per probe at a temperature above 0, reported as pass^k next to the success rate (P6);
+   - `samples: n` per probe with selection: by the hidden tests (the ceiling, pass@n) and by tests the model
+     itself wrote (the realistic case, CodeT-style) (P2, P3);
+   - red-flagging: invalid, cut-off or overlong answers discarded and resampled, counted separately (P7);
+   - a variant with a reasoning field before the answer, to settle the structured-output question per model
+     (RESEARCH.md section 10).
+10. **The task set:** EvalPlus HumanEval+ and MBPP+ imported and checked (538 tasks, done). Jev rates every
+    task's difficulty; a stratified subset of a few hundred spans easy to hard. LiveCodeBench follows if
+    results look inflated by contamination (RESEARCH.md section 13).
+11. **Probe runs:** the six local models; Claude and OpenAI models when the user approves the spend.
+    Questions answered: which models produce valid answers at all; success, pass^k and best-of-n per (kind,
+    model, difficulty).
+12. **Curves and routing per call:** curves per (kind, model) from the probes; check whether they cross; a
+    routing worker that picks a model per call.
+13. **End-to-end validation at equal cost:** `compare` gains the baseline setup (one model, n attempts,
+    selected by checks) at the token budget of the team setups. Reviewing: broad red team, narrow red
+    teams, and n samples of the broad red team, at equal cost (P10).
+14. **Results**, honestly reported, as in step 7, including where small swarms lose.
+
+What this phase measures feeds [Phase 10](phase-10-robustness.md), which builds the robustness mechanisms
+that win.
 
 ## Not in this phase
 

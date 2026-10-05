@@ -17,10 +17,12 @@ Done and removed in the 2026-10-04 cleanup (each in its phase's design doc): rel
 escalation workflow (Phase 3), promotion beyond the base level (release trains, Phase 3), the LLM fallback,
 Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend budgets (Phase 6).
 
-## Open items (updated 2026-10-04)
+## Open items (updated 2026-10-05)
 
-- **Phase 8 (in progress): small swarms against bigger models.** The long comparison runs are going; then
-  the model curves, the routed setup and the write-up. See docs/design/phase-8-goldilocks.md.
+- **Phase 8 (in progress): small swarms against bigger models.** Revised after the first live runs and the
+  research review: the atomic benchmark (probes) is the measuring instrument, on imported EvalPlus tasks;
+  every setup is compared at equal cost against one model making n attempts selected by checks; consistency
+  is reported as pass^k. See docs/design/phase-8-goldilocks.md, steps 8-14.
 - **Phase 9 (planned, next): conventions that hold.** One level of configuration: the project's test
   structure is shared and defined once (seed, conventions file, checks); each analyzer's probe tests are its
   own method, in its team config. No toolchain layer, detection, plugins or other languages until a real
@@ -34,7 +36,12 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
   false promotions pooled and 0/16 held out. The 95% upper bound gets to 5% only at about 73 known
   promotions without error (about one per task). Add held-out tasks (or real outcomes) until then. Due:
   before relying on the active gate unattended.
-- **Phase 10 (planned): project types as data.** A project type becomes one YAML file, still one level:
+- **Phase 10 (planned): robustness for high-level goals.** From docs/RESEARCH.md: several attempts selected
+  by checks, red-flag and resample, checks out of the producer's reach (protected acceptance tests, no
+  weakening of tests), a clarifier for vague goals, verified decompositions, voting on small known steps,
+  judge hygiene, pass^k as the release criterion. Each step is built only if a measurement shows it helps.
+  See docs/design/phase-10-robustness.md. Due: after Phase 8's measurements and Phase 9.
+- **Phase 11 (planned): project types as data.** A project type becomes one YAML file, still one level:
   levels, checks, gates, judges (questions and what a "no" means, built into Jev specs) and teams. Teams
   are one of four mechanisms kept in code (producer, probing reviewer, quoting reviewer, planner) plus data
   (name, instructions, finding kind, evidence). A project names its preset by name or path, so new types

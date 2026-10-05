@@ -305,3 +305,4 @@ don't delete the old evidence. Record changes below.
 ### Changes
 
 - 2026-10-05: first version (P1–P12).
+- 2026-10-05: the gaps are planned: 1, 3 and 10 in Phase 8 (steps 9 and 13), the rest in [Phase 10](design/phase-10-robustness.md).
