@@ -45,6 +45,8 @@ class ChatModels:
     # Settings a provider's chat model names differently. LangChain drops an unknown name without a word:
     # Ollama's model ignores `max_tokens` and limits output only through `num_predict`.
     RENAMED: ClassVar[dict[str, dict[str, str]]] = {"ollama": {"max_tokens": "num_predict"}}
+    # Providers whose thinking models can be switched to answer without reasoning, and the setting's name.
+    THINKING_SETTING: ClassVar[dict[str, str]] = {"ollama": "reasoning"}
     # Providers whose context window is a setting, and the name of that setting. Elsewhere the window is
     # fixed by the model, so setting it is a configuration error rather than something to ignore.
     CONTEXT_SETTING: ClassVar[dict[str, str]] = {"ollama": "num_ctx"}
@@ -63,6 +65,14 @@ class ChatModels:
             "base_url": config.base_url,
             "timeout": config.timeout_s,
         }
+        if config.thinking is not None:
+            setting = cls.THINKING_SETTING.get(config.provider)
+            if setting is None:
+                raise ModelUnavailable(
+                    f"{config.model}: `thinking` can't be set for provider {config.provider!r} yet "
+                    f"(settable for: {sorted(cls.THINKING_SETTING)})"
+                )
+            candidates[setting] = config.thinking
         context = config.context_window or cls.DEFAULT_CONTEXT.get(config.provider)
         if context is not None:
             setting = cls.CONTEXT_SETTING.get(config.provider)

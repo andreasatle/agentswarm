@@ -157,6 +157,7 @@ class ModelConfig(Strict):
     base_url: str | None = None  # e.g. a remote Ollama server
     timeout_s: float | None = None
     context_window: int | None = Field(default=None, gt=0)  # tokens the model reads at once; see ChatModels
+    thinking: bool | None = None  # a thinking model's reasoning on or off; None: the provider's default
     usd_per_million: Price | None = None  # for spend and budgets; unpriced models cost 0 (and say so)
 
     @property

@@ -6,6 +6,7 @@ import yaml
 from pydantic import BaseModel
 
 from agentswarm.cli import Cli
+from agentswarm.evaluation.difficulty import DifficultyRatings, TaskRating
 from agentswarm.evaluation.probe import (
     CritiqueAnswer,
     CritiqueRequest,
@@ -19,6 +20,7 @@ from agentswarm.evaluation.probe import (
     ProduceRequest,
     ProjectFiles,
     SourceFile,
+    TaskSample,
 )
 from agentswarm.llm.workers import CutOff, FakeWorker, FakeWorkers, InvalidAnswer, Step, Toolbox, WorkerError
 from agentswarm.workspace.sandbox import LocalSandbox
@@ -136,6 +138,37 @@ class TestProbeRun:
         _, outcomes = p.run([escape, p.critique(False), p.critique(False)])
         assert outcomes[0] is Outcome.UNSOLVED and not (tmp_path / "outside.py").exists()
         assert outcomes[2] is Outcome.MISSED
+
+
+class TestTaskSample:
+    def test_takes_so_many_tasks_per_band_reproducibly_and_skips_unrated_ones(self, tmp_path: Path) -> None:
+        difficulties = {f"e{i}": 0.1 for i in range(5)} | {f"m{i}": 0.5 for i in range(5)} | {"h0": 0.9}
+        sample = TaskSample(ratings=tmp_path / "r.jsonl", easy=2, medium=3, hard=4)
+        candidates = [*difficulties, "unrated"]
+        chosen = sample.choose(candidates, difficulties)
+        assert len([t for t in chosen if t.startswith("e")]) == 2
+        assert len([t for t in chosen if t.startswith("m")]) == 3
+        assert "h0" in chosen and "unrated" not in chosen  # the hard band has only one
+        assert sample.choose(list(reversed(candidates)), difficulties) == chosen  # order doesn't matter
+        assert TaskSample.band(1.0) == 2 and TaskSample.band(0.33) == 0
+
+    def test_a_sampled_experiment_records_each_probes_difficulty_and_cost(self, tmp_path: Path) -> None:
+        p = Probes(tmp_path)
+        rating = TaskRating(task="farewell", suite="s", difficulty=0.2, judge_version="v", jev_model="jev")
+        DifficultyRatings(tmp_path / "ratings.jsonl").append(rating)
+        raw = yaml.safe_load((tmp_path / "probe.yaml").read_text())
+        raw["sample"] = {"ratings": "ratings.jsonl", "easy": 1, "medium": 0, "hard": 0}
+        raw["models"]["small"]["usd_per_million"] = {"input": 1.0, "output": 1.0}
+        (tmp_path / "probe.yaml").write_text(yaml.safe_dump(raw))
+        p.experiment = ProbeExperiment.load(tmp_path / "probe.yaml")
+        worker = FakeWorker(
+            [p.answer(a) for a in (p.produce(p.reference), p.critique(False), p.critique(False))]
+        )
+        run = ProbeRun(p.experiment, p.workdir, FakeWorkers({"small": worker}), LocalSandbox())
+        report = asyncio.run(run.run())
+        assert {r.difficulty for r in report.results} == {0.2}
+        assert report.summaries[0].usd == 0.0  # the fake worker reports no tokens; priced, so not None
+        assert "$0.00" in report.render()
 
 
 class TestProbeFailures:

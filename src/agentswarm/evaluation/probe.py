@@ -16,11 +16,12 @@ rerun skips the (model, probe) pairs already there, so an interrupted run resume
 
 import difflib
 import json
+import random
 import shutil
 import statistics
 import time
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Self
@@ -28,8 +29,9 @@ from typing import ClassVar, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from agentswarm.core.config import ModelConfig, ProjectConfig, SandboxConfig
+from agentswarm.core.config import ModelConfig, Price, ProjectConfig, SandboxConfig
 from agentswarm.core.domain import Usage
+from agentswarm.evaluation.difficulty import DifficultyRatings
 from agentswarm.evaluation.review import BugPlanter, PlantedBug
 from agentswarm.evaluation.suite import EvalTask, HiddenTests, TaskSuite
 from agentswarm.gating.checks import CheckStatus
@@ -111,6 +113,7 @@ class Probe:
     seed: Path | None
     task: EvalTask
     bug: PlantedBug | None  # critique probes only; None is the clean control
+    difficulty: float | None = None  # Jev's rating of the task, when the experiment has one
 
 
 class Outcome(StrEnum):
@@ -147,11 +150,44 @@ class ProbeResult(Frozen):
     usage: Usage
     seconds: float
     detail: str
+    difficulty: float | None = None  # Jev's rating of the task
     answer: str | None = None  # the model's answer as JSON, for reading and for rating it blind later
 
     @property
     def success(self) -> bool:
         return self.outcome.success
+
+
+class TaskSample(Frozen):
+    """A stratified sample of the suites' tasks: so many from each difficulty band of Jev's ratings.
+
+    The bands are the curves' thirds (easy below 1/3, medium below 2/3, hard above). The choice within a band
+    is a seeded shuffle of the sorted task ids, so it doesn't depend on the order of the suites. A band with
+    fewer tasks than asked gives all it has; tasks without a rating are left out.
+    """
+
+    ratings: Path  # from `agentswarm rate`
+    easy: int = Field(ge=0)
+    medium: int = Field(ge=0)
+    hard: int = Field(ge=0)
+    seed: int = 0
+
+    BANDS: ClassVar[int] = 3
+
+    @classmethod
+    def band(cls, difficulty: float) -> int:
+        return min(int(difficulty * cls.BANDS), cls.BANDS - 1)
+
+    def choose(self, candidates: Sequence[str], difficulties: dict[str, float]) -> set[str]:
+        wanted = (self.easy, self.medium, self.hard)
+        chosen: set[str] = set()
+        for band, count in enumerate(wanted):
+            members = sorted(
+                t for t in candidates if t in difficulties and self.band(difficulties[t]) == band
+            )
+            random.Random(f"{self.seed}:{band}").shuffle(members)
+            chosen.update(members[:count])
+        return chosen
 
 
 class ProbeExperiment(Frozen):
@@ -160,6 +196,7 @@ class ProbeExperiment(Frozen):
     suites: tuple[Path, ...] = Field(min_length=1)
     kinds: tuple[ProbeKind, ...] = (ProbeKind.PRODUCE, ProbeKind.CRITIQUE)
     tasks: tuple[str, ...] = ()  # task ids to use; empty: every task of every suite
+    sample: TaskSample | None = None  # instead of `tasks`: a stratified sample by Jev's difficulty
     bugs_per_task: int = Field(default=2, ge=0)
     controls: bool = True  # critique: one clean probe per task, to count false alarms
     constraints: tuple[str, ...] = ()  # given to every produce probe
@@ -168,14 +205,20 @@ class ProbeExperiment(Frozen):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """Suite paths are relative to the experiment file."""
+        """Paths are relative to the experiment file, or start with ~ for the home folder."""
         loaded = cls.model_validate(yaml.safe_load(path.read_text()))
         base = path.parent.resolve()
-        suites = tuple((base / s).resolve() for s in loaded.suites)
-        missing = [str(s) for s in suites if not s.is_file()]
+        suites = tuple((base / s.expanduser()).resolve() for s in loaded.suites)
+        sample = loaded.sample
+        if sample is not None:
+            sample = sample.model_copy(update={"ratings": (base / sample.ratings.expanduser()).resolve()})
+        files = [*suites, *([sample.ratings] if sample is not None else [])]
+        missing = [str(f) for f in files if not f.is_file()]
         if missing:
-            raise ValueError(f"probe experiment {path} refers to missing suites: {missing}")
-        return loaded.model_copy(update={"suites": suites})
+            raise ValueError(f"probe experiment {path} refers to missing files: {missing}")
+        if loaded.tasks and sample is not None:
+            raise ValueError(f"probe experiment {path}: give `tasks` or `sample`, not both")
+        return loaded.model_copy(update={"suites": suites, "sample": sample})
 
 
 class TestBench:
@@ -372,15 +415,22 @@ class ProbeSet:
         if cache.is_file():
             raw: dict[str, list[dict[str, object]]] = json.loads(cache.read_text())
             bugs = {task: [PlantedBug.model_validate(b) for b in found] for task, found in raw.items()}
+        suites = [TaskSuite.load(path) for path in self._experiment.suites]
+        sample = self._experiment.sample
+        difficulties: dict[str, float] = {}
+        wanted = set(self._experiment.tasks)
+        if sample is not None:
+            difficulties = {t: r.difficulty for t, r in DifficultyRatings(sample.ratings).done().items()}
+            wanted = sample.choose([t.id for s in suites for t in s.tasks], difficulties)
         probes: list[Probe] = []
-        for path in self._experiment.suites:
-            suite = TaskSuite.load(path)
+        for suite in suites:
             config = ProjectConfig.load(suite.project)
             planter = BugPlanter(suite, self._sandbox, self._workdir / "_planting")
             for task in suite.tasks:
-                if self._experiment.tasks and task.id not in self._experiment.tasks:
+                if wanted and task.id not in wanted:
                     continue
-                probes += self.probes_for(suite, config, task, planter, bugs)
+                found = self.probes_for(suite, config, task, planter, bugs)
+                probes += [replace(p, difficulty=difficulties.get(task.id)) for p in found]
         cache.write_text(
             json.dumps({t: [b.model_dump() for b in found] for t, found in bugs.items()}, indent=2)
         )
@@ -439,10 +489,18 @@ class ProbeSummary(Frozen):
     wrong_evidence: int  # critique: a test that fails on the reference too
     median_tokens: int
     median_seconds: float
+    usd: float | None  # all these probes together; None when the model has no price
 
     @classmethod
-    def of(cls, model: str, kind: ProbeKind, results: Sequence[ProbeResult]) -> Self:
+    def of(
+        cls, model: str, kind: ProbeKind, results: Sequence[ProbeResult], price: Price | None = None
+    ) -> Self:
         successes = sum(r.success for r in results)
+        usd = (
+            round(sum(price.usd(r.usage.input_tokens, r.usage.output_tokens) for r in results), 4)
+            if price is not None
+            else None
+        )
         tokens = [r.usage.input_tokens + r.usage.output_tokens for r in results]
         return cls(
             model=model,
@@ -459,6 +517,7 @@ class ProbeSummary(Frozen):
             wrong_evidence=sum(r.outcome is Outcome.WRONG_EVIDENCE for r in results),
             median_tokens=int(statistics.median(tokens)),
             median_seconds=round(statistics.median(r.seconds for r in results), 1),
+            usd=usd,
         )
 
     def row(self) -> str:
@@ -467,7 +526,8 @@ class ProbeSummary(Frozen):
         return (
             f"{self.model:<14} {self.kind:<9} {rate:>7} {ci:>9} {self.invalid_answers:>7} {self.cut_off:>7} "
             f"{self.no_answer:>9} {self.false_alarms:>12} "
-            f"{self.wrong_evidence:>14} {self.median_tokens:>10,} {self.median_seconds:>8}"
+            f"{self.wrong_evidence:>14} {self.median_tokens:>10,} {self.median_seconds:>8} "
+            f"{f'${self.usd:.2f}' if self.usd is not None else '-':>8}"
         )
 
 
@@ -478,17 +538,17 @@ class ProbeReport(Frozen):
     HEADER: ClassVar[str] = (
         f"{'model':<14} {'kind':<9} {'success':>7} {'95% CI':>9} {'invalid':>7} {'cut off':>7} "
         f"{'no answer':>9} {'false alarms':>12} "
-        f"{'wrong evidence':>14} {'tokens':>10} {'median s':>8}"
+        f"{'wrong evidence':>14} {'tokens':>10} {'median s':>8} {'cost':>8}"
     )
 
     @classmethod
-    def of(cls, results: Sequence[ProbeResult], models: Sequence[str]) -> Self:
+    def of(cls, results: Sequence[ProbeResult], models: Mapping[str, ModelConfig]) -> Self:
         summaries: list[ProbeSummary] = []
-        for model in models:
+        for model, config in models.items():
             for kind in ProbeKind:
                 mine = [r for r in results if r.model == model and r.kind is kind]
                 if mine:
-                    summaries.append(ProbeSummary.of(model, kind, mine))
+                    summaries.append(ProbeSummary.of(model, kind, mine, config.usd_per_million))
         return cls(results=tuple(results), summaries=tuple(summaries))
 
     @staticmethod
@@ -568,7 +628,7 @@ class ProbeRun:
                 if report is not None:
                     report(result)
         bench.clean_up()
-        final = ProbeReport.of(results, list(self._experiment.models))
+        final = ProbeReport.of(results, self._experiment.models)
         self._files.write_summary(final)
         return final
 
@@ -603,6 +663,7 @@ class ProbeRun:
             usage=tally.take(),
             seconds=round(seconds, 2),
             detail=scored.detail,
+            difficulty=probe.difficulty,
             answer=answered,
         )
 

@@ -173,6 +173,13 @@ class TestChatModels:
         assert model.model_dump()["num_predict"] == 4096
         assert ChatModels.settings(ModelConfig(model="openai:gpt-5", max_tokens=10)) == {"max_tokens": 10}
 
+    def test_thinking_can_be_switched_off_for_ollama_and_is_refused_elsewhere(self) -> None:
+        assert (
+            ChatModels.settings(ModelConfig(model="ollama:gemma4:26b", thinking=False))["reasoning"] is False
+        )
+        with pytest.raises(ModelUnavailable, match="can't be set for provider 'openai'"):
+            ChatModels.settings(ModelConfig(model="openai:gpt-6-luna", thinking=False))
+
     def test_a_context_window_for_a_provider_with_a_fixed_one_is_refused(self) -> None:
         with pytest.raises(ModelUnavailable, match="fixed for provider 'openai'"):
             ChatModels.settings(ModelConfig(model="openai:gpt-5", context_window=8192))
