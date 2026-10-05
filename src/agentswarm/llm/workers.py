@@ -123,6 +123,8 @@ class LangChainWorker:
         # plain text, and after the call limit. One more call asks only for the answer.
         messages: list[BaseMessage] = state.get("messages", [])
         account = f"no {output.__name__}; {Transcript(messages).summary()}"
+        if Stops.at_limit(Transcript(messages).last_reply()):
+            raise CutOff(f"{account}; the last reply stopped at the output limit")  # asking again repeats it
         try:
             return await self._final_answer(instructions, messages, output)
         except WorkerError as error:  # InvalidAnswer or CutOff: kept, so callers can tell them apart
@@ -155,6 +157,8 @@ class LangChainWorker:
                 return answer if isinstance(answer, output) else output.model_validate(answer)
             except ValidationError as invalid:
                 error = invalid
+            if cut:
+                break  # another try would stop at the same limit
         assert error is not None
         kind = CutOff if cut else InvalidAnswer
         raise kind(f"{type(error).__name__}: {error}") from error
@@ -204,6 +208,11 @@ class Transcript:
 
     def __init__(self, messages: Sequence[BaseMessage]) -> None:
         self._messages = messages
+
+    def last_reply(self) -> AIMessage | None:
+        """The model's last reply; a message the agent adds itself (the call limit's) has no metadata."""
+        replies = [m for m in self._messages if isinstance(m, AIMessage) and m.response_metadata]
+        return replies[-1] if replies else None
 
     def summary(self) -> str:
         replies = [m for m in self._messages if isinstance(m, AIMessage)]

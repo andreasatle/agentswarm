@@ -89,6 +89,11 @@ class TestLangChainWorker:
         with pytest.raises(CutOff):
             await LangChainWorker(model.model(), max_model_calls=1).run("Do it.", Payload(task="t"), Answer)
 
+    async def test_a_cut_off_reply_ends_the_call_without_asking_again(self) -> None:
+        model = Replies().cut_off("I am still thinking about").text("unused").call("Answer", summary="late")
+        with pytest.raises(CutOff, match="stopped at the output limit"):
+            await LangChainWorker(model.model(), max_model_calls=1).run("Do it.", Payload(task="t"), Answer)
+
     def test_each_providers_way_of_saying_the_reply_hit_the_limit(self) -> None:
         for metadata in (
             {"done_reason": "length"},
