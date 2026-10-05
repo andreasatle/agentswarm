@@ -47,6 +47,7 @@ from agentswarm.evaluation.compare import (
 )
 from agentswarm.evaluation.curves import CurveData
 from agentswarm.evaluation.faults import Variant
+from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
@@ -56,6 +57,7 @@ from agentswarm.judging.decisions import SqliteDecisions
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
+from agentswarm.llm.workers import WorkerProvider
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.swarm import Swarm, SwarmConfig
@@ -143,6 +145,7 @@ class Cli:
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
         curves WORKDIR... --out FILE               fit model curves over task difficulty from comparisons
+        probe EXPERIMENT --workdir DIR             one prompt, one answer: models scored on single calls
         prompts                                    every model call and Jev question, as the model sees it
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
                                                    bugs for their reviewers (review); compare them
@@ -164,7 +167,9 @@ class Cli:
         show: Callable[[str], None] = print,
         ask: Callable[[str], str] = input,
         evaluation_services: Callable[[EvalTask], ProjectServices] | None = None,  # None: real models, Jev
+        probe_workers: WorkerProvider | None = None,  # None: the probe experiment's real models
     ) -> None:
+        self._probe_workers = probe_workers
         self._catalog = catalog or TeamCatalog.standard()
         self._show = show
         self._ask = ask
@@ -190,6 +195,8 @@ class Cli:
                 return asyncio.run(self.compare(args))
             case "curves":
                 return self.curves(args)
+            case "probe":
+                return asyncio.run(self.probe(args))
             case "prompts":
                 self._show(PromptCatalogue.standard().render().rstrip("\n"))
                 return 0
@@ -254,6 +261,18 @@ class Cli:
         report.write(results)
         self._show("\n" + report.render())
         self._show(f"\nEvery run and the summary: {results}")
+        return 0
+
+    async def probe(self, args: argparse.Namespace) -> int:
+        """Every probe to every model, one prompt and one answer each, scored by plain code (Phase 8)."""
+        experiment = ProbeExperiment.load(Path(args.experiment))
+        workdir = Path(args.workdir).expanduser()
+        run = ProbeRun(experiment, workdir, self._probe_workers)
+        report = await run.run(lambda result: self._show(ProbeReport.line(result)))
+        self._show("\n" + report.render())
+        self._show(
+            f"\nEvery answer: {workdir / ProbeFiles.RESULTS}; the table: {workdir / ProbeFiles.SUMMARY}"
+        )
         return 0
 
     def curves(self, args: argparse.Namespace) -> int:
@@ -397,6 +416,10 @@ class Cli:
         curves.add_argument("workdirs", nargs="+", help="workdirs of build comparisons")
         curves.add_argument("--bands", type=int, default=3, help="difficulty bands (default 3)")
         curves.add_argument("--out", required=True, help="where to write the curves (JSON)")
+
+        probe = commands.add_parser("probe", help="put one-prompt probes to several models and score them")
+        probe.add_argument("experiment", help="the probe experiment's YAML file: suites, kinds and models")
+        probe.add_argument("--workdir", required=True, help="where results go; rerun to resume")
 
         commands.add_parser("prompts", help="print every model call and Jev question (docs/PROMPTS.md)")
 

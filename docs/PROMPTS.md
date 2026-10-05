@@ -44,7 +44,9 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Planners: decomposer and outliner](#planners-decomposer-and-outliner) | `decomposer`, `outliner` | `Split` |
 | [Probing analyzers: evidence is a failing test](#probing-analyzers-evidence-is-a-failing-test) | `integration_tester`, `red_team`, `edge_value_tester`, `text_tester`, `error_tester`, `contract_tester` | `AnalysisReport` |
 | [Reviewing analyzers: evidence is a verbatim quote](#reviewing-analyzers-evidence-is-a-verbatim-quote) | `consistency_checker`, `fact_checker`, `audience_reviewer` | `ReviewReport` |
-| [Judge fallback: a model answering Jev's questions](#judge-fallback-a-model-answering-jevs-questions) | (judging, when Jev can't answer) | `LLMAnswers` |
+| [Judge fallback: a model answering Jev's questions](#judge-fallback-a-model-answering-jevs-questions) | (`LLMDecider`) | `LLMAnswers` |
+| [Probe: produce in one answer (benchmark)](#probe-produce-in-one-answer-benchmark) | (`Producing`) | `ProduceAnswer` |
+| [Probe: critique in one answer (benchmark)](#probe-critique-in-one-answer-benchmark) | (`Critiquing`) | `CritiqueAnswer` |
 | [Jev questions](#jev-questions) | gates, relevance filters, planners, router | answers |
 
 ## Producers: executor and writer
@@ -681,7 +683,7 @@ class QuotedProblem(Frozen):
 
 ## Judge fallback: a model answering Jev's questions
 
-### Instructions
+### LLMDecider
 
 `agentswarm.judging.deciders.LLMDecider`: A language model answering Noul questions as yes / no / unsure (proposal §12.4, the fallback).
 
@@ -792,6 +794,252 @@ class QuestionAnswer(BaseModel):
 ### What happens to the answer
 
 `LLMDecider`: A language model answering Noul questions as yes / no / unsure (proposal §12.4, the fallback).
+
+## Probe: produce in one answer (benchmark)
+
+### Producing
+
+`agentswarm.evaluation.probe.Producing`: Produce probes: implement the task in one answer, without tools.
+
+```text
+You implement one task in a small Python project, in a single answer. The data holds the task, the
+project's constraints and every file of the project.
+
+- Answer with the complete new content of every file you create or change. Files you leave out stay as
+  they are; a partial file replaces the whole file.
+- Make the smallest change that fully accomplishes the task. Do not change unrelated code.
+- Follow every rule in `constraints`.
+- Add or update tests for the behaviour you change, in the project's tests/ folder.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "north_star": "A small greeting library",
+  "task": "Add farewell(name) that returns 'Goodbye, <name>!' and raises ValueError for an empty name.",
+  "constraints": [
+    "Use only the Python standard library."
+  ],
+  "files": [
+    {
+      "path": "greeter.py",
+      "content": "def greet(name: str) -> str:\n    return f\"Hello, {name}!\"\n"
+    },
+    {
+      "path": "tests/test_greeter.py",
+      "content": "from greeter import greet\n\n\ndef test_greet():\n    assert greet(\"Ada\") == \"Hello, Ada!\"\n"
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class ProduceRequest(Frozen):
+    """The payload of a produce probe."""
+
+    north_star: str
+    task: str
+    constraints: tuple[str, ...]
+    files: tuple[SourceFile, ...]  # every file of the project as it is
+
+
+class SourceFile(Frozen):
+    path: str = Field(description="relative to the project root, e.g. greeter.py or tests/test_greeter.py")
+    content: str = Field(description="the complete text of the file")
+```
+
+### Answer
+
+```python
+class ProduceAnswer(Frozen):
+    """Your change: the complete new content of every file you create or change."""
+
+    files: tuple[SourceFile, ...] = Field(
+        description="every file you create or change, each with its complete new content; files you leave "
+        "out stay as they are"
+    )
+    summary: str = Field(description="one line: what you changed")
+
+
+class SourceFile(Frozen):
+    path: str = Field(description="relative to the project root, e.g. greeter.py or tests/test_greeter.py")
+    content: str = Field(description="the complete text of the file")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "SourceFile": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "relative to the project root, e.g. greeter.py or tests/test_greeter.py",
+          "title": "Path",
+          "type": "string"
+        },
+        "content": {
+          "description": "the complete text of the file",
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "title": "SourceFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Your change: the complete new content of every file you create or change.",
+  "properties": {
+    "files": {
+      "description": "every file you create or change, each with its complete new content; files you leave out stay as they are",
+      "items": {
+        "$ref": "#/$defs/SourceFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "summary": {
+      "description": "one line: what you changed",
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "files",
+    "summary"
+  ],
+  "title": "ProduceAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Producing`: Produce probes: implement the task in one answer, without tools.
+
+## Probe: critique in one answer (benchmark)
+
+### Critiquing
+
+`agentswarm.evaluation.probe.Critiquing`: Critique probes: find the bug in a change, if there is one, and prove it with a failing test.
+
+```text
+You review one change to a small Python project, in a single answer. The data holds the task the change
+was meant to accomplish, every file of the project after the change, and the change as a diff.
+
+- Decide whether the change has a bug: behaviour that contradicts the task.
+- If it has, set problem to true, explain the bug, and write a complete pytest file that fails because of
+  the bug and would pass if the code did what the task says. Import the code the way the project's own
+  tests do. The test runs from the project root.
+- If you find no bug, set problem to false and leave test empty. Correct changes are common: do not invent
+  problems.
+- Do not report style, naming, or features the task did not ask for.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "north_star": "A small greeting library",
+  "task": "Add farewell(name) that returns 'Goodbye, <name>!' and raises ValueError for an empty name.",
+  "files": [
+    {
+      "path": "greeter.py",
+      "content": "def greet(name: str) -> str:\n    return f\"Hello, {name}!\"\n\n\ndef farewell(name: str) -> str:\n    if name:\n        raise ValueError(\"name must not be empty\")\n    return f\"Goodbye, {name}!\"\n"
+    },
+    {
+      "path": "tests/test_greeter.py",
+      "content": "from greeter import greet\n\n\ndef test_greet():\n    assert greet(\"Ada\") == \"Hello, Ada!\"\n"
+    }
+  ],
+  "diff": "--- a/greeter.py\n+++ b/greeter.py\n@@ -1,2 +1,8 @@\n def greet(name: str) -> str:\n     return f\"Hello, {name}!\"\n+\n+\n+def farewell(name: str) -> str:\n+    if name:\n+        raise ValueError(\"name must not be empty\")\n+    return f\"Goodbye, {name}!\"\n"
+}
+</data>
+```
+
+### Payload types
+
+```python
+class CritiqueRequest(Frozen):
+    """The payload of a critique probe."""
+
+    north_star: str
+    task: str  # what the change was meant to do
+    files: tuple[SourceFile, ...]  # the project's files after the change
+    diff: str  # the change, as a unified diff
+
+
+class SourceFile(Frozen):
+    path: str = Field(description="relative to the project root, e.g. greeter.py or tests/test_greeter.py")
+    content: str = Field(description="the complete text of the file")
+```
+
+### Answer
+
+```python
+class CritiqueAnswer(Frozen):
+    """Your review: whether the change has a bug, and a test that shows it."""
+
+    problem: bool = Field(description="true if the change has a bug: behaviour that contradicts the task")
+    explanation: str = Field(description="the bug and why it is one; or why the change is correct")
+    test: str = Field(
+        description="when problem is true: a complete pytest file that fails because of the bug and would "
+        "pass if the code did what the task says; otherwise empty"
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your review: whether the change has a bug, and a test that shows it.",
+  "properties": {
+    "problem": {
+      "description": "true if the change has a bug: behaviour that contradicts the task",
+      "title": "Problem",
+      "type": "boolean"
+    },
+    "explanation": {
+      "description": "the bug and why it is one; or why the change is correct",
+      "title": "Explanation",
+      "type": "string"
+    },
+    "test": {
+      "description": "when problem is true: a complete pytest file that fails because of the bug and would pass if the code did what the task says; otherwise empty",
+      "title": "Test",
+      "type": "string"
+    }
+  },
+  "required": [
+    "problem",
+    "explanation",
+    "test"
+  ],
+  "title": "CritiqueAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Critiquing`: Critique probes: find the bug in a change, if there is one, and prove it with a failing test.
 
 ## Jev questions
 

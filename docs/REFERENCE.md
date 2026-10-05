@@ -380,6 +380,7 @@ conditions. `tests_relevant` is true when the change added tests and they kill a
 | `agentswarm tune DECISIONS [--precision P] [--min-support N]` | Threshold recommendations. |
 | `agentswarm audit DECISIONS [--point POINT]` | Gate error rates against the bounds. |
 | `agentswarm label DECISIONS [--limit N]` | Human spot check (answers hidden until you answer). |
+| `agentswarm probe EXPERIMENT --workdir DIR` | The atomic benchmark: one prompt and one answer per probe, no tools, scored by plain code (`produce`: hidden tests pass; `critique`: a test that fails on a planted bug and passes on the reference). Every model answers the same probes; resumable. See `examples/goldilocks/probe.yaml`. |
 | `agentswarm prompts` | Every model call and Jev question as the model sees it: instructions, a sample payload, tools, answer schema. Its output is [PROMPTS.md](PROMPTS.md). |
 
 A swarm file:

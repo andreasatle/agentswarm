@@ -125,6 +125,61 @@ many agents are prompts on one loaded model, which is itself part of the case fo
 7. Results, honestly reported here and in the tutorial, including where small swarms lose, and whether
    the model curves cross.
 
+## Revision after the first live runs (2026-10-05, decided with the user)
+
+### What the first runs showed
+
+- **The build suites are too easy to separate the models.** gemma4 e4b, 12b and 26b each solved about 90%
+  of the hard and held-out tasks, and only 5 runs landed in the top difficulty band, so the curves can't
+  route yet.
+- **The review benchmark measured plumbing, not reviewing.** Planted bugs found: 0/8, 0/8 and 1/8. But 27
+  of 96 reviewer runs ended without an answer at all, and the benchmark counted them as "nothing found".
+- **The cause was Ollama's context window.** Ollama runs every model with 4096 tokens unless told
+  otherwise, and silently drops the start of a longer conversation, instructions included. Every Phase 8
+  run so far had that window. Fixed: a `context_window` model setting, 32k by default for Ollama.
+- **Whole-project runs are a poor measuring instrument.** Each outcome mixes the model with the sandbox,
+  the gate, the tool loop and the provider's settings. One wrong setting spoils a night of data, and a
+  data point costs 5–10 minutes.
+
+### The atomic benchmark: one prompt, one answer, scored by plain code
+
+The user's proposal: measure models on single calls, with no framework loop. Each probe is one prompt
+(instructions and a typed payload with all the context it needs, no tools) and one typed answer, scored
+by plain code against a known truth:
+
+| Kind | The prompt gives | The answer | Success |
+| --- | --- | --- | --- |
+| `produce` | the task and every file of the seed | the complete new content of each file it creates or changes | the task's hidden tests pass on the seed with those files |
+| `critique` | the task, the changed code and its diff, either clean (the reference) or with one planted bug | whether there is a problem, and a pytest file that shows it | bug: the test fails on the buggy code and passes on the reference. Clean: no test that fails on the reference |
+
+Samples are cheap (seconds) and plentiful: every task of every greeter suite, with several planted bugs
+each. The same probes run against every model, so models are compared on exactly the same prompts. That
+makes it the instrument for choosing models too: Qwen coder, Llama and others run alongside Gemma.
+
+It also tests a design question: small models may do better with one prompt that carries all the context
+than with a tool loop, whose overhead fills their window.
+
+The probes' prompts are listed in docs/PROMPTS.md like every other model call.
+
+### Routing per call
+
+Today the model is chosen once per task, for the executor only. It becomes per call: per `worker.run`,
+one prompt and payload giving one typed answer. A routing worker wraps the real ones and picks a model from
+the kind of call and the difficulty of its payload, using curves per (kind of call, model) fitted from the
+atomic benchmark. Every team gets routing without knowing about it. Models aren't switched between steps
+of one tool loop: that would need a truth for "was this a good next step", which nothing provides.
+
+### Revised steps
+
+8. The atomic benchmark: `agentswarm probe EXPERIMENT --workdir DIR` with the `produce` and `critique`
+   kinds; results per (kind, model), resumable.
+9. Probe runs on the local models that fit in 24 GB: gemma4 e4b, 12b and 26b, qwen2.5-coder 7b and 14b,
+   llama3.1 8b.
+10. Difficulty per probe (Jev's `TaskDifficulty`), curves per (kind, model), and the routing worker.
+11. The end-to-end comparisons (`compare`) rerun with the fixed context window, as the final validation
+    rather than the measuring tool.
+12. Results, honestly reported, as in step 7.
+
 ## Not in this phase
 
 - Hosted models (`openai:`, `anthropic:`): the setups are configs, so adding one is a config change, but the
@@ -287,3 +342,23 @@ many agents are prompts on one loaded model, which is itself part of the case fo
   them. The check found three faults in my own first drafts, fixed before committing: a registry whose
   `render(name, **values)` clashed with a field called `name` (the template's name is now positional-only);
   a command-line flag that didn't win over the config when empty; a test running from the wrong folder.
+
+**Step 8 (the atomic benchmark).**
+- **`evaluation/probe.py`; `agentswarm probe`.** A probe experiment names suites, kinds, models and a
+  sandbox; it doesn't use project setups, since a probe has no teams.
+- **One class per kind** (`Producing`, `Critiquing`) holds the instructions, builds the typed request and
+  scores the typed answer. Both are in docs/PROMPTS.md.
+- **The answer models carry field descriptions** (`Field(description=...)`), so the model sees what each
+  field means. The team calls still use comments, which models don't see; that is fixed with the other
+  prompt changes.
+- **Scoring by plain code, in the sandbox:**
+  - produce: the answer's files are written over a fresh copy of the seed (a path that leaves it makes the
+    probe unsolved), then the hidden tests run;
+  - critique: the answer's test runs on the reference, and for a bug probe on the buggy code too. Caught
+    needs fail-on-bug and pass-on-reference; a test that fails on both is `wrong_evidence`; a test that
+    can't run proves nothing and is dropped, as in the analyzers.
+- **No answer is an outcome of its own** (`no_answer`), never folded into "missed", which is what hid the
+  context-window problem in the review benchmark.
+- **The time recorded is the model's,** not the scoring's. Planted bugs are cached in the workdir, and
+  results are appended to `results.jsonl` as they come, so a rerun resumes.
+

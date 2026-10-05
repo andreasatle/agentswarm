@@ -26,6 +26,16 @@ from agentswarm.core.domain import (
     Severity,
     TeamName,
 )
+from agentswarm.evaluation.probe import (
+    CritiqueAnswer,
+    CritiqueRequest,
+    Critiquing,
+    ProduceAnswer,
+    ProduceRequest,
+    Producing,
+    ProjectFiles,
+    SourceFile,
+)
 from agentswarm.jev.spec import QuestionSet
 from agentswarm.judging.deciders import LLMAnswers, LLMDecider, LLMQuestions
 from agentswarm.judging.judges import ChangeReadiness, Judge, JudgeCatalog, JudgeState
@@ -126,6 +136,34 @@ class SampleData:
             north_star=cls.NORTH_STAR, task=cls.TASK, must_fix=(cls.finding().detail,), diff=cls.DIFF
         )
 
+    SEED = 'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n'
+    SEED_TEST = 'from greeter import greet\n\n\ndef test_greet():\n    assert greet("Ada") == "Hello, Ada!"\n'
+
+    @classmethod
+    def produce(cls) -> ProduceRequest:
+        files = (
+            SourceFile(path="greeter.py", content=cls.SEED),
+            SourceFile(path="tests/test_greeter.py", content=cls.SEED_TEST),
+        )
+        constraints = ("Use only the Python standard library.",)
+        return ProduceRequest(north_star=cls.NORTH_STAR, task=cls.TASK, constraints=constraints, files=files)
+
+    @classmethod
+    def critique(cls) -> CritiqueRequest:
+        farewell = (  # the planted bug: `if name` should be `if not name`
+            "def farewell(name: str) -> str:\n"
+            "    if name:\n"
+            '        raise ValueError("name must not be empty")\n'
+            '    return f"Goodbye, {name}!"\n'
+        )
+        changed = f"{cls.SEED}\n\n{farewell}"
+        files = (
+            SourceFile(path="greeter.py", content=changed),
+            SourceFile(path="tests/test_greeter.py", content=cls.SEED_TEST),
+        )
+        diff = ProjectFiles.diff({"greeter.py": cls.SEED}, {"greeter.py": changed})
+        return CritiqueRequest(north_star=cls.NORTH_STAR, task=cls.TASK, files=files, diff=diff)
+
     @classmethod
     def llm_questions(cls) -> LLMQuestions:
         questions = {q.field: q.ask.instructions for q in Judge(ChangeReadiness).questions}
@@ -207,6 +245,22 @@ class PromptCatalogue:
                 LLMAnswers,
                 None,
             ),
+            CallFamily(
+                "Probe: produce in one answer (benchmark)",
+                (Caller("", Producing, Producing.INSTRUCTIONS),),
+                Producing,
+                SampleData.produce(),
+                ProduceAnswer,
+                None,
+            ),
+            CallFamily(
+                "Probe: critique in one answer (benchmark)",
+                (Caller("", Critiquing, Critiquing.INSTRUCTIONS),),
+                Critiquing,
+                SampleData.critique(),
+                CritiqueAnswer,
+                None,
+            ),
         ]
         return cls(families, JudgeCatalog.standard().judges())
 
@@ -256,7 +310,7 @@ A worker (`llm/workers.py`) makes each call the same way:
     def _index(self) -> str:
         rows = ["| Family | Team names (`use:`) | Answer |", "| --- | --- | --- |"]
         for family in self.families:
-            uses = ", ".join(f"`{u}`" for u in family.uses()) or "(judging, when Jev can't answer)"
+            uses = ", ".join(f"`{u}`" for u in family.uses()) or f"(`{family.handler.__name__}`)"
             link = f"[{family.title}](#{self._anchor(family.title)})"
             rows.append(f"| {link} | {uses} | `{family.output.__name__}` |")
         rows.append(
@@ -267,7 +321,7 @@ A worker (`llm/workers.py`) makes each call the same way:
     def _family(self, family: CallFamily) -> str:
         sections = [f"## {family.title}"]
         for caller in family.callers:
-            heading = f"### `{caller.use}`" if caller.use else "### Instructions"
+            heading = f"### `{caller.use}`" if caller.use else f"### {caller.owner.__name__}"
             own = self._doc(caller.owner)
             where = f"`{caller.owner.__module__}.{caller.owner.__qualname__}`"
             about = f"{where}: {own}" if own else where
