@@ -1,0 +1,23 @@
+# A quick check of the atomic benchmark on the hosted models: three tasks, 12 probes per model.
+#   uv run agentswarm probe examples/goldilocks/probe-smoke-hosted.yaml --workdir ~/agentswarm-runs/goldilocks/probe-smoke-hosted
+# One easy, one hard and one complex task: 4 probes each, 12 per model.
+# The keys come from .env (ANTHROPIC_API_KEY, OPENAI_API_KEY); a rerun resumes where it stopped.
+suites:
+  - ../greeter/evaluation/suite.yaml
+  - ../greeter/evaluation/hard/suite.yaml
+  - ../greeter/evaluation/heldout/suite.yaml
+  - ../greeter/evaluation/complex/suite.yaml
+kinds: [produce, critique]
+tasks: [farewell, greeting-book, greetbook]
+bugs_per_task: 2
+constraints: [Use only the Python standard library.]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # Hosted, three sizes per provider (prices in US dollars per million tokens, 2026-10-05). Sonnet 5.5,
+  # Opus 5.5 and the GPT-6 models reject `temperature`, so none is set; their reasoning effort is the default.
+  claude-haiku: {model: "anthropic:claude-haiku-4-5", max_tokens: 16384, usd_per_million: {input: 1.0, output: 5.0}}
+  claude-sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0}}
+  claude-opus: {model: "anthropic:claude-opus-5-5", max_tokens: 16384, usd_per_million: {input: 4.0, output: 20.0}}
+  gpt-luna: {model: "openai:gpt-6-luna", max_tokens: 16384, usd_per_million: {input: 0.10, output: 0.50}}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0}}
+  gpt-astra: {model: "openai:gpt-6-astra", max_tokens: 16384, usd_per_million: {input: 10.0, output: 50.0}}

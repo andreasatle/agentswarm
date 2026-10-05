@@ -384,3 +384,20 @@ that win.
 - **The time recorded is the model's,** not the scoring's. Planted bugs are cached in the workdir, and
   results are appended to `results.jsonl` as they come, so a rerun resumes.
 
+**Step 10 (difficulty ratings), and the user's goal for routing (2026-10-05).**
+- **The goal, from the user:** at the end, small models should be used as much as possible. Routing picks the
+  cheapest model whose measured success at the task's difficulty meets the target, and the larger ones only
+  where it doesn't.
+- **`agentswarm rate SUITE... --out FILE`** asks Jev's `TaskDifficulty` question about each task's text alone,
+  as the router does before any work exists, and appends each rating with the judge's version and Jev's model.
+  A rerun skips tasks already rated with the same wording.
+- **All 590 tasks rated (jev-1.13.0), none failed.** Jev's ordering matches how the greeter suites were built:
+  the basic suite rates easiest (median 0.09), the complex one hardest (0.78). EvalPlus is mostly easy:
+  377 easy, 148 medium and 13 hard (bands 0-0.33, 0.33-0.67, 0.67-1). **The hard end is thin**: 24 tasks in
+  all. Curves there need harder tasks (an APPS or LiveCodeBench subset), the next import if the probes show
+  the models separating only at the top.
+- **The models:** six local ones, and three sizes from each hosted provider: Claude Haiku 4.5, Sonnet 5.5 and
+  Opus 5.5; GPT-6 Luna, 6.1 Sol and 6 Astra (OpenAI's own small-to-large line). One structured call to each
+  through our worker returned a valid answer. Sonnet 5.5, Opus 5.5 and the GPT-6 models reject `temperature`,
+  so none is set, and their reasoning effort is the provider's default.
+

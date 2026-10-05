@@ -13,7 +13,7 @@ from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.escalations import Escalations
 from agentswarm.core.clock import SystemClock
-from agentswarm.core.config import ProjectConfig, SandboxConfig
+from agentswarm.core.config import JevConfig, ProjectConfig, SandboxConfig
 from agentswarm.core.domain import (
     ArtifactCreated,
     ArtifactId,
@@ -46,14 +46,17 @@ from agentswarm.evaluation.compare import (
     ExperimentKind,
 )
 from agentswarm.evaluation.curves import CurveData
+from agentswarm.evaluation.difficulty import DifficultyRater, DifficultyRatings
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
+from agentswarm.jev.client import JevClient
 from agentswarm.judging.audit import GateAudit
 from agentswarm.judging.calibration import CalibrationReport
+from agentswarm.judging.deciders import Decider, JevDecider
 from agentswarm.judging.decisions import SqliteDecisions
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
@@ -149,6 +152,7 @@ class Cli:
         curves WORKDIR... --out FILE               fit model curves over task difficulty from comparisons
         probe EXPERIMENT --workdir DIR             one prompt, one answer: models scored on single calls
         import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
+        rate SUITE... --out FILE                   Jev rates every task's difficulty, resumable
         prompts                                    every model call and Jev question, as the model sees it
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
                                                    bugs for their reviewers (review); compare them
@@ -171,7 +175,9 @@ class Cli:
         ask: Callable[[str], str] = input,
         evaluation_services: Callable[[EvalTask], ProjectServices] | None = None,  # None: real models, Jev
         probe_workers: WorkerProvider | None = None,  # None: the probe experiment's real models
+        rating_decider: Decider | None = None,  # None: Jev
     ) -> None:
+        self._rating_decider = rating_decider
         self._probe_workers = probe_workers
         self._catalog = catalog or TeamCatalog.standard()
         self._show = show
@@ -202,6 +208,8 @@ class Cli:
                 return asyncio.run(self.probe(args))
             case "import-evalplus":
                 return self.import_evalplus(args)
+            case "rate":
+                return self.rate(args)
             case "prompts":
                 self._show(PromptCatalogue.standard().render().rstrip("\n"))
                 return 0
@@ -290,6 +298,17 @@ class Cli:
         report = SuiteWriter(out, args.name or kind.value, check).write(tasks)
         self._show(report.render())
         self._show(f"Suite: {out / 'suite.yaml'}")
+        return 0
+
+    def rate(self, args: argparse.Namespace) -> int:
+        """Jev rates how hard every task of the suites is, before any model tries them (Phase 8)."""
+        config = JevConfig()
+        decider = self._rating_decider or JevDecider(JevClient.from_env(config.model, config.timeout_s))
+        ratings = DifficultyRatings(Path(args.out).expanduser())
+        rater = DifficultyRater(decider, ratings)
+        for suite in args.suites:
+            rated, skipped, failed = rater.rate(Path(suite).expanduser(), self._show)
+            self._show(f"{suite}: {rated} rated, {skipped} already rated, {failed} failed")
         return 0
 
     def curves(self, args: argparse.Namespace) -> int:
@@ -443,6 +462,10 @@ class Cli:
         evalplus.add_argument("--format", required=True, choices=[f.value for f in EvalPlusFormat])
         evalplus.add_argument("--out", required=True, help="the suite's folder")
         evalplus.add_argument("--name", help="the project name (default: the format)")
+
+        rate = commands.add_parser("rate", help="Jev rates every task's difficulty (resumable)")
+        rate.add_argument("suites", nargs="+", help="suite files")
+        rate.add_argument("--out", required=True, help="the ratings file (JSON Lines); a rerun resumes it")
 
         commands.add_parser("prompts", help="print every model call and Jev question (docs/PROMPTS.md)")
 
