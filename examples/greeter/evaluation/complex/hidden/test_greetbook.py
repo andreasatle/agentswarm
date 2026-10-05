@@ -62,3 +62,24 @@ def test_load_missing_and_invalid(tmp_path):
     wrong.write_text(json.dumps({"items": []}))
     with pytest.raises(ValueError):
         load(wrong)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        {"entries": {}},  # entries must be a list
+        {"entries": "abc"},
+        [],
+        {"entries": [{"name": 1, "greeting": "Hi"}]},  # names and greetings are strings
+        {"entries": [{"name": None, "greeting": "Hi"}]},
+        {"entries": [{"name": "Ada", "greeting": 5}]},
+        {"entries": ["Ada"]},
+        {"entries": [{"name": "Ada", "greeting": "Hi"}, {"name": "ADA", "greeting": "Yo"}]},  # duplicate
+    ],
+)
+def test_load_rejects_every_malformed_book_with_value_error(tmp_path, content):
+    path = tmp_path / "book.json"
+    path.write_text(json.dumps(content))
+    with pytest.raises(ValueError):
+        load(path)
+

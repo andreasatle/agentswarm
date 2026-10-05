@@ -401,3 +401,16 @@ that win.
   through our worker returned a valid answer. Sonnet 5.5, Opus 5.5 and the GPT-6 models reject `temperature`,
   so none is set, and their reasoning effort is the provider's default.
 
+**Hosted smoke run (2026-10-05): the models found a bug in our answer key.**
+- All six hosted models produced valid answers on every probe; the run cost $0.97 in all.
+- Five of six flagged the *clean* `greetbook` reference, independently and with the same explanation: `load()`
+  let `AttributeError` escape for an entry with a non-string name, where the task demands `ValueError`. They
+  were right; the hidden tests never covered it. The reference now validates entries, and the hidden tests
+  check eight malformed books (the old reference fails four of them).
+- One model flagged a clean change for adding no tests, which the task text asks for. That is a fault of the
+  probe, not the model: the critique instructions now say that only the code's behaviour is reviewed.
+- **Lesson, kept as practice:** a "false alarm" that several strong models raise independently, with a test
+  that fails on the reference, is first a suspect answer key. Such probes are checked by hand before the
+  results count. The bugs planted from the old reference are cached per workdir, so runs before this fix are
+  not pooled with runs after it.
+

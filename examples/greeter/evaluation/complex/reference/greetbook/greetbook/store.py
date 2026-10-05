@@ -18,8 +18,14 @@ def load(path: str | Path) -> GreetingBook:
         return book
     try:
         data = json.loads(file.read_text())
-        for entry in data["entries"]:
-            book.add(entry["name"], entry["greeting"])
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
+    except json.JSONDecodeError as error:
         raise ValueError(f"not a greeting book: {error}") from error
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("not a greeting book: 'entries' must be a list")
+    for entry in entries:
+        valid = isinstance(entry, dict) and all(isinstance(entry.get(k), str) for k in ("name", "greeting"))
+        if not valid:
+            raise ValueError(f"not a greeting book entry: {entry!r}")
+        book.add(entry["name"], entry["greeting"])  # ValueError for an empty or duplicate name
     return book

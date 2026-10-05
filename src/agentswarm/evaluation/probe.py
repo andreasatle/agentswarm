@@ -311,6 +311,7 @@ was meant to accomplish, every file of the project after the change, and the cha
   tests do. The test runs from the project root.
 - If you find no bug, set problem to false and leave test empty. Correct changes are common: do not invent
   problems.
+- Review the behaviour of the code only. Whether the change added its own tests is not part of this review.
 - Do not report style, naming, or features the task did not ask for."""
 
     @staticmethod
