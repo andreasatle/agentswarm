@@ -138,6 +138,7 @@ class ProbeResult(Frozen):
     usage: Usage
     seconds: float
     detail: str
+    answer: str | None = None  # the model's answer as JSON, for reading and for rating it blind later
 
     @property
     def success(self) -> bool:
@@ -561,6 +562,7 @@ class ProbeRun:
         request = handler.request(probe)
         start = self._stopwatch()
         claimed: bool | None = None
+        answered: str | None = None
         try:
             answer = await worker.run(handler.INSTRUCTIONS, request, handler.ANSWER)
         except WorkerError as error:
@@ -570,6 +572,7 @@ class ProbeRun:
             seconds = self._stopwatch() - start
             scored = self._score(handler, probe, answer, bench)
             claimed = answer.problem if isinstance(answer, CritiqueAnswer) else None
+            answered = answer.model_dump_json()
         return ProbeResult(
             probe=probe.id,
             kind=probe.kind,
@@ -582,6 +585,7 @@ class ProbeRun:
             usage=tally.take(),
             seconds=round(seconds, 2),
             detail=scored.detail,
+            answer=answered,
         )
 
     @staticmethod

@@ -108,6 +108,8 @@ class TestProbeRun:
         assert isinstance(clean, CritiqueRequest) and isinstance(bug, CritiqueRequest)
         assert "+def farewell" in clean.diff and clean.diff != bug.diff
         assert worker.calls[1][0] == Critiquing.INSTRUCTIONS
+        stored = ProbeFiles(p.workdir).done()[2].answer
+        assert stored is not None and CritiqueAnswer.model_validate_json(stored).test == p.hidden
 
     def test_failures_false_alarms_and_tests_that_prove_nothing(self, tmp_path: Path) -> None:
         p = Probes(tmp_path)
