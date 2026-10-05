@@ -1,11 +1,21 @@
 from collections.abc import Callable, Sequence
 
 import pytest
+from langchain.messages import AIMessage
 from pydantic import BaseModel
 
 from agentswarm.core.config import ModelConfig
 from agentswarm.llm.models import ChatModels, ModelUnavailable
-from agentswarm.llm.workers import FakeWorker, LangChainWorker, Prompts, Toolbox, WorkerError
+from agentswarm.llm.workers import (
+    CutOff,
+    FakeWorker,
+    InvalidAnswer,
+    LangChainWorker,
+    Prompts,
+    Stops,
+    Toolbox,
+    WorkerError,
+)
 from tests.support.fakes import Replies
 
 
@@ -45,7 +55,7 @@ class TestLangChainWorker:
         for _ in range(5):
             replies.text("I refuse to use the format.")
         with pytest.raises(
-            WorkerError, match=r"(?s)no Answer; .*Model call limits exceeded.*final answer failed"
+            InvalidAnswer, match=r"(?s)no Answer; .*Model call limits exceeded.*final answer:"
         ):
             await LangChainWorker(replies.model(), max_model_calls=3).run("Do it.", Payload(task="t"), Answer)
 
@@ -73,6 +83,21 @@ class TestLangChainWorker:
                 "Do it.", Payload(task="t"), Answer, notebook
             )
         assert notebook.notes == ["0", "1"]
+
+    async def test_an_answer_stopped_at_the_output_limit_is_cut_off_not_invalid(self) -> None:
+        model = Replies().text("Done.").cut_off('{"summ').cut_off('{"summ')
+        with pytest.raises(CutOff):
+            await LangChainWorker(model.model(), max_model_calls=1).run("Do it.", Payload(task="t"), Answer)
+
+    def test_each_providers_way_of_saying_the_reply_hit_the_limit(self) -> None:
+        for metadata in (
+            {"done_reason": "length"},
+            {"finish_reason": "length"},
+            {"stop_reason": "max_tokens"},
+        ):
+            assert Stops.at_limit(AIMessage(content="", response_metadata=metadata))
+        assert not Stops.at_limit(AIMessage(content="", response_metadata={"done_reason": "stop"}))
+        assert not Stops.at_limit(None)
 
     def test_toolbox_methods_become_tools(self) -> None:
         (tool,) = LangChainWorker.tools_of(Notebook())

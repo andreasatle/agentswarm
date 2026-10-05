@@ -20,7 +20,7 @@ from agentswarm.evaluation.probe import (
     ProjectFiles,
     SourceFile,
 )
-from agentswarm.llm.workers import FakeWorker, FakeWorkers, Step, Toolbox
+from agentswarm.llm.workers import CutOff, FakeWorker, FakeWorkers, InvalidAnswer, Step, Toolbox, WorkerError
 from agentswarm.workspace.sandbox import LocalSandbox
 from tests.support.suites import EXAMPLES, PYTEST, GreeterSuite
 
@@ -136,6 +136,13 @@ class TestProbeRun:
         _, outcomes = p.run([escape, p.critique(False), p.critique(False)])
         assert outcomes[0] is Outcome.UNSOLVED and not (tmp_path / "outside.py").exists()
         assert outcomes[2] is Outcome.MISSED
+
+
+class TestProbeFailures:
+    def test_invalid_json_cut_off_and_missing_answers_are_told_apart(self) -> None:
+        assert ProbeRun.failure(InvalidAnswer("bad json")) is Outcome.INVALID_ANSWER
+        assert ProbeRun.failure(CutOff("stopped")) is Outcome.CUT_OFF
+        assert ProbeRun.failure(WorkerError("provider down")) is Outcome.NO_ANSWER
 
 
 class TestProjectFiles:

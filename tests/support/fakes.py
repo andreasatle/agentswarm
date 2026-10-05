@@ -38,6 +38,11 @@ class Replies:
         self._messages.append(AIMessage(content=content))
         return self
 
+    def cut_off(self, content: str) -> Self:
+        """A reply that stopped at the output limit, as Ollama reports it."""
+        self._messages.append(AIMessage(content=content, response_metadata={"done_reason": "length"}))
+        return self
+
     def model(self) -> FakeToolModel:
         messages: Iterator[AIMessage] = iter(self._messages)
         return FakeToolModel(messages=messages)

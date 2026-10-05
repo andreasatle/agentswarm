@@ -9,10 +9,11 @@ works. `FakeWorker` follows a script and needs no model.
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelCallLimitMiddleware
+from langchain.agents.structured_output import StructuredOutputError
 from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.tools import BaseTool
 from langchain_core.callbacks import BaseCallbackHandler
@@ -30,6 +31,31 @@ type Meter = Callable[[Usage], None]  # told the token usage of a run (see board
 
 class WorkerError(Exception):
     """The worker produced no valid result: limits reached, invalid output or a provider failure."""
+
+
+class InvalidAnswer(WorkerError):
+    """The model replied, but never with a valid answer: JSON that fits the required schema."""
+
+
+class CutOff(WorkerError):
+    """The model's reply stopped at the output limit (`max_tokens`) before its answer was complete."""
+
+
+class Stops:
+    """Why a reply ended, as each provider reports it in the message's metadata."""
+
+    AT_LIMIT: ClassVar[dict[str, str]] = {
+        "done_reason": "length",  # Ollama
+        "finish_reason": "length",  # OpenAI
+        "stop_reason": "max_tokens",  # Anthropic
+    }
+
+    @classmethod
+    def at_limit(cls, message: object) -> bool:
+        if not isinstance(message, BaseMessage):
+            return False
+        metadata = message.response_metadata
+        return any(metadata.get(key) == value for key, value in cls.AT_LIMIT.items())
 
 
 class Toolbox(Protocol):
@@ -84,7 +110,9 @@ class LangChainWorker:
             state = await agent.ainvoke(
                 {"messages": [HumanMessage(Prompts.data(payload))]}, config={"callbacks": [tokens]}
             )
-        except Exception as error:  # provider and parsing failures surface as many types
+        except StructuredOutputError as error:  # an answer that doesn't fit the schema, after retries
+            raise InvalidAnswer(f"{type(error).__name__}: {error}") from error
+        except Exception as error:  # provider failures surface as many types
             raise WorkerError(f"{type(error).__name__}: {error}") from error
         finally:
             self._report(tokens.usage)  # the calls that completed, even when a later one failed
@@ -94,12 +122,13 @@ class LangChainWorker:
         # The agent ended without a structured answer: common for local models, which often finish in
         # plain text, and after the call limit. One more call asks only for the answer.
         messages: list[BaseMessage] = state.get("messages", [])
+        account = f"no {output.__name__}; {Transcript(messages).summary()}"
         try:
             return await self._final_answer(instructions, messages, output)
+        except WorkerError as error:  # InvalidAnswer or CutOff: kept, so callers can tell them apart
+            raise type(error)(f"{account}; final answer: {error}") from error
         except Exception as error:
-            raise WorkerError(
-                f"no {output.__name__}; {Transcript(messages).summary()}; final answer failed: {error}"
-            ) from error
+            raise WorkerError(f"{account}; final answer failed: {type(error).__name__}: {error}") from error
 
     FINAL_ANSWER = (
         "Stop working now. Give your final answer in the required structured format, based on the work above."
@@ -113,6 +142,7 @@ class LangChainWorker:
         structured = self._model.with_structured_output(output, include_raw=True)
         prompt = [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)]
         error: Exception | None = None
+        cut = False
         for _ in range(self.FINAL_ANSWER_TRIES):
             tokens = Tokens()
             try:
@@ -120,12 +150,14 @@ class LangChainWorker:
             finally:
                 self._report(tokens.usage)
             answer = reply.get("parsed") if isinstance(reply, dict) else reply
+            cut = isinstance(reply, dict) and Stops.at_limit(reply.get("raw"))
             try:
                 return answer if isinstance(answer, output) else output.model_validate(answer)
             except ValidationError as invalid:
                 error = invalid
         assert error is not None
-        raise error
+        kind = CutOff if cut else InvalidAnswer
+        raise kind(f"{type(error).__name__}: {error}") from error
 
     def _report(self, usage: Usage) -> None:
         if self._meter is not None:

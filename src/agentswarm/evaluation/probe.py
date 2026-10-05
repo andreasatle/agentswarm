@@ -35,7 +35,14 @@ from agentswarm.evaluation.suite import EvalTask, HiddenTests, TaskSuite
 from agentswarm.gating.checks import CheckStatus
 from agentswarm.judging.tuning import Wilson
 from agentswarm.llm.models import ChatModels
-from agentswarm.llm.workers import LangChainWorkers, Worker, WorkerError, WorkerProvider
+from agentswarm.llm.workers import (
+    CutOff,
+    InvalidAnswer,
+    LangChainWorkers,
+    Worker,
+    WorkerError,
+    WorkerProvider,
+)
 from agentswarm.workspace.files import ConfinedFiles, UnsafePath
 from agentswarm.workspace.sandbox import Sandbox, Sandboxes
 
@@ -114,7 +121,9 @@ class Outcome(StrEnum):
     WRONG_EVIDENCE = "wrong_evidence"  # the test fails on the reference too: it doesn't show the bug
     QUIET = "quiet"  # critique of clean code: no test that fails on it
     FALSE_ALARM = "false_alarm"
-    NO_ANSWER = "no_answer"  # the model gave no valid answer
+    INVALID_ANSWER = "invalid_answer"  # the model replied, but never with JSON that fits the schema
+    CUT_OFF = "cut_off"  # the reply stopped at the output limit
+    NO_ANSWER = "no_answer"  # the provider failed or the call limit was reached
 
     @property
     def success(self) -> bool:
@@ -422,7 +431,9 @@ class ProbeSummary(Frozen):
     successes: int
     low: float  # 95% Wilson interval of the success rate
     high: float
-    no_answer: int
+    invalid_answers: int  # replied, but never with JSON that fits the schema
+    cut_off: int  # stopped at the output limit
+    no_answer: int  # the provider failed or the call limit was reached
     false_alarms: int  # critique: clean code reported, with a test that fails on it
     wrong_evidence: int  # critique: a test that fails on the reference too
     median_tokens: int
@@ -440,6 +451,8 @@ class ProbeSummary(Frozen):
             successes=successes,
             low=Wilson.lower(successes, len(results)),
             high=Wilson.upper(successes, len(results)),
+            invalid_answers=sum(r.outcome is Outcome.INVALID_ANSWER for r in results),
+            cut_off=sum(r.outcome is Outcome.CUT_OFF for r in results),
             no_answer=sum(r.outcome is Outcome.NO_ANSWER for r in results),
             false_alarms=sum(r.outcome is Outcome.FALSE_ALARM for r in results),
             wrong_evidence=sum(r.outcome is Outcome.WRONG_EVIDENCE for r in results),
@@ -451,7 +464,8 @@ class ProbeSummary(Frozen):
         rate = f"{self.successes}/{self.probes}"
         ci = f"{self.low:.0%}-{self.high:.0%}"
         return (
-            f"{self.model:<14} {self.kind:<9} {rate:>7} {ci:>9} {self.no_answer:>9} {self.false_alarms:>12} "
+            f"{self.model:<14} {self.kind:<9} {rate:>7} {ci:>9} {self.invalid_answers:>7} {self.cut_off:>7} "
+            f"{self.no_answer:>9} {self.false_alarms:>12} "
             f"{self.wrong_evidence:>14} {self.median_tokens:>10,} {self.median_seconds:>8}"
         )
 
@@ -461,7 +475,8 @@ class ProbeReport(Frozen):
     summaries: tuple[ProbeSummary, ...]
 
     HEADER: ClassVar[str] = (
-        f"{'model':<14} {'kind':<9} {'success':>7} {'95% CI':>9} {'no answer':>9} {'false alarms':>12} "
+        f"{'model':<14} {'kind':<9} {'success':>7} {'95% CI':>9} {'invalid':>7} {'cut off':>7} "
+        f"{'no answer':>9} {'false alarms':>12} "
         f"{'wrong evidence':>14} {'tokens':>10} {'median s':>8}"
     )
 
@@ -567,7 +582,7 @@ class ProbeRun:
             answer = await worker.run(handler.INSTRUCTIONS, request, handler.ANSWER)
         except WorkerError as error:
             seconds = self._stopwatch() - start
-            scored = Scored(outcome=Outcome.NO_ANSWER, detail=str(error)[: TestBench.OUTPUT_LIMIT])
+            scored = Scored(outcome=self.failure(error), detail=str(error)[: TestBench.OUTPUT_LIMIT])
         else:
             seconds = self._stopwatch() - start
             scored = self._score(handler, probe, answer, bench)
@@ -587,6 +602,14 @@ class ProbeRun:
             detail=scored.detail,
             answer=answered,
         )
+
+    @staticmethod
+    def failure(error: WorkerError) -> Outcome:
+        if isinstance(error, InvalidAnswer):
+            return Outcome.INVALID_ANSWER
+        if isinstance(error, CutOff):
+            return Outcome.CUT_OFF
+        return Outcome.NO_ANSWER
 
     @staticmethod
     def _score(handler: ProbeHandler, probe: Probe, answer: BaseModel, bench: TestBench) -> Scored:
