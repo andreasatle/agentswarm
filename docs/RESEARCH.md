@@ -190,6 +190,16 @@ at this, and whether they catch more than a broad one at equal cost is an open m
   95% of the strong model's quality. ([Ong et al., 2024](https://arxiv.org/abs/2406.18665))
 - Snell et al. (section 2): the best use of compute depends on the problem's difficulty.
 
+- **Routing can be learned online, as a bandit problem.** Several 2025 routers start from little or no data and
+  learn from each call's outcome: MetaLLM picks the cheapest model likely to be right, with rewards from
+  correctness and cost; MixLLM and PILOT update from binary success feedback (PILOT also starts from offline
+  preference data); others use Thompson sampling or LinUCB with budget constraints. They balance trying models
+  to learn about them against using what is known to work.
+  ([routing and cascading survey, 2026](https://arxiv.org/abs/2603.04445);
+  [online multi-LLM selection via contextual bandits, AAAI](https://arxiv.org/abs/2506.17670);
+  [routing with dueling feedback, 2025](https://arxiv.org/abs/2510.00841);
+  [adaptive routing under budget constraints, EMNLP Findings 2025](https://aclanthology.org/2025.findings-emnlp.1301.pdf))
+
 **Evidence: moderate.** Cascades work when there is a trustworthy signal for "good enough": a verifier, or a
 well-calibrated score. Without one they inherit the selection problem (P3).
 
@@ -305,4 +315,5 @@ don't delete the old evidence. Record changes below.
 ### Changes
 
 - 2026-10-05: first version (P1–P12).
+- 2026-10-05: routing learned online (bandits) added to section 9, after the user proposed it.
 - 2026-10-05: the gaps are planned: 1, 3 and 10 in Phase 8 (steps 9 and 13), the rest in [Phase 10](design/phase-10-robustness.md).
