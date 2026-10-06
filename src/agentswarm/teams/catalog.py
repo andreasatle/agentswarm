@@ -5,10 +5,11 @@ from pathlib import Path
 from typing import ClassVar, Self
 
 from agentswarm.board.artifacts import ArtifactFactory
-from agentswarm.core.config import LevelLadder, TeamConfig
+from agentswarm.core.config import LevelLadder, TeamConfig, Threshold
 from agentswarm.core.domain import TeamName
 from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
 from agentswarm.judging.judgement import Judgement, Judgements
+from agentswarm.judging.policy import Policy
 from agentswarm.llm.workers import Meter, Worker, WorkerProvider
 from agentswarm.teams.analyzer import (
     ContractTester,
@@ -62,8 +63,8 @@ class TeamResources:
         """Whether the project sizes tasks before work (a decomposer or outliner), so executors wait."""
         return bool(self._team_uses & self.PLANNERS)
 
-    def judgement(self, judge: str) -> Judgement:
-        return self._judgements.build(judge)
+    def judgement(self, judge: str, thresholds: Mapping[str, Threshold] | None = None) -> Judgement:
+        return self._judgements.build(judge, thresholds)
 
     def tiers_for(self, team: TeamConfig) -> list[Tier]:
         """The team's model tiers, cheapest first; a single `model` is one tier."""
@@ -199,13 +200,21 @@ class TeamCatalog:
         return catalog
 
     @staticmethod
-    def _planner(kind: type[Decomposer], team: TeamConfig, resources: TeamResources) -> Team:
+    def size_thresholds(team: TeamConfig) -> dict[str, Threshold] | None:
+        """With `split_below`, a planner splits when p(fits) is at most that, not only when clearly low."""
+        if team.split_below is None:
+            return None
+        pass_at = max(Policy.DEFAULT.pass_at, team.split_below)
+        return {"fits": Threshold(pass_at=pass_at, fail_at=team.split_below)}
+
+    @classmethod
+    def _planner(cls, kind: type[Decomposer], team: TeamConfig, resources: TeamResources) -> Team:
         if team.watches != resources.ladder.lowest:
             raise ValueError(f"the {team.use} must watch the lowest level, {resources.ladder.lowest!r}")
         return kind(
             team.watches,
             resources.worker_for(team),
-            resources.judgement("SizeCheck"),
+            resources.judgement("SizeCheck", cls.size_thresholds(team)),
             resources.judgement("SplitCheck"),
             resources.artifacts,
             team.max_depth,

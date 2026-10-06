@@ -32,10 +32,11 @@ tables; this document explains why things are the way they are.
 | 12 | A second domain: documents | `tutorial/12_documents.sh`, then `tutorial/12_publish.sh` | Ollama, Docker, Jev |
 | 13 | Several projects, money and limits | `tutorial/13_swarm.sh [live]` | nothing (live: Ollama, Docker, Jev) |
 | 14 | What keeps it safe | | |
+| 15 | Does the swarm help? Measuring before optimizing | `tutorial/15_measure.sh [live]` | nothing (live: Ollama, Docker, Jev, Anthropic key) |
 
-Steps 1–3b, 9, 10 and the quickstart swarm in step 13 run anywhere, offline, in seconds. Status: every phase of the
-build plan is done, plus a hardening phase from an independent audit; the one open item is proving the gate's
-false-promotion rate with more data (step 11).
+Steps 1–3b, 9, 10, the quickstart swarm in step 13 and step 15's offline part run anywhere, offline. Status:
+the build plan and a hardening phase from an independent audit are done. Phase 8 is in progress: measuring
+whether the swarm actually beats simpler setups (step 15). Architecture work is paused until it has an answer.
 
 ---
 
@@ -339,6 +340,13 @@ A check ends in one of three ways: **passed**, **failed** (it ran and found a pr
 or **error** (a timeout, a missing tool, a crash of the runner). Errors still block a gate, but they never
 count as evidence that the code is wrong.
 
+**Model settings that fail silently.** Ollama runs every model with a 4096-token window unless told
+otherwise, and drops the start of a longer conversation, instructions included; it also ignores
+`max_tokens`. The first Phase 8 runs lost a third of their answers to this. Models now get
+`context_window` (32k by default for Ollama) and `max_tokens` passed under the name each provider reads.
+[MODELS.md](../docs/MODELS.md) explains every setting, and every prompt a model sees is in
+[PROMPTS.md](../docs/PROMPTS.md) (`agentswarm prompts`).
+
 Where: `teams/executor.py` (`ExecutorTeam`, `WorktreeToolbox`), `llm/workers.py` (`LangChainWorker`: the
 only place LangChain is imported, with `llm/models.py`), `workspace/sandbox.py`.
 
@@ -632,6 +640,50 @@ don't reach, and Phase 7 closed them:
 
 Where: [design/phase-7-hardening.md](../docs/design/phase-7-hardening.md), and section 15 of the reference.
 
+## Step 15 — Does the swarm help? Measuring before optimizing
+
+```bash
+tutorial/15_measure.sh          # offline: the prompts, and the experiment's ground truth checked
+tutorial/15_measure.sh live     # the experiment on two tasks
+```
+
+Everything so far shows that AgentSwarm *runs*. The question it was built for is different: **do
+decomposition, specialized teams and independent checks beat simpler setups, and where?** The research
+behind this is collected in [RESEARCH.md](../docs/RESEARCH.md). Its strongest finding sets the bar: one
+model making several independent attempts, with tests picking the winner, beats most elaborate setups at
+the same cost. A swarm has to beat *that*.
+
+**The tasks.** Toy tasks can't show it: one model call solves them. The inventory suite
+(`examples/inventory/`) is a small tool with several modules, and 25 tasks in five levels: one function;
+several interacting functions; a multi-file change; a vague feature that needs design (categories, undo,
+CSV import); and features across modules where integration and edge cases decide (orders that reserve
+stock, FIFO valuation, kits). Each has hidden tests and a reference solution, and a test checks that every
+reference passes and the untouched seed fails. Writing the references caught mistakes in the hidden tests,
+and the models later caught a bug in a reference: ground truth needs checking too.
+
+**The experiment** (`examples/goldilocks/complexity.yaml`) compares four setups with fixed models:
+
+| Setup | What it tests |
+| --- | --- |
+| Claude Haiku, one attempt | the baseline |
+| gemma4-e4b, one attempt | how big the gap is |
+| gemma4-e4b, up to 3 attempts (`attempts: 3`), checks pick | what extra compute alone buys |
+| AgentSwarm on gemma4-e4b: the same plus a decomposer and three narrow red teams | the hypothesis |
+
+The swarm is the 3-attempt setup *plus* its own parts, so any difference comes from those parts. Getting
+it there was instructive. Jev's untuned thresholds first kept the decomposer from splitting at all; once
+it split, it split three levels deep into 57 tasks that stalled behind one slow model: the over-decomposition
+the research warns about. The setup now splits once at most.
+
+**Measuring single calls.** Whole-project runs mix the model with everything around it. `agentswarm probe`
+asks each model the same one-shot prompts (write this code; find the bug in this change), scores them with
+plain code, and counts invalid JSON, cut-off and missing answers separately. `agentswarm rate` has Jev rate
+every task's difficulty. Routing between models is built (`agentswarm routing`), but stays unused until the
+experiment shows there is something worth routing.
+
+Where: [design/phase-8-goldilocks.md](../docs/design/phase-8-goldilocks.md), `evaluation/` (`compare.py`,
+`probe.py`, `difficulty.py`, `imports.py`), [MODELS.md](../docs/MODELS.md).
+
 ---
 
 ## What is engine, and what is configuration
@@ -649,9 +701,13 @@ classes and one judge.
 
 ## What's still ahead
 
+- **Phase 8's answer:** the complexity experiment on all 25 tasks, reported honestly, including where the
+  swarm loses. What happens next depends on it.
+- **Phase 9, conventions that hold** (layout, lint and type checks as hard checks), **Phase 10, robustness
+  for high-level goals** (attempts selected by checks, protected tests, a clarifier, verified decompositions)
+  and **Phase 11, project types as data**: planned, paused until Phase 8 answers.
 - **Proving the gate's false-promotion rate:** more evaluation tasks, until about 73 known promotions.
-- The backlog's deferred items: conflict refresh before retry, timeouts on git commands, several processes
-  per project, event schema versioning, CI ([BACKLOG.md](../docs/BACKLOG.md)).
+- The backlog's deferred items ([BACKLOG.md](../docs/BACKLOG.md)).
 
 ## Where to read more
 

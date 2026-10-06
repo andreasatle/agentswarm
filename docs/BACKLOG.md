@@ -22,9 +22,9 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
 - **Phase 8 (in progress): small swarms against bigger models.** Revised after the first live runs and the
   research review: the atomic benchmark (probes) is the measuring instrument, on imported EvalPlus tasks;
   every setup is compared at equal cost against one model making n attempts selected by checks; consistency
-  is reported as pass^k. Routing is learned from outcomes (Jev describes, plain code counts and picks). Next: a qualification run
-  on the open models, then a real project with a high-level goal. See docs/design/phase-8-goldilocks.md, steps 8-15.
-- **Phase 9 (planned, next): conventions that hold.** One level of configuration: the project's test
+  is reported as pass^k. Routing is built but frozen. Next: the complexity experiment (25 inventory tasks in five
+  levels; Haiku, gemma4-e4b with 1 and 3 attempts, and AgentSwarm), which decides what is built next. See docs/design/phase-8-goldilocks.md, steps 8-15.
+- **Phase 9 (planned, paused until Phase 8 answers): conventions that hold.** One level of configuration: the project's test
   structure is shared and defined once (seed, conventions file, checks); each analyzer's probe tests are its
   own method, in its team config. No toolchain layer, detection, plugins or other languages until a real
   project needs one. Structure and conventions (a
@@ -37,7 +37,7 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
   false promotions pooled and 0/16 held out. The 95% upper bound gets to 5% only at about 73 known
   promotions without error (about one per task). Add held-out tasks (or real outcomes) until then. Due:
   before relying on the active gate unattended.
-- **Phase 10 (planned): robustness for high-level goals.** From docs/RESEARCH.md: several attempts selected
+- **Phase 10 (planned, paused until Phase 8 answers): robustness for high-level goals.** From docs/RESEARCH.md: several attempts selected
   by checks, red-flag and resample, checks out of the producer's reach (protected acceptance tests, no
   weakening of tests), a clarifier for vague goals, verified decompositions, voting on small known steps,
   judge hygiene, pass^k as the release criterion. Each step is built only if a measurement shows it helps.

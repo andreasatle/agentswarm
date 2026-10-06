@@ -1,6 +1,7 @@
-# Complexity experiment, setup "swarm-small": AgentSwarm with the same small model. A decomposer splits tasks
-# that are too big (Jev decides, active only at the size and split points), the executor builds, the gate runs
-# the tests, and three narrow red teams review merged work; what they prove becomes fix tasks.
+# Complexity experiment, setup "swarm-small": small-3 plus AgentSwarm's own parts, so any difference comes from
+# them. A decomposer splits tasks Jev doesn't clearly judge small (p(fits) at most 0.7; Jev active only at the
+# size point), the executor builds with up to 3 attempts, the gate runs the tests, and three narrow
+# red teams review merged work; what they prove becomes fix tasks.
 project: inventory
 domain: software
 north_star: A small, reliable inventory tool with a Python API and a command line.
@@ -9,12 +10,13 @@ levels: [raw, experimental]
 sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
 
 models:
-  small: {model: "ollama:gemma4:e4b", temperature: 0, max_tokens: 16384}
+  small: {model: "ollama:gemma4:e4b", temperature: 0.7, max_tokens: 16384}
 teams:
-  - {use: decomposer, watches: raw, model: small}
+  - {use: decomposer, watches: raw, model: small, split_below: 0.7, max_depth: 1}  # split once at most
   - use: executor
     watches: raw
     model: small
+    attempts: 3
     checks: [unit_tests]
     max_model_calls: 60
     constraints: [Use only the Python standard library., Put tests in tests/ and run them with run_checks.]
@@ -24,4 +26,6 @@ teams:
 gates:
   - {from: raw, to: experimental, hard_checks: [unit_tests]}
 
-jev: {mode: shadow, active: ["size:*", "split:*"]}
+jev: {mode: shadow, active: ["size:*"]}  # the split check is logged only: its threshold is uncalibrated
+# One slow local model works through every child in turn, so waiting is not stalling.
+supervisor: {stall_after_minutes: 240}

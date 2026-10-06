@@ -5,6 +5,7 @@ from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.eventlog import InMemoryEventLog
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import CheckConfig, JevMode, LevelLadder, TeamConfig
+from agentswarm.core.domain import Level
 from agentswarm.gating.checks import CheckSet
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.decisions import InMemoryDecisions
@@ -112,3 +113,13 @@ class TestTeamCatalog:
         catalog = TeamCatalog.standard()
         with pytest.raises(ValueError, match="already registered"):
             catalog.register("fake_executor", lambda team, resources: FakeExecutor(team.watches))
+
+
+class TestPlannerThresholds:
+    def test_split_below_moves_the_fail_threshold_of_the_size_question(self) -> None:
+        team = TeamConfig(use="decomposer", watches=Level("raw"), model="m", split_below=0.7)
+        thresholds = TeamCatalog.size_thresholds(team)
+        assert thresholds is not None and thresholds["fits"].fail_at == 0.7
+        assert thresholds["fits"].pass_at == 0.9
+        default = TeamConfig(use="decomposer", watches=Level("raw"), model="m")
+        assert TeamCatalog.size_thresholds(default) is None

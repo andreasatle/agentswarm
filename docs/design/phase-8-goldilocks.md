@@ -423,3 +423,25 @@ that win.
 - Outcomes go to one shared ledger per machine, so projects and probes all teach the same router.
 - Before building it, a sanity run checks the whole pipeline on one fixed model (`sanity.yaml`).
 
+**Course correction: measure before optimizing (2026-10-05, decided with the user after an outside review).**
+- The project had started answering "which model should AgentSwarm use?" before "does AgentSwarm help?".
+  Architecture work is frozen (routing, Phases 9 and 10) until the complexity experiment answers the second;
+  new code needs an experiment that shows the need.
+- **The inventory suite** (`examples/inventory/`): a seed with models, a JSON store, reports and a command
+  line, and 25 tasks in five levels of complexity, levels 4-5 being vague features that need design and
+  features across modules. A test checks every reference against its hidden tests and the seed's own tests.
+- **The complexity experiment** (`examples/goldilocks/complexity.yaml`): Claude Haiku with one attempt (the
+  user's middle ground between local and expensive models), gemma4-e4b with one attempt, gemma4-e4b with up
+  to 3 attempts selected by checks, and AgentSwarm on gemma4-e4b. Prove the idea with capable models first;
+  local-only operation is a later configuration, not a starting constraint.
+- **Making the swarm a fair test** took three findings, each from a check run:
+  - with Jev's untuned thresholds the decomposer never split (p(fits) 0.61 is "unsure"): planners got
+    `split_below`, and the swarm splits at 0.7;
+  - once it split, Jev's split check (0.8 against an uncalibrated 0.9) parked the task: that check is logged
+    in shadow until calibrated;
+  - then it split three levels deep into 57 tasks that stalled behind one slow model, the over-decomposition
+    the research warns about: the swarm now splits once at most (`max_depth: 1`), and its supervisor waits
+    longer before calling a queue a stall.
+- The swarm gets the same `attempts: 3` as the baseline, so any difference comes from its decomposer and
+  critics.
+
