@@ -6,6 +6,7 @@
 #   swarm-small  AgentSwarm on the same small model        (the hypothesis)
 #   uv run agentswarm compare examples/goldilocks/complexity.yaml --workdir ~/agentswarm-runs/complexity
 suite: ../inventory/evaluation/suite.yaml
+order: by_task  # each task through every setup, so partial results stay comparable
 setups:
   haiku-1: complexity/haiku-1.yaml
   small-1: complexity/small-1.yaml

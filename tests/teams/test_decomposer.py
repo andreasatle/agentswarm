@@ -43,7 +43,7 @@ class Sizing:
             judge, Policy(judge), self.decider, self.h.decisions, mode or self.mode, self.h.clock
         )
 
-    def decomposer(self, *steps: Step[BaseModel], max_depth: int = 3) -> Decomposer:
+    def decomposer(self, *steps: Step[BaseModel], max_depth: int = 3, build: bool = False) -> Decomposer:
         return Decomposer(
             Samples.RAW,
             FakeWorker(steps),
@@ -51,6 +51,7 @@ class Sizing:
             self.judgement(SplitCheck, self.split_mode),
             ArtifactFactory(self.h.board, Harness.LADDER),
             max_depth,
+            build,
         )
 
     async def run(self, decomposer: Decomposer) -> list[Event]:
@@ -111,6 +112,15 @@ class TestDecomposer:
             isinstance(e, Escalated) and "already split 1 times" in e.reason
             for e in s.h.board.current().history(child.id)
         )
+
+    async def test_at_the_depth_limit_it_can_build_instead(self, tmp_path: Path) -> None:
+        s = Sizing(tmp_path, fits=0.05)
+        await s.run(s.decomposer(split_into("Part a", "Part b"), max_depth=1, build=True))
+        child = s.h.board.current().children(s.artifact.id)[0]
+        assert await s.h.runner(s.decomposer(max_depth=1, build=True)).step() == 2
+        history = s.h.board.current().history(child.id)
+        assert not any(isinstance(e, Escalated) for e in history)
+        assert any(isinstance(e, Sized) and e.fits for e in history)
 
     def test_fix_artifacts_are_not_sized(self, tmp_path: Path) -> None:
         s = Sizing(tmp_path, fits=0.95)

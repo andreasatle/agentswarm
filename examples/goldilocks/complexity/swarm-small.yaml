@@ -12,7 +12,7 @@ sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
 models:
   small: {model: "ollama:gemma4:e4b", temperature: 0.7, max_tokens: 16384}
 teams:
-  - {use: decomposer, watches: raw, model: small, split_below: 0.7, max_depth: 1}  # split once at most
+  - {use: decomposer, watches: raw, model: small, split_below: 0.7, max_depth: 1, build_at_max_depth: true}
   - use: executor
     watches: raw
     model: small

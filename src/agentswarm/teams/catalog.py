@@ -218,6 +218,7 @@ class TeamCatalog:
             resources.judgement("SplitCheck"),
             resources.artifacts,
             team.max_depth,
+            team.build_at_max_depth,
         )
 
     def knows(self, name: str) -> bool:

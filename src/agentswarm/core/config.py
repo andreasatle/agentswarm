@@ -185,6 +185,8 @@ class TeamConfig(Strict):
     attempts: int = Field(default=1, ge=1)
     # planners: split when Jev's p(fits) is at most this, not only when it is clearly low
     split_below: float | None = Field(default=None, gt=0.0, lt=1.0)
+    # planners: at max_depth, build a task that still seems too large instead of escalating it
+    build_at_max_depth: bool = False
     constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
     relevance: str | None = None  # a Jev relevance judge asked before working (analyzer teams)
     max_depth: int = Field(default=3, ge=1)  # decomposition: how deep tasks may be split

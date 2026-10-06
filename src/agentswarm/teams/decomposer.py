@@ -67,7 +67,9 @@ You are the planner. The task in the data is too large for one change by one tea
         split: Judgement,
         artifacts: ArtifactFactory,
         max_depth: int,
+        build_at_max_depth: bool = False,  # at the limit, let the executor try instead of asking a person
     ) -> None:
+        self._build_at_max_depth = build_at_max_depth
         self._watches = watches
         self._worker = worker
         self._size = size
@@ -101,6 +103,8 @@ You are the planner. The task in the data is too large for one change by one tea
         fits = Sized(artifact=artifact.id, fits=True, decision=size.id)
         if size.mode is JevMode.SHADOW or size.ruling.verdict is not Verdict.REJECT:
             return [fits]  # fits, or unsure: the gate will catch a change that is too big
+        if ctx.depth >= self._max_depth and self._build_at_max_depth:
+            return [fits]  # unattended: the gate's checks catch a change that is too big
         if ctx.depth >= self._max_depth:
             return [Escalated(artifact=artifact.id, reason=f"too large, but already split {ctx.depth} times")]
 

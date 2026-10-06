@@ -164,6 +164,7 @@ the lowest level can't require sign-offs; a judge sits only on the gate out of t
 | `max_depth` | 3 | Decomposer: how deep tasks may be split. |
 | `attempts` | 1 | Executors: independent attempts per action; a failing attempt is thrown away and the first that passes its checks is kept. |
 | `split_below` | none | Planners: split when Jev's p(fits) is at most this, instead of only when it is clearly low (0.2). |
+| `build_at_max_depth` | false | Planners: at `max_depth`, let the executor try a task that still seems too large instead of escalating it (for unattended runs; the gate catches what fails). |
 | `routing` | none | Executors: `{ledger: PATH, target: 0.8}`. Jev describes the task once (`CallProfile`); the router starts on the cheapest tier whose drawn success rate in the shared ledger meets the target (Thompson sampling), and records every attempt's outcome there. Without a ledger, or in shadow mode, it only logs what Jev said. |
 
 ### `gates[]`
