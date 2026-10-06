@@ -445,3 +445,10 @@ that win.
 - The swarm gets the same `attempts: 3` as the baseline, so any difference comes from its decomposer and
   critics.
 
+**Order of models to evaluate (the user, 2026-10-06).** Start small to test the methodology, then widen:
+1. Two models: Claude Haiku and gemma4-e4b (the complexity experiment).
+2. Once selecting between those two works: the two more advanced Claude models, Sonnet 5.5 and Opus 5.5.
+3. Then Qwen (a version that makes real tool calls; possibly through llama-server).
+4. Over time, all available models.
+Constraint: 24 GB of local memory, so local models are evaluated one at a time.
+
