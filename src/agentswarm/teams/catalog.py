@@ -143,6 +143,7 @@ class TeamCatalog:
                 team.constraints,
                 requires_sizing=resources.plans(),
                 router=resources.router_for(team),
+                attempts=team.attempts,
             ),
         )
         catalog.register(

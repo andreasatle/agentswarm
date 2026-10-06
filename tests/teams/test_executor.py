@@ -166,6 +166,33 @@ class TestExecutorTeam:
         assert isinstance(escalated, Escalated)
         assert "has_farewell: FAILED" in escalated.reason
 
+    async def test_attempts_keep_the_first_that_passes_and_throw_the_others_away(
+        self, tmp_path: Path
+    ) -> None:
+        w = Workspace(tmp_path)
+        worker = FakeWorker(
+            [
+                Steps.write({"greeting.py": "def hello(): ...\n", "junk.py": "x = 1\n"}),  # fails the check
+                Steps.write({"greeting.py": "def farewell(name): ...\n"}),
+                Steps.write({"never.py": ""}),
+            ]
+        )
+        team = ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, attempts=3)
+        (event,) = await team.act(w.ctx(), w.worktree)
+        assert isinstance(event, CommitPushed) and len(worker.calls) == 2
+        assert w.h.repository.files_at(w.artifact.branch) == [
+            "greeting.py"
+        ]  # the first attempt's junk is gone
+
+    async def test_when_every_attempt_fails_the_last_is_committed_and_escalated(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        worker = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"}) for _ in range(2)])
+        commit, escalated = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, attempts=2).act(
+            w.ctx(), w.worktree
+        )
+        assert isinstance(commit, CommitPushed) and isinstance(escalated, Escalated)
+        assert len(worker.calls) == 2
+
     async def test_incomplete_work_is_escalated(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker(

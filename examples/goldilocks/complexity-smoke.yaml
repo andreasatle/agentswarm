@@ -1,0 +1,9 @@
+# A quick check of the complexity experiment: one level-1 and one level-4 task through every setup.
+#   uv run agentswarm compare examples/goldilocks/complexity-smoke.yaml --workdir ~/agentswarm-runs/complexity-smoke
+suite: ../inventory/evaluation/suite.yaml
+tasks: [search, categories]
+setups:
+  haiku-1: complexity/haiku-1.yaml
+  small-1: complexity/small-1.yaml
+  small-3: complexity/small-3.yaml
+  swarm-small: complexity/swarm-small.yaml

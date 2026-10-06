@@ -181,6 +181,9 @@ class TeamConfig(Strict):
     ] = ()  # instead of `model`: cheap first, moving up a tier per rejection (§13.3)
     checks: tuple[str, ...] = ()  # checks the team may run while working, by name
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
+    attempts: int = Field(
+        default=1, ge=1
+    )  # executors: independent attempts; the first passing its checks is kept
     constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
     relevance: str | None = None  # a Jev relevance judge asked before working (analyzer teams)
     max_depth: int = Field(default=3, ge=1)  # decomposition: how deep tasks may be split

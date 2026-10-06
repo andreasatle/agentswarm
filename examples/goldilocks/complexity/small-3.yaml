@@ -1,0 +1,24 @@
+# Complexity experiment, setup "small-3": the small model, up to 3 independent attempts per task; the first
+# that passes its checks is kept. What extra compute alone buys (RESEARCH.md P2). Its token budget is the
+# yardstick for the swarm: n is raised if the swarm spends clearly more.
+project: inventory
+domain: software
+north_star: A small, reliable inventory tool with a Python API and a command line.
+seed: ../../inventory/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+
+models:
+  small: {model: "ollama:gemma4:e4b", temperature: 0.7, max_tokens: 16384}
+teams:
+  - use: executor
+    watches: raw
+    model: small
+    attempts: 3
+    checks: [unit_tests]
+    max_model_calls: 60
+    constraints: [Use only the Python standard library., Put tests in tests/ and run them with run_checks.]
+gates:
+  - {from: raw, to: experimental, hard_checks: [unit_tests]}
+
+jev: {mode: shadow}

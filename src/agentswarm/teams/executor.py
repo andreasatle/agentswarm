@@ -220,7 +220,11 @@ You are the executor in a software team. Implement the task in `instruction.goal
         name: TeamName = TeamName("executor"),
         requires_sizing: bool = False,
         router: Router | None = None,  # chooses the starting tier by the task's difficulty (Phase 8)
+        attempts: int = 1,  # independent attempts per action; the first that passes its checks is kept
     ) -> None:
+        if attempts < 1:
+            raise ValueError("an executor needs at least one attempt")
+        self._attempts = attempts
         super().__init__(watches, name, requires_sizing)
         self._router = router
         self._tiers: tuple[Tier, ...] | None = tuple(workers) if isinstance(workers, Sequence) else None
@@ -235,25 +239,39 @@ You are the executor in a software team. Implement the task in `instruction.goal
         start = self.starting_tier(ctx, routed)
         tier = self.tier_index(ctx, start)
         model, worker = self.tier_for(ctx, start)
-        attempt = await self._attempt(ctx, worktree, model, worker)
+        attempt: list[Event] = []
+        for number in range(1, self._attempts + 1):
+            kept = await self._attempt(ctx, worktree, model, worker, last=number == self._attempts)
+            if kept is not None:
+                attempt = kept
+                break
         self._record(ctx, routed, tier, attempt)
         return [routed, *attempt] if routed is not None else attempt
 
     async def _attempt(
-        self, ctx: ArtifactContext, worktree: Worktree, model: str | None, worker: Worker
-    ) -> list[Event]:
+        self, ctx: ArtifactContext, worktree: Worktree, model: str | None, worker: Worker, last: bool
+    ) -> list[Event] | None:
+        """One attempt's events, or None when an attempt before the last failed and was thrown away."""
         artifact = ctx.artifact
         toolbox = WorktreeToolbox(worktree, self._checks)
         request = self.request(ctx, worktree)
         try:
             report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
         except WorkerError as error:
+            if not last:
+                worktree.discard_changes()
+                return None
             return self._escalate(ctx, worktree, f"executor failed: {error}")
         if not worktree.has_changes():
+            if not last:
+                return None
             return [Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")]
+        checks = toolbox.check_report()
+        if not (checks.passed and report.complete) and not last:
+            worktree.discard_changes()
+            return None
         sha = worktree.commit(f"{artifact.id}: {report.summary}")
         events: list[Event] = [CommitPushed(artifact=artifact.id, commit=sha, model=model)]
-        checks = toolbox.check_report()
         if not checks.passed:
             events.append(Escalated(artifact=artifact.id, reason=f"checks still fail:\n{checks.summary()}"))
         elif not report.complete:

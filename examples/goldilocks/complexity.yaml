@@ -1,0 +1,13 @@
+# The complexity experiment (Phase 8): does AgentSwarm beat simpler setups as tasks get more complex?
+# 25 inventory tasks in five levels; four setups with fixed models, no routing:
+#   haiku-1      the larger model, one attempt            (baseline)
+#   small-1      the small model, one attempt              (the gap)
+#   small-3      the small model, up to 3 attempts, checks pick (extra compute alone)
+#   swarm-small  AgentSwarm on the same small model        (the hypothesis)
+#   uv run agentswarm compare examples/goldilocks/complexity.yaml --workdir ~/agentswarm-runs/complexity
+suite: ../inventory/evaluation/suite.yaml
+setups:
+  haiku-1: complexity/haiku-1.yaml
+  small-1: complexity/small-1.yaml
+  small-3: complexity/small-3.yaml
+  swarm-small: complexity/swarm-small.yaml

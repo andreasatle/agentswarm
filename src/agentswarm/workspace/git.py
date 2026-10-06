@@ -138,6 +138,11 @@ class Worktree:
     def reset_hard(self, commit: str) -> None:
         self._run("reset", "--quiet", "--hard", commit)
 
+    def discard_changes(self) -> None:
+        """Back to the last commit: changed files restored, new files deleted (ignored ones kept)."""
+        self._run("reset", "--quiet", "--hard", "HEAD")
+        self._run("clean", "--quiet", "--force", "-d")
+
     def remove(self) -> None:
         self._repository.remove_worktree(self)
 
