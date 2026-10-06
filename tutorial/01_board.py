@@ -43,6 +43,7 @@ pushed = CommitPushed(artifact=artifact_id, commit="c0ffee")
 views = board.append([pushed])
 unjudged = views.unjudged_commit(artifact_id)
 version = views.version(artifact_id)
+
 print("unjudged commit:", unjudged)  # c0ffee
 print("version:", version)  # 2: the artifact changed twice
 

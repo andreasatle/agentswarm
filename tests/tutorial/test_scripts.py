@@ -41,7 +41,7 @@ class TestTutorialScripts:
         [
             ("01_board.py", "from agentswarm"),
             ("02_claims.py", "# Claims go"),
-            ("03b_project_api.py", "# Load and check"),
+            ("03b_project_api.py", "def print_history"),
         ],
     )
     def test_the_tutorial_shows_the_python_scripts_as_they_are(self, script: str, start: str) -> None:

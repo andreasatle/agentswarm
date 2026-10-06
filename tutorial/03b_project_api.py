@@ -13,7 +13,15 @@ import shutil
 from pathlib import Path
 
 from agentswarm.core.config import ProjectConfig
+from agentswarm.core.domain import Artifact
 from agentswarm.project import Project
+
+
+def print_history(artifact: Artifact):
+    history = views.history(artifact.id)
+    kinds = [type(event).__name__ for event in history]
+    print(artifact.id, "history:", kinds)  # created, claimed, commit, released, claimed, promoted, released
+
 
 # Where things are: the example config in this repository, and this step's own project folder.
 here = Path(__file__).resolve()
@@ -47,9 +55,8 @@ try:
     print(first.id, "is at", first_now.level)  # experimental
     print(second.id, "is at", second_now.level)  # experimental
 
-    history = views.history(first.id)
-    kinds = [type(event).__name__ for event in history]
-    print(first.id, "history:", kinds)  # created, claimed, commit, released, claimed, promoted, released
+    print_history(first)
+    print_history(second)
 
     # The content is in git: the level branch now holds both notes.
     repository_files = project.repository.files_at("experimental")

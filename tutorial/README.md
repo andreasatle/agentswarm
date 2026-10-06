@@ -139,6 +139,7 @@ pushed = CommitPushed(artifact=artifact_id, commit="c0ffee")
 views = board.append([pushed])
 unjudged = views.unjudged_commit(artifact_id)
 version = views.version(artifact_id)
+
 print("unjudged commit:", unjudged)  # c0ffee
 print("version:", version)  # 2: the artifact changed twice
 
@@ -271,6 +272,23 @@ Run `uv run tutorial/03b_project_api.py`. After finding the example config and i
 this:
 
 ```python
+def print_history(artifact: Artifact):
+    history = views.history(artifact.id)
+    kinds = [type(event).__name__ for event in history]
+    print(artifact.id, "history:", kinds)  # created, claimed, commit, released, claimed, promoted, released
+
+
+# Where things are: the example config in this repository, and this step's own project folder.
+here = Path(__file__).resolve()
+repository = here.parents[1]
+config_path = repository / "examples" / "quickstart" / "project.yaml"
+home = Path.home()
+default_runs = home / "agentswarm-runs"
+runs_setting = os.environ.get("AGENTSWARM_RUNS", str(default_runs))
+runs = Path(runs_setting)
+root = runs / "tutorial" / "step03b-project"
+shutil.rmtree(root, ignore_errors=True)  # start this step's own folder afresh
+
 # Load and check the configuration, then open the project: the log and views, git, sandbox, teams, gates.
 config = ProjectConfig.load(config_path)
 project = Project.open(config, root)
@@ -292,9 +310,8 @@ try:
     print(first.id, "is at", first_now.level)  # experimental
     print(second.id, "is at", second_now.level)  # experimental
 
-    history = views.history(first.id)
-    kinds = [type(event).__name__ for event in history]
-    print(first.id, "history:", kinds)  # created, claimed, commit, released, claimed, promoted, released
+    print_history(first)
+    print_history(second)
 
     # The content is in git: the level branch now holds both notes.
     repository_files = project.repository.files_at("experimental")
