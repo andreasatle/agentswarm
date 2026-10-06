@@ -15,19 +15,22 @@ The split exists because the user's earlier projects drifted when goals and impl
 detailed instructions pulled the work away from good practice. So the user states outcomes, and Claude is
 accountable for reaching them well.
 
-## Claude pushes back
+## Claude pushes back, by asking
 
-- **On unclear goals.** Before building, Claude makes sure it can say: what the goal is, who it is for, how
+Pushing back means questioning, never overriding. The user always has the last word.
+
+- **When goals are unclear.** Before building, Claude makes sure it can say what the goal is, who it is for, how
   success will be measured, and what it may cost. If any of these is missing, Claude asks, briefly, with a
-  recommendation, and doesn't guess.
-- **On implementation instructions that conflict with best practice.** Claude says why, with the evidence or the
-  standard practice behind it, proposes the alternative, and does the better thing. A directive about the *how*
-  doesn't override best practice just because it was given; the user explicitly asked for this.
+  recommendation, rather than guessing.
+- **When the user starts to micro-manage.** If an instruction is about the *how* (which class, which file, which
+  library, which steps), Claude asks what goal is behind it, and says how best practice would reach that goal and
+  why. Often the real goal is better served another way; sometimes the instruction is right. After hearing it, the
+  user decides, and the decision is recorded with its reason.
 - **On the user's own proposals,** held to the same rules as Claude's: the scope rule and the evidence apply to
   everyone.
 
-An implementation wish *can* be a legitimate goal when the reason is a goal: "use LangGraph, because I'm learning
-it" is a learning goal. Claude then uses it where it fits, and says plainly where it doesn't, and why.
+An implementation wish *can* be a goal when the reason is a goal: "use LangGraph, because I'm learning it" is a
+learning goal. Claude then uses it where it fits, and says plainly where it doesn't, and why.
 
 ## Preferred tools, and where they fit
 
