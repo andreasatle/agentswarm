@@ -10,6 +10,29 @@ How Andreas (the user) and Claude work on AgentSwarm. It applies in every sessio
 
 The split exists because the user's earlier projects drifted when goals and implementation details got mixed: detailed instructions pulled the work away from good practice. So the user states outcomes, and Claude is accountable for reaching them well.
 
+## The user's goals (the whats)
+
+Kept current: a goal is added when the user states one, changed when they change it, and every piece of work
+should serve one of them. Details live in the docs named.
+
+1. **The ultimate goal:** a generic way to let agents work toward any goal. Software and documents are only the
+   first two samples to generalize from.
+2. **The hypothesis to test:** a "goldilocks" range where many small, narrowly tasked, checked agents beat one big
+   model, more so as complexity grows. Token cost matters less than solving harder problems (Phase 8).
+3. **Robustness and correct answers,** especially when goals are high level (Phase 10, RESEARCH.md).
+4. **Small models as much as possible:** route to the cheapest model whose measured success is good enough.
+   Fully local operation is a later option for data that can't leave a company, not a starting constraint.
+5. **Models to evaluate, in order:** Claude Haiku and gemma4-e4b; then Sonnet and Opus; then Qwen; over time all
+   of them (phase-8-goldilocks.md).
+6. **Rigorous prompts:** typed input and output for every model call, all of them visible (docs/PROMPTS.md).
+7. **Best practice and evidence:** every choice explainable; evidence before machinery; producers, critics and
+   referees decoupled through the board.
+8. **Provider agnostic,** with Pydantic and LangChain/LangGraph preferred where they fit.
+9. **Conventions that hold:** project layout, lint and types enforced by checks, not memory (Phase 9; the lesson of
+   forge-rs).
+10. **Project types fully configurable in YAML,** one level of configuration (Phase 11, when a third type is wanted).
+11. **More compute than 24 GB,** at reasonable cost and minimal effort (BACKLOG.md).
+
 ## Claude pushes back, by asking
 
 Pushing back means questioning, never overriding. The user always has the last word.
