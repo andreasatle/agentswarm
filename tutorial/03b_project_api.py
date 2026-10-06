@@ -12,12 +12,13 @@ import os
 import shutil
 from pathlib import Path
 
+from agentswarm.board.blackboard import BoardViews
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import Artifact
 from agentswarm.project import Project
 
 
-def print_history(artifact: Artifact):
+def print_history(views: BoardViews, artifact: Artifact) -> None:
     history = views.history(artifact.id)
     kinds = [type(event).__name__ for event in history]
     print(artifact.id, "history:", kinds)  # created, claimed, commit, released, claimed, promoted, released
@@ -55,8 +56,8 @@ try:
     print(first.id, "is at", first_now.level)  # experimental
     print(second.id, "is at", second_now.level)  # experimental
 
-    print_history(first)
-    print_history(second)
+    print_history(views, first)
+    print_history(views, second)
 
     # The content is in git: the level branch now holds both notes.
     repository_files = project.repository.files_at("experimental")
