@@ -55,6 +55,13 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
   shows the resolved result and which file each setting came from. Binary formats such as Word are outputs,
   not working formats: `document/word` would extend `document/markdown` with an export step (e.g. pandoc),
   since the file tools, git diffs and quoting reviewers all need text.
+- **More compute than 24 GB of local memory (the user, 2026-10-06).** First choice, least effort: pay-per-token
+  APIs for open models (OpenRouter, Together, Fireworks and similar): no GPUs, no downloads, many models,
+  mostly OpenAI-compatible, so a model is one config line. Rented GPUs only for models no API serves, or for
+  fine-tuning; then persistent storage (for example RunPod network volumes) so weights aren't downloaded again
+  and no particular machine has to be rented. The user has a vast.ai account, but found re-downloading models
+  and being tied to one machine awkward. Due: when a local model is too slow or too small for an experiment.
+  Check current prices and model lists then.
 - From the audit, deferred past Phase 7: F08 conflict refresh before retry, timeouts on git commands (the
   rest of F14), fencing for several owners of one project, event schema versioning, indexed board queries,
   CI.
