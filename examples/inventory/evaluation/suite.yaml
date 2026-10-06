@@ -1,0 +1,431 @@
+# The inventory suite (Phase 8): 25 tasks in five levels of complexity, all on one seed project, so the
+# levels differ only in what they ask. Level 1: one function; 2: several interacting functions; 3: a
+# multi-file change; 4: a vague feature that needs design; 5: a feature across modules where integration
+# and edge cases decide. Each task has hidden tests and a reference solution of the files it changes.
+project: project.yaml
+test_command:
+- python
+- -m
+- pytest
+- -q
+- -p
+- no:cacheprovider
+tasks:
+- id: search
+  task: '(level 1) Add Inventory.search(text) in inventory/store.py: the items whose name contains text, ignoring
+    case, sorted by SKU. An empty or blank text raises ValueError. Add tests.'
+  hidden_tests:
+  - hidden/test_search.py
+  reference:
+    inventory/store.py: reference/search/inventory/store.py
+- id: total-value
+  task: '(level 1) Add Inventory.total_value_cents() in inventory/store.py: the value of all stock, the sum of every
+    item''s quantity times its price, 0 for an empty inventory. Add tests.'
+  hidden_tests:
+  - hidden/test_total_value.py
+  reference:
+    inventory/store.py: reference/total-value/inventory/store.py
+- id: thousands
+  task: '(level 1) Make report.format_cents group thousands with commas: 1234567 becomes ''12,345.67'', 99 becomes
+    ''0.99'' and 100000 becomes ''1,000.00''. Negative amounts get a leading minus: -150 becomes ''-1.50''. Add
+    tests.'
+  hidden_tests:
+  - hidden/test_thousands.py
+  reference:
+    inventory/report.py: reference/thousands/inventory/report.py
+- id: rename
+  task: '(level 1) Add Inventory.rename(sku, name) in inventory/store.py: give the item a new name, keeping everything
+    else, and return the renamed item. An unknown SKU raises KeyError; an empty or blank name raises ValueError
+    and leaves the item unchanged. Add tests.'
+  hidden_tests:
+  - hidden/test_rename.py
+  reference:
+    inventory/store.py: reference/rename/inventory/store.py
+- id: below
+  task: '(level 1) Add Inventory.below(threshold) in inventory/store.py: the items whose quantity is strictly below
+    threshold, fewest first, ties broken by SKU. A negative threshold raises ValueError. Add tests.'
+  hidden_tests:
+  - hidden/test_below.py
+  reference:
+    inventory/store.py: reference/below/inventory/store.py
+- id: pricing
+  task: '(level 2) In inventory/store.py add Inventory.set_price(sku, price_cents), which changes one item''s price
+    (KeyError for an unknown SKU, ValueError for a negative price), and Inventory.discount(percent), which lowers
+    every price by percent (0 to 100, else ValueError and nothing changes), rounding each new price half up to a
+    whole cent: 25 cents at 10% becomes 23 (22.5 rounds up), 99 at 50% becomes 50. Add tests.'
+  hidden_tests:
+  - hidden/test_pricing.py
+  reference:
+    inventory/store.py: reference/pricing/inventory/store.py
+- id: merge
+  task: '(level 2) Add Inventory.merge(other) in inventory/store.py: add another inventory''s stock to this one.
+    Items with a new SKU are added; for an existing SKU the quantities are summed, but only if the name and price
+    match. If any existing SKU has a different name or price, raise ValueError and change nothing at all. Add tests.'
+  hidden_tests:
+  - hidden/test_merge.py
+  reference:
+    inventory/store.py: reference/merge/inventory/store.py
+- id: summary
+  task: '(level 2) Add a summary to inventory/report.py: a frozen dataclass Summary with fields items (how many
+    SKUs), units (total quantity), value_cents (total value) and top_sku (the SKU with the highest stock value,
+    ties broken by the smallest SKU, or None for an empty inventory), and a function summarize(inventory) that returns
+    it. Add tests.'
+  hidden_tests:
+  - hidden/test_summary.py
+  reference:
+    inventory/report.py: reference/summary/inventory/report.py
+- id: normalize-sku
+  task: '(level 2) SKUs should be case- and space-insensitive: '' a1 '' and ''A1'' are the same SKU. Store every
+    SKU stripped and in upper case, and make Inventory.add, get, remove and adjust accept any spelling, so adding
+    ''a1'' after ''A1'' is a duplicate (ValueError) and get('' a1'') finds ''A1''. Add tests.'
+  hidden_tests:
+  - hidden/test_normalize_sku.py
+  reference:
+    inventory/store.py: reference/normalize-sku/inventory/store.py
+- id: strict-load
+  task: '(level 2) Make Inventory.load raise ValueError for every malformed file, never KeyError or TypeError: not
+    valid JSON, no ''items'' list, an entry that isn''t an object, missing or extra fields, fields of the wrong
+    type (quantity and price_cents must be integers, sku and name strings), invalid items and duplicate SKUs. The
+    message names the entry''s position, e.g. ''entry 2: ...''. A missing file still gives an empty inventory. Add
+    tests.'
+  hidden_tests:
+  - hidden/test_strict_load.py
+  reference:
+    inventory/store.py: reference/strict-load/inventory/store.py
+- id: cli-search
+  task: (level 3) Add searching by name, in the store and on the command line. Inventory.search(text) returns the
+    items whose name contains text, ignoring case, sorted by SKU (ValueError for blank text). The command `search
+    TEXT` prints the matches in the same format as `list`, or the line 'no items' when there are none; both exit
+    0. Blank text prints an error to stderr and exits 1. Add tests.
+  hidden_tests:
+  - hidden/test_cli_search.py
+  reference:
+    inventory/store.py: reference/cli-search/inventory/store.py
+    inventory/cli.py: reference/cli-search/inventory/cli.py
+- id: report-sort
+  task: (level 3) Let the stock report be sorted. report.stock_report(inventory, by='sku') accepts by='sku' (the
+    default), 'name' (ignoring case, ties by SKU) or 'value' (highest stock value first, ties by SKU); any other
+    value raises ValueError. The command `report --sort sku|name|value` passes it on (argparse choices; default
+    sku). The Total line stays last. Add tests.
+  hidden_tests:
+  - hidden/test_report_sort.py
+  reference:
+    inventory/report.py: reference/report-sort/inventory/report.py
+    inventory/cli.py: reference/report-sort/inventory/cli.py
+- id: units
+  task: '(level 3) Give items a unit of measure. Item gets a field unit: str = ''pcs'' (after price_cents; blank
+    raises ValueError). It is saved with the item, and files saved before this change (no unit) load as ''pcs''.
+    The report shows it after the quantity: ''A1  Bolt  3 pcs x 0.25 = 0.75''. The command `add` takes an option
+    --unit (default pcs). Add tests.'
+  hidden_tests:
+  - hidden/test_units.py
+  reference:
+    inventory/models.py: reference/units/inventory/models.py
+    inventory/report.py: reference/units/inventory/report.py
+    inventory/cli.py: reference/units/inventory/cli.py
+    tests/test_cli.py: reference/units/tests/test_cli.py
+- id: remove-guard
+  task: (level 3) Protect stock from accidental removal. Inventory.remove(sku, force=False) raises ValueError when
+    the item still has stock (quantity above 0) unless force is True; an item with 0 in stock is removed either
+    way. The command `remove SKU` gains a flag --force; without it, removing an item in stock prints an error to
+    stderr, exits 1 and leaves the file unchanged. Add tests.
+  hidden_tests:
+  - hidden/test_remove_guard.py
+  reference:
+    inventory/store.py: reference/remove-guard/inventory/store.py
+    inventory/cli.py: reference/remove-guard/inventory/cli.py
+    tests/test_store.py: reference/remove-guard/tests/test_store.py
+- id: csv-export
+  task: '(level 3) Export the inventory as CSV. A new module inventory/export.py has to_csv(inventory) -> str: a
+    header line ''sku,name,quantity,price_cents'', then one row per item sorted by SKU, written with Python''s csv
+    module so names with commas or quotes are quoted correctly, with ''\n'' line endings. The command `export PATH`
+    writes that text to PATH (the inventory file itself is unchanged). Add tests.'
+  hidden_tests:
+  - hidden/test_csv_export.py
+  reference:
+    inventory/export.py: reference/csv-export/inventory/export.py
+    inventory/cli.py: reference/csv-export/inventory/cli.py
+- id: categories
+  task: '(level 4) Items should belong to categories, so stock can be organised and reported by category. Existing
+    data and commands must keep working.
+
+
+    The interface the rest of the system relies on:
+
+    - Item has a field category: str = ''general'' (after price_cents); a blank category raises ValueError. It is
+    saved with the item; files without it load as ''general''.
+
+    - Inventory.categories() returns the categories in use, sorted.
+
+    - report.category_report(inventory): for each category, sorted, a line ''== CATEGORY =='', that category''s
+    item lines in the stock report''s format, sorted by SKU, and ''Subtotal: VALUE''; the last line is ''Total:
+    VALUE''.
+
+    - Commands: `add ... --category NAME`, `list --category NAME` (only that category), and `report --by-category`.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_categories.py
+  reference:
+    inventory/models.py: reference/categories/inventory/models.py
+    inventory/store.py: reference/categories/inventory/store.py
+    inventory/report.py: reference/categories/inventory/report.py
+    inventory/cli.py: reference/categories/inventory/cli.py
+- id: alerts
+  task: '(level 4) Warn when stock runs low: each item can have a reorder point, and the tool lists what needs reordering.
+    Reorder points must survive saving and loading; files saved before this change still load.
+
+
+    The interface the rest of the system relies on:
+
+    - Inventory.set_reorder_point(sku, point): KeyError for an unknown SKU, ValueError for a negative point. Inventory.reorder_point(sku)
+    returns the point, or None if none is set.
+
+    - Inventory.alerts() returns (sku, shortfall) pairs, shortfall = point - quantity, for every item whose quantity
+    is at or below its point (so a shortfall can be 0), biggest shortfall first, ties by SKU.
+
+    - Removing an item removes its reorder point.
+
+    - Commands: `reorder SKU POINT`, and `alerts`, which prints one line ''SKU  short N'' per alert in that order,
+    or ''no alerts''.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_alerts.py
+  reference:
+    inventory/store.py: reference/alerts/inventory/store.py
+    inventory/cli.py: reference/alerts/inventory/cli.py
+- id: undo
+  task: '(level 4) Mistakes happen: let users undo their changes, one at a time, also from the command line, where
+    each command is a separate run of the program. Loading a file is not a change.
+
+
+    The interface the rest of the system relies on:
+
+    - Inventory.undo() reverts the most recent add, remove or adjust and returns its description: ''add A1'', ''remove
+    A1'' or ''adjust A1 by -3''. With nothing to undo it raises ValueError.
+
+    - Inventory.history() lists the undoable changes'' descriptions, oldest first. At most the 50 most recent changes
+    are kept.
+
+    - The history is saved with the inventory and loaded back, so undo works across runs; files without a history
+    load with an empty one.
+
+    - Command: `undo` prints ''undid: DESCRIPTION''; with nothing to undo it prints an error to stderr and exits
+    1.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_undo.py
+  reference:
+    inventory/store.py: reference/undo/inventory/store.py
+    inventory/cli.py: reference/undo/inventory/cli.py
+- id: csv-import
+  task: '(level 4) Let people load stock from spreadsheets saved as CSV. A file with problems must never be half-imported,
+    and the user should see every problem at once, not just the first.
+
+
+    The interface the rest of the system relies on:
+
+    - inventory/importer.py: from_csv(text) -> list[Item]. The header (line 1) has exactly the columns sku, name,
+    quantity, price_cents in any order. Problems raise ImportFailed (a subclass of ValueError) whose errors attribute
+    lists every problem as ''line N: message'', counting the header as line 1: a wrong header, non-integer numbers,
+    invalid items, rows with the wrong number of fields, and a SKU repeated within the file (''line N: duplicate
+    sku A1'').
+
+    - Command: `import PATH` adds every item from the file and prints ''imported N items''. If the file has problems,
+    or any of its SKUs is already in the inventory, nothing changes: the problems go to stderr, one per line, and
+    it exits 1.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_csv_import.py
+  reference:
+    inventory/importer.py: reference/csv-import/inventory/importer.py
+    inventory/store.py: reference/csv-import/inventory/store.py
+    inventory/cli.py: reference/csv-import/inventory/cli.py
+- id: locations
+  task: '(level 4) Track where stock is kept: an item''s stock can be spread over named locations (shelves, warehouses),
+    and moved between them. The total quantity everything else uses must stay right, and existing data and commands
+    must keep working.
+
+
+    The interface the rest of the system relies on:
+
+    - Item.quantity is always the item''s total over all locations.
+
+    - A new item''s quantity starts at the location ''main''; Inventory.adjust changes the stock at ''main''.
+
+    - Inventory.receive(sku, location, quantity), ship(sku, location, quantity) (ValueError if that location has
+    too little) and transfer(sku, source, target, quantity) (ValueError for the same location, and nothing moves
+    when the source has too little). Unknown SKUs raise KeyError, negative quantities and blank locations ValueError.
+
+    - Inventory.stock_at(sku, location) -> int (0 where there is none) and Inventory.locations(sku) -> dict of location
+    to quantity, without empty locations, sorted by location.
+
+    - Locations are saved and loaded; files saved before this change load with all stock at ''main''.
+
+    - report.location_report(inventory): for each location, sorted, ''== LOCATION =='' followed by ''SKU  NAME  QUANTITY''
+    for each item stocked there, by SKU.
+
+    - Commands: `transfer SKU FROM TO QUANTITY` and `report --by-location`.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_locations.py
+  reference:
+    inventory/store.py: reference/locations/inventory/store.py
+    inventory/report.py: reference/locations/inventory/report.py
+    inventory/cli.py: reference/locations/inventory/cli.py
+- id: orders
+  task: '(level 5) Customers order items before they ship. An order reserves stock so it can''t be promised twice;
+    when the order ships the stock leaves, and a cancelled order frees it. Stock must never be oversold, everything
+    must survive saving and loading, and the existing commands must respect reservations.
+
+
+    The interface the rest of the system relies on:
+
+    - Inventory.reserve(order_id, {sku: quantity}): all lines or none. ValueError for a blank or existing order
+    id, no lines, a quantity of 0 or less, or more than is available; KeyError for an unknown SKU.
+
+    - Inventory.available(sku) = quantity in stock minus what orders reserve; Inventory.reserved(sku).
+
+    - Inventory.fulfil(order_id) takes the order''s quantities out of stock and ends the reservation; Inventory.cancel(order_id)
+    only ends it. Both raise KeyError for an unknown order.
+
+    - Inventory.orders() -> {order_id: {sku: quantity}}, both sorted.
+
+    - adjust may not take the quantity below what is reserved, and remove refuses a reserved item (ValueError, nothing
+    changes).
+
+    - Orders are saved and loaded; files without orders load with none.
+
+    - The stock report appends '' (reserved N)'' to the line of an item with reservations.
+
+    - Commands: `reserve ORDER SKU=QTY [SKU=QTY ...]`, `fulfil ORDER`, `cancel ORDER`, and `orders`, which prints
+    one line per order: ''ORDER  SKU=QTY SKU=QTY'' sorted. Errors go to stderr with exit 1.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_orders.py
+  reference:
+    inventory/store.py: reference/orders/inventory/store.py
+    inventory/report.py: reference/orders/inventory/report.py
+    inventory/cli.py: reference/orders/inventory/cli.py
+- id: fifo
+  task: '(level 5) Value stock at what it actually cost. The same item gets bought at different prices over time;
+    when stock goes out, the oldest stock goes first (FIFO), so the cost of what was sold and the value of what
+    remains are both right. This has to hold through every way stock changes, and across saving and loading.
+
+
+    The interface the rest of the system relies on:
+
+    - Inventory.receive(sku, quantity, unit_cost_cents) adds stock bought at that cost; Inventory.sell(sku, quantity)
+    takes stock out, oldest first, and returns what it cost in cents (ValueError if there isn''t enough, and nothing
+    changes). Unknown SKUs: KeyError; negative numbers: ValueError.
+
+    - A new item''s stock counts as bought at its price_cents. adjust with a positive delta receives at the item''s
+    price; a negative delta takes stock out like a sale.
+
+    - Inventory.cost_value_cents(sku=None): the cost of the remaining stock of one item, or of all.
+
+    - Item.quantity always equals the stock remaining.
+
+    - The cost history is saved and loaded; files saved before this change load with each item''s stock at its price.
+
+    - report.valuation_report(inventory): one line ''SKU  QUANTITY  COST'' per item by SKU, then ''Total cost: COST'',
+    amounts formatted like the stock report.
+
+    - Commands: `receive SKU QUANTITY UNIT_COST_CENTS`, `sell SKU QUANTITY` (prints ''cost of goods sold: X.YY''),
+    and `valuation`.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_fifo.py
+  reference:
+    inventory/store.py: reference/fifo/inventory/store.py
+    inventory/report.py: reference/fifo/inventory/report.py
+    inventory/cli.py: reference/fifo/inventory/cli.py
+- id: batch
+  task: '(level 5) Let people prepare many changes in a text file and apply them in one go, for example a delivery
+    or a stock count. Either the whole script takes effect or none of it, and when something is wrong the user must
+    learn exactly which line and why.
+
+
+    The interface the rest of the system relies on:
+
+    - inventory/batch.py: apply_lines(inventory, lines) -> (new_inventory, number_of_commands). Commands, one per
+    line, with the same arguments as the command line: `add SKU NAME QUANTITY PRICE_CENTS`, `remove SKU`, `adjust
+    SKU DELTA`. Names with spaces are quoted ("Hex bolt"); blank lines and lines starting with # are skipped. The
+    given inventory is never changed.
+
+    - Any failing line (unknown command, wrong number of arguments, bad number, unknown SKU, invalid item, stock
+    below 0) raises BatchError, a subclass of ValueError, whose line attribute is the line''s number (1-based, counting
+    skipped lines) and whose message starts with ''line N: ''.
+
+    - Command: `batch SCRIPT` applies the script, saves, and prints ''applied N commands''; on failure it prints
+    ''error: line N: ...'' to stderr, exits 1 and leaves the inventory file unchanged.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_batch.py
+  reference:
+    inventory/batch.py: reference/batch/inventory/batch.py
+    inventory/cli.py: reference/batch/inventory/cli.py
+- id: query
+  task: '(level 5) Users want to find items by combining conditions and sorting the result, from Python and from
+    the command line, with clear errors for contradictory or meaningless requests.
+
+
+    The interface the rest of the system relies on:
+
+    - Inventory.query(name=None, min_quantity=None, max_quantity=None, min_price=None, max_price=None, sort=''sku'',
+    descending=False, limit=None) -> list[Item]: the items matching every given filter (name: contained in the item''s
+    name, ignoring case; numeric bounds inclusive, prices in cents). sort is one of sku, name (ignoring case), quantity,
+    price, value; ties are always broken by SKU ascending, also when descending. limit keeps the first N after sorting.
+
+    - ValueError for an unknown sort, a minimum above its maximum, a limit below 1, or a blank name.
+
+    - Command: `find [--name TEXT] [--min-qty N] [--max-qty N] [--min-price C] [--max-price C] [--sort FIELD] [--desc]
+    [--limit N]` prints the matches in the `list` format, or ''no items''; errors go to stderr with exit 1.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_query.py
+  reference:
+    inventory/store.py: reference/query/inventory/store.py
+    inventory/cli.py: reference/query/inventory/cli.py
+- id: kits
+  task: '(level 5) Some products are sold as kits made of several items (a repair kit: 4 bolts, 4 nuts, 1 tube of
+    glue). A kit has no stock of its own: how many can be sold depends on its components, selling one takes the
+    components out, and nothing may break a kit that is still defined. Kits must survive saving and loading.
+
+
+    The interface the rest of the system relies on:
+
+    - Inventory.define_kit(sku, name, price_cents, {item_sku: count}) -> Kit (a dataclass with fields sku, name,
+    price_cents, components). ValueError for a blank SKU or name, a SKU already used by an item or kit, a negative
+    price, no components or a count below 1; KeyError for an unknown component. Inventory.kit(sku) and Inventory.kits()
+    (sorted by SKU) return them; adding an item with a kit''s SKU raises ValueError.
+
+    - Inventory.kit_available(sku): how many whole kits the components'' stock allows.
+
+    - Inventory.sell_kit(sku, count) takes count kits'' components out of stock, all or nothing (ValueError if fewer
+    are available or count is below 1).
+
+    - Removing an item that a kit uses raises ValueError and changes nothing.
+
+    - Kits are saved and loaded; files without kits load with none.
+
+    - The stock report, after its Total line, adds ''Kits:'' and one line ''SKU  NAME  available N'' per kit by
+    SKU, when there are kits.
+
+    - Commands: `kit SKU NAME PRICE_CENTS ITEM=COUNT [ITEM=COUNT ...]` and `sell-kit SKU COUNT`.
+
+    Add tests.'
+  hidden_tests:
+  - hidden/test_kits.py
+  reference:
+    inventory/store.py: reference/kits/inventory/store.py
+    inventory/report.py: reference/kits/inventory/report.py
+    inventory/cli.py: reference/kits/inventory/cli.py

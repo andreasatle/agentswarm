@@ -1,0 +1,21 @@
+# The project the inventory suite runs in (suite.yaml): one executor and one gate. Experiments swap the teams
+# and models through their own setups (examples/goldilocks/complexity-*.yaml).
+project: inventory
+domain: software
+north_star: A small, reliable inventory tool with a Python API and a command line.
+levels: [raw, experimental]
+seed: ../seed
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  coder: {model: "ollama:gemma4:e4b", temperature: 0, max_tokens: 16384}
+checks:
+  unit_tests: {command: [python, -m, pytest, -q, -p, no:cacheprovider], kind: test_failure, timeout_s: 120, failure_exit_codes: [1]}
+teams:
+  - use: executor
+    watches: raw
+    model: coder
+    checks: [unit_tests]
+    max_model_calls: 40
+    constraints: [Use only the Python standard library., Put tests in tests/ and run them with run_checks.]
+gates:
+  - {from: raw, to: experimental, hard_checks: [unit_tests]}
