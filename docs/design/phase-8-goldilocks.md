@@ -414,3 +414,15 @@ that win.
   results count. The bugs planted from the old reference are cached per workdir, so runs before this fix are
   not pooled with runs after it.
 
+**Routing learned in use, replacing the big upfront search (decided with the user, 2026-10-05).**
+- Per task: Jev reads the prompt once and answers a few questions about it (attributes); the router, plain
+  code, picks the cheapest model whose success so far meets the target; the checks give the outcome, which is
+  saved. Retries reuse the attributes and step up a tier, as before.
+- The router counts successes and failures per (kind of call, difficulty band, model), starting from a small
+  guess, and draws each model's rate near its ratio (Thompson sampling), so uncertain models still get tried
+  now and then. No gradients, no training: the table can be read.
+- Extra attributes (design decisions, underspecified, algorithmic, several files) are asked from the start
+  but only logged; one joins the router only when the data shows it predicts success.
+- Outcomes go to one shared ledger per machine, so projects and probes all teach the same router.
+- Before building it, a sanity run checks the whole pipeline on one fixed model (`sanity.yaml`).
+

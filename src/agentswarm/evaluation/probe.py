@@ -29,6 +29,7 @@ from typing import ClassVar, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ModelConfig, Price, ProjectConfig, SandboxConfig
 from agentswarm.core.domain import Usage
 from agentswarm.evaluation.difficulty import DifficultyRatings
@@ -45,6 +46,7 @@ from agentswarm.llm.workers import (
     WorkerError,
     WorkerProvider,
 )
+from agentswarm.teams.routing import Bands, CallKind, RoutedCall, RoutingLedger
 from agentswarm.workspace.files import ConfinedFiles, UnsafePath
 from agentswarm.workspace.sandbox import Sandbox, Sandboxes
 
@@ -172,11 +174,9 @@ class TaskSample(Frozen):
     hard: int = Field(ge=0)
     seed: int = 0
 
-    BANDS: ClassVar[int] = 3
-
-    @classmethod
-    def band(cls, difficulty: float) -> int:
-        return min(int(difficulty * cls.BANDS), cls.BANDS - 1)
+    @staticmethod
+    def band(difficulty: float) -> int:
+        return Bands.of(difficulty)
 
     def choose(self, candidates: Sequence[str], difficulties: dict[str, float]) -> set[str]:
         wanted = (self.easy, self.medium, self.hard)
@@ -202,6 +202,7 @@ class ProbeExperiment(Frozen):
     constraints: tuple[str, ...] = ()  # given to every produce probe
     sandbox: SandboxConfig = SandboxConfig()
     models: dict[str, ModelConfig] = Field(min_length=1)
+    ledger: Path | None = None  # the routing ledger: each result with a difficulty teaches the router
 
     @classmethod
     def load(cls, path: Path) -> Self:
@@ -212,13 +213,14 @@ class ProbeExperiment(Frozen):
         sample = loaded.sample
         if sample is not None:
             sample = sample.model_copy(update={"ratings": (base / sample.ratings.expanduser()).resolve()})
+        ledger = (base / loaded.ledger.expanduser()).resolve() if loaded.ledger is not None else None
         files = [*suites, *([sample.ratings] if sample is not None else [])]
         missing = [str(f) for f in files if not f.is_file()]
         if missing:
             raise ValueError(f"probe experiment {path} refers to missing files: {missing}")
         if loaded.tasks and sample is not None:
             raise ValueError(f"probe experiment {path}: give `tasks` or `sample`, not both")
-        return loaded.model_copy(update={"suites": suites, "sample": sample})
+        return loaded.model_copy(update={"suites": suites, "sample": sample, "ledger": ledger})
 
 
 class TestBench:
@@ -598,7 +600,10 @@ class ProbeRun:
         workers: WorkerProvider | None = None,  # None: the experiment's real models
         sandbox: Sandbox | None = None,  # None: the experiment's sandbox
         stopwatch: Callable[[], float] = time.monotonic,
+        clock: Clock | None = None,
     ) -> None:
+        self._clock = clock or SystemClock()
+        self._ledger = RoutingLedger(experiment.ledger) if experiment.ledger is not None else None
         self._experiment = experiment
         self._workdir = workdir
         self._workers = workers or LangChainWorkers(ChatModels(dict(experiment.models)))
@@ -624,6 +629,7 @@ class ProbeRun:
                     continue
                 result = await self.run_one(model, probe, worker, tally, bench)
                 self._files.append(result)
+                self._teach(result)
                 results.append(result)
                 if report is not None:
                     report(result)
@@ -666,6 +672,27 @@ class ProbeRun:
             difficulty=probe.difficulty,
             answer=answered,
         )
+
+    KINDS: ClassVar[dict[ProbeKind, CallKind]] = {
+        ProbeKind.PRODUCE: CallKind.PRODUCE,
+        ProbeKind.CRITIQUE: CallKind.CRITIQUE,
+    }
+
+    def _teach(self, result: ProbeResult) -> None:
+        """A result with a known difficulty goes to the routing ledger; a provider failure says nothing about
+        the model, so it is left out. Invalid and cut-off answers count as failures: they are the model's."""
+        if self._ledger is None or result.difficulty is None or result.outcome is Outcome.NO_ANSWER:
+            return
+        call = RoutedCall(
+            kind=self.KINDS[result.kind],
+            band=Bands.of(result.difficulty),
+            model_id=result.model_id,
+            success=result.success,
+            attributes={"simple": round(1.0 - result.difficulty, 4)},
+            source="probe",
+            at=self._clock.now(),
+        )
+        self._ledger.record(call)
 
     @staticmethod
     def failure(error: WorkerError) -> Outcome:

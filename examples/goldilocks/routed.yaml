@@ -1,4 +1,5 @@
-# Phase 8 setup "routed": tiers small, medium, big; Jev scores each task's difficulty and the curves pick the start
+# Phase 8 setup "routed": tiers small, medium, big; Jev describes each task, the router picks the start from
+# the outcomes in the shared routing ledger, and every attempt adds to it (see `agentswarm routing LEDGER`).
 # Every setup shares the project, the seed and the first gate (unit tests only, no judge), so the setups
 # differ only in their teams and models. Compared with `agentswarm compare` (see build-*.yaml, review.yaml).
 project: goldilocks
@@ -19,7 +20,7 @@ teams:
     checks: [unit_tests]
     max_model_calls: 30
     constraints: [Use only the Python standard library., Put tests in tests/ and run them with run_checks.]
-    routing: {curves: curves.json, target: 0.8}
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8}
 gates:
   - {from: raw, to: experimental, hard_checks: [unit_tests]}
 

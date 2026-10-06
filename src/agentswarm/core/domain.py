@@ -267,10 +267,13 @@ class Routed(Frozen):
     artifact: ArtifactId
     team: TeamName
     model: str  # the name in the project's `models`
-    model_id: str  # the model itself, "<provider>:<model>", which curves are keyed by
+    model_id: str  # the model itself, "<provider>:<model>", which the routing ledger is keyed by
     difficulty: float | None  # 1 - p(simple) from Jev; None when Jev couldn't answer
     decision: DecisionId | None
-    acted: bool  # whether the route was chosen from curves (active) or the cheapest tier was kept
+    acted: bool  # whether the route was chosen from the ledger (active) or the cheapest tier was kept
+    attributes: dict[str, float] = Field(
+        default_factory=dict[str, float]
+    )  # Jev's p(yes) per CallProfile question
 
     @property
     def subject(self) -> ArtifactId:

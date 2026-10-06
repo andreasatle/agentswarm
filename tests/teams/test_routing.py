@@ -1,3 +1,5 @@
+import random
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -5,108 +7,139 @@ from pydantic import BaseModel
 
 from agentswarm.core.config import JevMode, ProjectConfig
 from agentswarm.core.domain import Rejected, Routed
-from agentswarm.jev.api import NoulAnswer
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.judgement import Judgement
-from agentswarm.judging.judges import Judge, TaskDifficulty
+from agentswarm.judging.judges import CallProfile, Judge
 from agentswarm.judging.policy import Policy
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.executor import ExecutorReport, ExecutorTeam, Tier, WorktreeToolbox
-from agentswarm.teams.routing import ModelCurves, Observation, Router
+from agentswarm.teams.routing import Bands, Beliefs, CallKind, Prior, RoutedCall, Router, RoutingLedger
 from tests.support.harness import Harness
-from tests.support.samples import Samples
+from tests.support.samples import Profiles, Samples
 
 SMALL, LARGE = "ollama:small", "ollama:large"
+AT = datetime(2026, 10, 5, tzinfo=UTC)
 
 
-class Curves:
-    """The small model solves easy tasks only; the large one solves everything."""
+class Outcomes:
+    """A ledger: the small model succeeds on easy tasks and fails on hard ones; the large one always works."""
 
     @staticmethod
-    def make() -> ModelCurves:
-        observations: list[Observation] = []
-        for difficulty, small_ok in ((0.1, True), (0.5, False), (0.9, False)):
-            for _ in range(8):
-                observations.append(Observation(model_id=SMALL, difficulty=difficulty, success=small_ok))
-                observations.append(Observation(model_id=LARGE, difficulty=difficulty, success=True))
-        return ModelCurves.fit(observations, bands=3)
+    def call(model: str, band: int, success: bool) -> RoutedCall:
+        return RoutedCall(
+            kind=CallKind.PRODUCE, band=band, model_id=model, success=success, source="t", at=AT
+        )
+
+    @classmethod
+    def ledger(cls) -> RoutingLedger:
+        ledger = RoutingLedger(":memory:")
+        for _ in range(30):
+            ledger.record(cls.call(SMALL, 0, True))
+            ledger.record(cls.call(SMALL, 2, False))
+            ledger.record(cls.call(LARGE, 0, True))
+            ledger.record(cls.call(LARGE, 2, True))
+        return ledger
 
 
 class Routing:
-    """A harness with one artifact, and a router whose difficulty answer is scripted."""
+    """A harness with one artifact, and a router whose CallProfile answer is scripted."""
 
-    def __init__(self, tmp_path: Path, simple: float, mode: JevMode, curves: ModelCurves | None) -> None:
+    def __init__(self, tmp_path: Path, simple: float, mode: JevMode, ledger: RoutingLedger | None) -> None:
         tmp_path.mkdir(parents=True, exist_ok=True)
         self.h = Harness(tmp_path)
         self.artifact = self.h.create()
-        answer = TaskDifficulty(simple=NoulAnswer(noul=simple))
-        self.decider = FakeDecider([answer])
-        judge = Judge(TaskDifficulty)
+        self.decider = FakeDecider([Profiles.make(simple)])
+        judge = Judge(CallProfile)
         policy = Policy(judge)
         self.judgement = Judgement(judge, policy, self.decider, self.h.decisions, mode, self.h.clock)
-        self.router = Router(self.judgement, "route:executor", (SMALL, LARGE), curves, target=0.8)
+        self.ledger = ledger
+        self.router = self.make((SMALL, LARGE))
+
+    def make(self, model_ids: tuple[str, ...]) -> Router:
+        rng = random.Random(0)
+        return Router(
+            self.judgement,
+            "route:executor",
+            CallKind.PRODUCE,
+            model_ids,
+            self.ledger,
+            0.8,
+            self.h.clock,
+            rng=rng,
+        )
 
     def choose(self) -> int:
         ctx = self.h.contexts.build(self.artifact.id)
-        choice = self.router.choose(ctx, "c0ffee")
-        return choice.tier
+        return self.router.choose(ctx, "c0ffee").tier
 
 
-class TestModelCurves:
-    def test_fits_success_per_band_and_smooths_small_samples(self) -> None:
-        curves = Curves.make()
-        small = curves.curves[SMALL]
-        assert [(b.successes, b.runs) for b in small.bands] == [(8, 8), (0, 8), (0, 8)]
-        assert curves.predicted(SMALL, 0.05) == pytest.approx(9 / 10)  # (8 + 1) / (8 + 2)
-        assert curves.predicted(SMALL, 1.0) == pytest.approx(1 / 10)  # 1.0 belongs to the last band
-        assert curves.predicted("ollama:unknown", 0.5) is None
+class TestBeliefs:
+    def test_counts_outcomes_on_top_of_a_small_guess_per_band(self) -> None:
+        beliefs = Beliefs(Outcomes.ledger().calls(), Prior())
+        easy = beliefs.of(CallKind.PRODUCE, 0, SMALL)
+        assert (easy.successes, easy.failures) == (30, 0)
+        assert easy.rate == pytest.approx((30 + 1.6) / (30 + 2.0))  # prior: 0.8 of 2 imagined runs
+        unknown = beliefs.of(CallKind.CRITIQUE, 1, SMALL)
+        assert (unknown.successes, unknown.failures) == (0, 0) and unknown.rate == pytest.approx(0.6)
 
-    def test_no_crossings_when_the_stronger_model_is_never_clearly_worse(self) -> None:
-        assert Curves.make().crossings() == []
+    def test_draws_spread_widely_without_outcomes_and_settle_with_them(self) -> None:
+        beliefs = Beliefs(Outcomes.ledger().calls(), Prior())
+        rng = random.Random(1)
+        fresh = [beliefs.of(CallKind.PRODUCE, 1, SMALL).draw(rng) for _ in range(200)]
+        proven = [beliefs.of(CallKind.PRODUCE, 0, SMALL).draw(rng) for _ in range(200)]
+        assert max(fresh) - min(fresh) > 0.6
+        assert min(proven) > 0.8
 
-    def test_reports_curves_that_cross(self) -> None:
-        observations: list[Observation] = []
-        for _ in range(4):
-            observations.append(
-                Observation(model_id=SMALL, difficulty=0.1, success=True)
-            )  # strings: small wins
-            observations.append(Observation(model_id=LARGE, difficulty=0.1, success=False))
-            for difficulty in (0.5, 0.9):
-                observations.append(Observation(model_id=SMALL, difficulty=difficulty, success=False))
-                observations.append(Observation(model_id=LARGE, difficulty=difficulty, success=True))
-        crossings = ModelCurves.fit(observations).crossings()
-        assert len(crossings) == 1 and crossings[0].startswith(f"{SMALL} beats {LARGE}")
+    def test_renders_successes_runs_and_rate_per_band(self) -> None:
+        table = Beliefs(Outcomes.ledger().calls(), Prior()).render()
+        assert "ollama:small" in table and "30/30" in table and " 0/30" in table
 
-    def test_round_trips_through_json(self, tmp_path: Path) -> None:
-        curves = Curves.make()
-        path = tmp_path / "curves.json"
-        curves.write(path)
-        assert ModelCurves.load(path) == curves
+
+class TestRoutingLedger:
+    def test_keeps_calls_across_openings_and_filters_by_kind(self, tmp_path: Path) -> None:
+        path = tmp_path / "ledger" / "routing.sqlite"
+        ledger = RoutingLedger(path)
+        ledger.record(Outcomes.call(SMALL, 1, True))
+        critique = RoutedCall(
+            kind=CallKind.CRITIQUE, band=2, model_id=LARGE, success=False, source="p", at=AT
+        )
+        ledger.record(critique)
+        ledger.close()
+        again = RoutingLedger(path)
+        assert [c.kind for c in again.calls()] == [CallKind.PRODUCE, CallKind.CRITIQUE]
+        assert again.calls(CallKind.CRITIQUE) == [critique]
+        assert Bands.of(1.0) == 2 and Bands.of(0.34) == 1
 
 
 class TestRouter:
-    def test_active_routes_easy_tasks_to_the_small_model_and_hard_ones_to_the_large(
-        self, tmp_path: Path
-    ) -> None:
-        easy = Routing(tmp_path / "easy", simple=0.9, mode=JevMode.ACTIVE, curves=Curves.make())
-        hard = Routing(tmp_path / "hard", simple=0.2, mode=JevMode.ACTIVE, curves=Curves.make())
+    def test_starts_easy_tasks_on_the_small_model_and_hard_ones_on_the_large(self, tmp_path: Path) -> None:
+        easy = Routing(tmp_path / "easy", simple=0.9, mode=JevMode.ACTIVE, ledger=Outcomes.ledger())
+        hard = Routing(tmp_path / "hard", simple=0.1, mode=JevMode.ACTIVE, ledger=Outcomes.ledger())
         assert easy.choose() == 0
         assert hard.choose() == 1
 
-    def test_shadow_or_no_curves_keeps_the_cheapest_tier_and_records_the_difficulty(
+    def test_shadow_or_no_ledger_keeps_the_cheapest_tier_and_records_what_jev_said(
         self, tmp_path: Path
     ) -> None:
-        shadow = Routing(tmp_path / "shadow", simple=0.2, mode=JevMode.SHADOW, curves=Curves.make())
+        shadow = Routing(tmp_path / "shadow", simple=0.1, mode=JevMode.SHADOW, ledger=Outcomes.ledger())
         ctx = shadow.h.contexts.build(shadow.artifact.id)
         choice = shadow.router.choose(ctx, "c0ffee")
-        assert (choice.tier, choice.difficulty, choice.acted) == (0, 0.8, False)
-        no_curves = Routing(tmp_path / "none", simple=0.2, mode=JevMode.ACTIVE, curves=None)
-        assert no_curves.choose() == 0
+        assert (choice.tier, choice.difficulty, choice.acted) == (0, 0.9, False)
+        assert set(choice.attributes) == {
+            "simple",
+            "design",
+            "underspecified",
+            "algorithmic",
+            "several_files",
+        }
+        no_ledger = Routing(tmp_path / "none", simple=0.1, mode=JevMode.ACTIVE, ledger=None)
+        assert no_ledger.choose() == 0
 
-    def test_no_model_good_enough_starts_on_the_strongest(self, tmp_path: Path) -> None:
-        observations = [Observation(model_id=m, difficulty=0.9, success=False) for m in (SMALL, LARGE) * 4]
-        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, curves=ModelCurves.fit(observations))
-        assert r.choose() == 1
+    def test_records_each_outcome_with_its_band_and_model(self, tmp_path: Path) -> None:
+        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=RoutingLedger(":memory:"))
+        r.router.record(1, 0.9, {"simple": 0.1}, success=True)
+        (call,) = r.ledger.calls() if r.ledger is not None else []
+        assert (call.model_id, call.band, call.success, call.source) == (LARGE, 2, True, "project")
 
 
 class Recorder:
@@ -127,51 +160,48 @@ class Recorder:
 
 
 class TestRoutedExecutor:
-    async def test_starts_on_the_routed_tier_and_steps_up_from_there(self, tmp_path: Path) -> None:
+    async def test_starts_on_the_routed_tier_steps_up_and_teaches_the_ledger(self, tmp_path: Path) -> None:
         used: list[str] = []
-        r = Routing(tmp_path, simple=0.2, mode=JevMode.ACTIVE, curves=Curves.make())
-        cheap = Recorder("small", used)
-        middle = Recorder("medium", used)
-        strong = Recorder("large", used)
+        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=Outcomes.ledger())
+        cheap, middle, strong = Recorder("small", used), Recorder("medium", used), Recorder("large", used)
         tiers = [
             Tier("small", FakeWorker([cheap.step()])),
             Tier("medium", FakeWorker([middle.step()])),
             Tier("large", FakeWorker([strong.step(), strong.step()])),
         ]
-        router = Router(r.judgement, "route:executor", (SMALL, "ollama:medium", LARGE), Curves.make(), 0.8)
+        router = r.make((SMALL, "ollama:medium", LARGE))
         executor = ExecutorTeam(tiers, [], Samples.RAW, router=router)
         runner = r.h.runner(executor)
+        before = len(r.ledger.calls()) if r.ledger is not None else 0
         assert await runner.step() == 1
         history = r.h.board.current().history(r.artifact.id)
         routed = [e for e in history if isinstance(e, Routed)]
         assert len(routed) == 1 and routed[0].model == "large" and routed[0].acted
-        assert used == ["large"]  # hard task: straight to the strongest tier, no failed cheap attempt first
-        r.h.board.append(
-            [
-                Rejected(
-                    artifact=r.artifact.id,
-                    level=Samples.RAW,
-                    findings=(Samples.finding(),),
-                    gate_decision=None,
-                )
-            ]
+        assert routed[0].attributes["simple"] == 0.1
+        assert used == ["large"]  # hard task: past the small model, whose record on hard tasks is poor
+        rejected = Rejected(
+            artifact=r.artifact.id, level=Samples.RAW, findings=(Samples.finding(),), gate_decision=None
         )
+        r.h.board.append([rejected])
         assert await runner.step() == 1
         history = r.h.board.current().history(r.artifact.id)
-        assert sum(isinstance(e, Routed) for e in history) == 1  # routed once per artifact
+        assert sum(isinstance(e, Routed) for e in history) == 1  # Jev is asked once per artifact
         assert used == ["large", "large"]  # stays on the strongest after a rejection
+        assert r.ledger is not None
+        recorded = r.ledger.calls()[before:]
+        assert [(c.model_id, c.band, c.success) for c in recorded] == [(LARGE, 2, True), (LARGE, 2, True)]
 
 
 class TestRoutingConfig:
-    def test_a_relative_curves_path_is_resolved_against_the_config(self, tmp_path: Path) -> None:
+    def test_a_relative_ledger_path_is_resolved_against_the_config(self, tmp_path: Path) -> None:
         text = (
             "project: p\ndomain: software\nnorth_star: n\nlevels: [raw, experimental]\n"
             "models: {coder: {model: 'ollama:x'}}\n"
-            "teams: [{use: executor, watches: raw, model: coder, routing: {curves: fits/curves.json}}]\n"
+            "teams: [{use: executor, watches: raw, model: coder, routing: {ledger: data/routing.sqlite}}]\n"
             "gates: [{from: raw, to: experimental}]\n"
         )
         (tmp_path / "project.yaml").write_text(text)
         config = ProjectConfig.load(tmp_path / "project.yaml")
         routing = config.teams[0].routing
-        assert routing is not None and routing.curves == (tmp_path / "fits" / "curves.json").resolve()
+        assert routing is not None and routing.ledger == (tmp_path / "data" / "routing.sqlite").resolve()
         assert routing.target == 0.8

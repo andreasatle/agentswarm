@@ -189,6 +189,38 @@ class TaskDifficulty(BaseModel):
     ]
 
 
+class CallProfile(BaseModel):
+    """What a task asks of a model, for routing (Phase 8): asked once per artifact at `route:<team>`.
+
+    `simple` is TaskDifficulty's question, word for word: the router's difficulty is 1 - p(simple). The others
+    are logged with every routed call and only join the routing once the ledger shows they predict success.
+    """
+
+    simple: Annotated[
+        NoulAnswer,
+        Ask(
+            "Is this a simple task: one small, clearly specified change that needs no design decisions and "
+            "has no tricky rules or edge cases?"
+        ),
+    ]
+    design: Annotated[
+        NoulAnswer,
+        Ask("Does the task leave design decisions open, such as structure, interfaces or data formats?"),
+    ]
+    underspecified: Annotated[
+        NoulAnswer,
+        Ask("Is the task ambiguous or missing information that is needed to do it correctly?"),
+    ]
+    algorithmic: Annotated[
+        NoulAnswer,
+        Ask("Does the task need non-trivial algorithmic or mathematical reasoning?"),
+    ]
+    several_files: Annotated[
+        NoulAnswer,
+        Ask("Does the task need changes to several files or modules that must fit together?"),
+    ]
+
+
 class SplitCheck(BaseModel):
     """Is a proposed split real progress? (§10.4, progress guard)"""
 
@@ -266,6 +298,7 @@ class JudgeCatalog:
         catalog.register(SizeCheck)
         catalog.register(SplitCheck)
         catalog.register(TaskDifficulty)
+        catalog.register(CallProfile)
         catalog.register(JoinCheck)
         catalog.register(DriftCheck)
         catalog.alias(

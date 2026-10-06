@@ -18,7 +18,7 @@ the proposal.
 | 5 | Documents as a second domain: writer, outliner, three reviewers, the `document` preset | done (live handbook run to published) |
 | 6 | Several projects at once: spend on the board, shared scheduler, daily budgets, `agentswarm swarm` | done (live greeter + handbook swarm) |
 | 7 | Hardening from an independent audit ([CODEX_AUDIT.md](../CODEX_AUDIT.md)): sandbox and file boundaries, crash-safe promotion, claim ownership, evidence quality | done ([phase-7](design/phase-7-hardening.md)) |
-| 8 | Small swarms against bigger models: narrow red teams, `agentswarm compare`, routing with model curves, the atomic benchmark (`agentswarm probe`) on imported EvalPlus tasks, equal-cost baselines | in progress: probes and baselines ([phase-8](design/phase-8-goldilocks.md)) |
+| 8 | Small swarms against bigger models: narrow red teams, `agentswarm compare`, routing learned from outcomes (Thompson sampling over a shared ledger), the atomic benchmark (`agentswarm probe`) on imported EvalPlus tasks, equal-cost baselines | in progress: probes and baselines ([phase-8](design/phase-8-goldilocks.md)) |
 | 9 | Conventions that hold: layout, packaging, lint and type checks in the preset; a conventions file; `agentswarm new` | planned ([phase-9](design/phase-9-conventions.md)) |
 | 10 | Robustness for high-level goals: attempts selected by checks, red-flag and resample, protected tests, clarifier, verified decompositions ([RESEARCH.md](RESEARCH.md)) | planned ([phase-10](design/phase-10-robustness.md)) |
 | 11 | Project types as data: one YAML file per type, sub-labelled presets, single inheritance | planned ([BACKLOG](BACKLOG.md)), due with a third project type |
@@ -162,6 +162,7 @@ the lowest level can't require sign-offs; a judge sits only on the gate out of t
 | `constraints` | `[]` | Extra rules sent with every task. |
 | `relevance` | none | A relevance judge asked before working (analyzers). |
 | `max_depth` | 3 | Decomposer: how deep tasks may be split. |
+| `routing` | none | Executors: `{ledger: PATH, target: 0.8}`. Jev describes the task once (`CallProfile`); the router starts on the cheapest tier whose drawn success rate in the shared ledger meets the target (Thompson sampling), and records every attempt's outcome there. Without a ledger, or in shadow mode, it only logs what Jev said. |
 
 ### `gates[]`
 
@@ -382,6 +383,8 @@ conditions. `tests_relevant` is true when the change added tests and they kill a
 | `agentswarm tune DECISIONS [--precision P] [--min-support N]` | Threshold recommendations. |
 | `agentswarm audit DECISIONS [--point POINT]` | Gate error rates against the bounds. |
 | `agentswarm label DECISIONS [--limit N]` | Human spot check (answers hidden until you answer). |
+| `agentswarm routing LEDGER` | What the router has learned: successes/runs and the believed success rate per kind of call, model and difficulty band. |
+| `agentswarm rate SUITE... --out FILE` | Jev rates every task's difficulty; resumable. |
 | `agentswarm probe EXPERIMENT --workdir DIR` | The atomic benchmark: one prompt and one answer per probe, no tools, scored by plain code (`produce`: hidden tests pass; `critique`: a test that fails on a planted bug and passes on the reference). Every model answers the same probes; resumable. See `examples/goldilocks/probe.yaml`. |
 | `agentswarm prompts` | Every model call and Jev question as the model sees it: instructions, a sample payload, tools, answer schema. Its output is [PROMPTS.md](PROMPTS.md). |
 

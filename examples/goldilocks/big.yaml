@@ -1,4 +1,4 @@
-# Phase 8 setup "big": one big executor (gemma4:26b, partly on the CPU in 24 GB); logs difficulty for the curves
+# Phase 8 setup "big": one big executor (gemma4:26b, partly on the CPU in 24 GB); logs what Jev says about each task
 # Every setup shares the project, the seed and the first gate (unit tests only, no judge), so the setups
 # differ only in their teams and models. Compared with `agentswarm compare` (see build-*.yaml, review.yaml).
 project: goldilocks

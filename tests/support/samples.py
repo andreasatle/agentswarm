@@ -16,7 +16,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.jev.api import NoulAnswer
-from agentswarm.judging.judges import ChangeReadiness
+from agentswarm.judging.judges import CallProfile, ChangeReadiness
 
 
 class Samples:
@@ -79,3 +79,18 @@ class Judged:
     @classmethod
     def unsure(cls) -> ChangeReadiness:
         return cls.answers(tests_relevant=0.6)
+
+
+class Profiles:
+    """Jev's description of a task for routing, with every attribute but `simple` at an even 0.5."""
+
+    @staticmethod
+    def make(simple: float) -> CallProfile:
+        even = NoulAnswer(noul=0.5)
+        return CallProfile(
+            simple=NoulAnswer(noul=simple),
+            design=even,
+            underspecified=even,
+            algorithmic=even,
+            several_files=even,
+        )

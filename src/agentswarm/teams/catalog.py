@@ -1,6 +1,7 @@
 """The team catalog: team definitions by name, instantiated per project from its configuration (§10.3)."""
 
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import Path
 from typing import ClassVar, Self
 
 from agentswarm.board.artifacts import ArtifactFactory
@@ -22,7 +23,7 @@ from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
 from agentswarm.teams.relevance import RelevanceFilter
-from agentswarm.teams.routing import ModelCurves, Router
+from agentswarm.teams.routing import CallKind, Router, RoutingLedger
 from agentswarm.teams.runner import Team
 
 
@@ -39,6 +40,7 @@ class TeamResources:
         team_uses: Sequence[str],
         meters: Callable[[str, str], Meter] | None = None,  # (team, model) -> meter, for spend
         model_ids: Mapping[str, str] | None = None,  # model name -> "<provider>:<model>", for routing
+        project: str = "",  # for the routing ledger's record of where an outcome came from
     ) -> None:
         self._model_ids = dict(model_ids or {})
         self._meters = meters
@@ -48,6 +50,8 @@ class TeamResources:
         self.artifacts = artifacts
         self.ladder = ladder
         self._team_uses = frozenset(team_uses)
+        self._ledgers: dict[Path, RoutingLedger] = {}
+        self.project = project
 
     def has_team(self, use: str) -> bool:
         return use in self._team_uses
@@ -78,9 +82,20 @@ class TeamResources:
             return None
         names = team.model_tiers or ((team.model,) if team.model is not None else ())
         model_ids = [self._model_ids.get(name, name) for name in names]
-        curves = ModelCurves.load(routing.curves) if routing.curves is not None else None
-        judgement = self._judgements.build("TaskDifficulty")
-        return Router(judgement, f"route:{team.use}", model_ids, curves, routing.target)
+        if routing.ledger is not None and routing.ledger not in self._ledgers:
+            self._ledgers[routing.ledger] = RoutingLedger(routing.ledger)
+        ledger = self._ledgers.get(routing.ledger) if routing.ledger is not None else None
+        judgement = self._judgements.build("CallProfile")
+        return Router(
+            judgement,
+            f"route:{team.use}",
+            CallKind.PRODUCE,
+            model_ids,
+            ledger,
+            routing.target,
+            self._judgements.clock,
+            source=f"project:{self.project}",
+        )
 
     def worker_for(self, team: TeamConfig) -> Worker:
         if team.model is None:

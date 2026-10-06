@@ -7,7 +7,6 @@ from pydantic import BaseModel
 from agentswarm.board.spend import Meter
 from agentswarm.core.domain import Usage
 from agentswarm.evaluation.compare import (
-    ComparisonFiles,
     ComparisonReport,
     ComparisonRun,
     Experiment,
@@ -15,15 +14,13 @@ from agentswarm.evaluation.compare import (
     RunOrder,
     SetupSummary,
 )
-from agentswarm.evaluation.curves import CurveData
 from agentswarm.evaluation.suite import EvalTask
-from agentswarm.jev.api import NoulAnswer
 from agentswarm.judging.deciders import FakeDecider
-from agentswarm.judging.judges import TaskDifficulty
 from agentswarm.llm.workers import Toolbox, Worker
 from agentswarm.project import ProjectServices
 from agentswarm.teams.executor import ExecutorReport, WorktreeToolbox
-from agentswarm.teams.routing import ModelCurves
+from agentswarm.teams.routing import CallKind, RoutingLedger
+from tests.support.samples import Profiles
 from tests.support.suites import TinySuite
 
 
@@ -170,12 +167,12 @@ class TestSetupSummary:
         assert summary.tokens_per_task == 10 and summary.tokens_per_solved == 30
 
 
-class TestCurvesFromComparisons:
-    async def test_routed_runs_become_observations_for_the_model_curves(self, tmp_path: Path) -> None:
+class TestRoutingFromComparisons:
+    async def test_routed_runs_teach_the_routing_ledger(self, tmp_path: Path) -> None:
         TinySuite.write(tmp_path)
         config_path = tmp_path / "project.yaml"
         config = yaml.safe_load(config_path.read_text())
-        config["teams"][0]["routing"] = {}  # no curves yet: only log each task's difficulty
+        config["teams"][0]["routing"] = {"ledger": "routing.sqlite"}  # relative to the project file
         config_path.write_text(yaml.safe_dump(config))
         experiment_path = tmp_path / "experiment.yaml"
         experiment_text = yaml.safe_dump({"suite": "suite.yaml", "setups": {"careful": "project.yaml"}})
@@ -183,20 +180,18 @@ class TestCurvesFromComparisons:
         experiment = Experiment.load(experiment_path)
 
         def services(setup: str, task: EvalTask) -> ProjectServices:
-            difficulty = TaskDifficulty(simple=NoulAnswer(noul=0.75))
-            decider = FakeDecider([difficulty])
+            profile = Profiles.make(simple=0.75)
+            decider = FakeDecider([profile])
             workers = FarewellWorkers("Goodbye")
             return ProjectServices(workers=workers, decider=decider)
 
         workdir = tmp_path / "work"
-        report = await ComparisonRun(experiment, workdir, services).run()
-        report.write(ComparisonFiles.results(workdir))
+        await ComparisonRun(experiment, workdir, services).run()
 
-        observations, skipped = CurveData.observations(workdir)
-        assert skipped == 0
-        assert [(o.model_id, o.difficulty, o.success) for o in observations] == [
-            ("ollama:unused", 0.25, True),
-            ("ollama:unused", 0.25, True),
+        ledger = RoutingLedger(tmp_path / "routing.sqlite")
+        calls = ledger.calls()
+        assert [(c.kind, c.band, c.model_id, c.success) for c in calls] == [
+            (CallKind.PRODUCE, 0, "ollama:unused", True),
+            (CallKind.PRODUCE, 0, "ollama:unused", True),
         ]
-        curves = ModelCurves.fit(observations)
-        assert curves.curves["ollama:unused"].bands[0].runs == 2
+        assert calls[0].attributes["simple"] == 0.75 and calls[0].source.startswith("project:")

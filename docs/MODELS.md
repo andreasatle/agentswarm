@@ -168,8 +168,8 @@ answer is one number, **p(yes), between 0 and 1**: Jev's probability that the an
 - **A judge's version is a hash of its wording.** Rewording a question starts new calibration data:
   thresholds fitted for the old wording don't carry over.
 - **Difficulty** (for routing) uses the same scale differently: Jev answers "is this a simple task?", and the
-  difficulty is 1 − p(simple). There it only has to order tasks from easy to hard; the models' measured
-  success curves do the calibration.
+  difficulty is 1 - p(simple). Routing uses only its third (easy, medium, hard); the router's counts of
+  successes and failures per model do the rest.
 - **The fallback** (a language model standing in when Jev is unavailable) answers yes, no or unsure, mapped
   to 0.95, 0.05 and 0.5. These numbers aren't calibrated, and decisions made that way are marked.
 

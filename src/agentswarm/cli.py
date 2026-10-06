@@ -45,7 +45,6 @@ from agentswarm.evaluation.compare import (
     Experiment,
     ExperimentKind,
 )
-from agentswarm.evaluation.curves import CurveData
 from agentswarm.evaluation.difficulty import DifficultyRater, DifficultyRatings
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
@@ -66,7 +65,7 @@ from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
-from agentswarm.teams.routing import ModelCurves, Observation
+from agentswarm.teams.routing import Beliefs, Prior, RoutingLedger
 from agentswarm.workspace.sandbox import Sandboxes
 
 
@@ -107,7 +106,7 @@ class Report:
             case Routed():
                 score = event.difficulty
                 difficulty = f"difficulty {score:.2f}" if score is not None else "no score"
-                how = "chosen from curves" if event.acted else "cheapest tier"
+                how = "chosen from the ledger" if event.acted else "cheapest tier"
                 return f"routed to {event.model} ({difficulty}, {how})"
             case PromotionStarted():
                 return f"moving {event.branch} to {event.target[:10]}"
@@ -149,7 +148,7 @@ class Cli:
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
-        curves WORKDIR... --out FILE               fit model curves over task difficulty from comparisons
+        routing LEDGER                             what the router has learned: outcomes per model and band
         probe EXPERIMENT --workdir DIR             one prompt, one answer: models scored on single calls
         import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
         rate SUITE... --out FILE                   Jev rates every task's difficulty, resumable
@@ -202,8 +201,8 @@ class Cli:
                 return asyncio.run(self.evaluate(args))
             case "compare":
                 return asyncio.run(self.compare(args))
-            case "curves":
-                return self.curves(args)
+            case "routing":
+                return self.routing(args)
             case "probe":
                 return asyncio.run(self.probe(args))
             case "import-evalplus":
@@ -311,23 +310,16 @@ class Cli:
             self._show(f"{suite}: {rated} rated, {skipped} already rated, {failed} failed")
         return 0
 
-    def curves(self, args: argparse.Namespace) -> int:
-        """Fit each model's success curve over task difficulty from build comparisons (Phase 8)."""
-        observations: list[Observation] = []
-        for folder in args.workdirs:
-            workdir = Path(folder).expanduser()
-            found, skipped = CurveData.observations(workdir)
-            observations += found
-            self._show(f"{workdir}: {len(found)} runs with a difficulty and an outcome, {skipped} without")
-        if not observations:
-            raise SystemExit(
-                "no routed runs with outcomes: give the setups' executors `routing: {}` and compare"
-            )
-        curves = ModelCurves.fit(observations, args.bands)
-        out = Path(args.out).expanduser()
-        curves.write(out)
-        self._show("\n" + curves.render())
-        self._show(f"\nCurves written to {out}; use them with `routing: {{curves: {out}}}`")
+    def routing(self, args: argparse.Namespace) -> int:
+        """What the router believes: per kind of call and model, outcomes and the believed rate per band."""
+        path = Path(args.ledger).expanduser()
+        if not path.is_file():
+            raise SystemExit(f"no routing ledger at {path}")
+        ledger = RoutingLedger(path)
+        try:
+            self._show(Beliefs(ledger.calls(), Prior()).render())
+        finally:
+            ledger.close()
         return 0
 
     async def evaluate(self, args: argparse.Namespace) -> int:
@@ -448,10 +440,8 @@ class Cli:
         compare.add_argument("experiment", help="the experiment's YAML file: a suite and setups")
         compare.add_argument("--workdir", required=True, help="a new directory for the projects and results")
 
-        curves = commands.add_parser("curves", help="fit model success curves over task difficulty")
-        curves.add_argument("workdirs", nargs="+", help="workdirs of build comparisons")
-        curves.add_argument("--bands", type=int, default=3, help="difficulty bands (default 3)")
-        curves.add_argument("--out", required=True, help="where to write the curves (JSON)")
+        routing = commands.add_parser("routing", help="what the router has learned from outcomes")
+        routing.add_argument("ledger", help="the routing ledger (SQLite)")
 
         probe = commands.add_parser("probe", help="put one-prompt probes to several models and score them")
         probe.add_argument("experiment", help="the probe experiment's YAML file: suites, kinds and models")

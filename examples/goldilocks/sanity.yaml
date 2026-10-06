@@ -1,0 +1,8 @@
+# Does the whole pipeline produce a result after the Phase 8 fixes (context window, output limit, failure
+# kinds)? Three held-out tasks, one fixed model, no routing.
+#   uv run agentswarm compare examples/goldilocks/sanity.yaml --workdir ~/agentswarm-runs/goldilocks/sanity
+suite: ../greeter/evaluation/heldout/suite.yaml
+tasks: [greet-pair, weekday, palindrome]
+setups:
+  gemma4-e4b: sanity-gemma.yaml
+  qwen-14b: sanity-qwen.yaml

@@ -231,23 +231,28 @@ You are the executor in a software team. Implement the task in `instruction.goal
         self._constraints = tuple(constraints)
 
     async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
-        artifact = ctx.artifact
-        toolbox = WorktreeToolbox(worktree, self._checks)
         routed = self._route(ctx, worktree)  # a Routed event on the first attempt, when routing is on
         start = self.starting_tier(ctx, routed)
+        tier = self.tier_index(ctx, start)
         model, worker = self.tier_for(ctx, start)
-        events: list[Event] = [routed] if routed is not None else []
+        attempt = await self._attempt(ctx, worktree, model, worker)
+        self._record(ctx, routed, tier, attempt)
+        return [routed, *attempt] if routed is not None else attempt
+
+    async def _attempt(
+        self, ctx: ArtifactContext, worktree: Worktree, model: str | None, worker: Worker
+    ) -> list[Event]:
+        artifact = ctx.artifact
+        toolbox = WorktreeToolbox(worktree, self._checks)
         request = self.request(ctx, worktree)
         try:
             report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
         except WorkerError as error:
-            return events + self._escalate(ctx, worktree, f"executor failed: {error}")
+            return self._escalate(ctx, worktree, f"executor failed: {error}")
         if not worktree.has_changes():
-            no_changes = Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")
-            return [*events, no_changes]
-
+            return [Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")]
         sha = worktree.commit(f"{artifact.id}: {report.summary}")
-        events.append(CommitPushed(artifact=artifact.id, commit=sha, model=model))
+        events: list[Event] = [CommitPushed(artifact=artifact.id, commit=sha, model=model)]
         checks = toolbox.check_report()
         if not checks.passed:
             events.append(Escalated(artifact=artifact.id, reason=f"checks still fail:\n{checks.summary()}"))
@@ -256,6 +261,25 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 Escalated(artifact=artifact.id, reason=f"executor reports incomplete: {report.summary}")
             )
         return events
+
+    def _record(
+        self, ctx: ArtifactContext, routed_now: Routed | None, tier: int, attempt: list[Event]
+    ) -> None:
+        """Tell the router how this attempt went: committed work that passed the checks and is complete."""
+        earlier = [e for e in ctx.history if isinstance(e, Routed)]
+        routed = routed_now if routed_now is not None else (earlier[0] if earlier else None)
+        if self._router is None or routed is None or routed.difficulty is None:
+            return
+        committed = any(isinstance(e, CommitPushed) for e in attempt)
+        escalated = any(isinstance(e, Escalated) for e in attempt)
+        self._router.record(tier, routed.difficulty, routed.attributes, committed and not escalated)
+
+    def tier_index(self, ctx: ArtifactContext, start: int = 0) -> int:
+        """An attempt's tier: from the starting tier, one up per rejection, staying on the strongest."""
+        if self._tiers is None:
+            return 0
+        rejections = sum(isinstance(e, Rejected) for e in ctx.history)
+        return min(start + rejections, len(self._tiers) - 1)
 
     def tier_for(self, ctx: ArtifactContext, start: int = 0) -> tuple[str | None, Worker]:
         """From the starting tier, one tier up per rejection so far, staying on the strongest."""
@@ -294,6 +318,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
             difficulty=choice.difficulty,
             decision=choice.decision,
             acted=choice.acted,
+            attributes=choice.attributes,
         )
 
     @staticmethod

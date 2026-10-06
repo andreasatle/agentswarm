@@ -1,4 +1,4 @@
-# Phase 8 setup "small": one small executor (gemma4:e4b); logs each task's difficulty for the model curves
+# Phase 8 setup "small": one small executor (gemma4:e4b); logs what Jev says about each task (routing: {})
 # Every setup shares the project, the seed and the first gate (unit tests only, no judge), so the setups
 # differ only in their teams and models. Compared with `agentswarm compare` (see build-*.yaml, review.yaml).
 project: goldilocks

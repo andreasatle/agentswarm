@@ -173,6 +173,7 @@ class Project:
             [t.use for t in config.teams],
             lambda team, model: ledger.meter(team, model, config.models[model].usd_per_million),
             {name: model.model for name, model in config.models.items()},
+            config.project,
         )
         runners = [
             TeamRunner(

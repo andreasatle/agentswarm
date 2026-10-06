@@ -166,10 +166,10 @@ class ModelConfig(Strict):
 
 
 class RoutingConfig(Strict):
-    """Choose a team's starting model tier by the task's difficulty (Phase 8, teams/routing.py)."""
+    """Choose a team's starting model tier from outcomes so far (Phase 8, teams/routing.py)."""
 
-    curves: Path | None = None  # fitted model curves (`agentswarm curves`); none yet: only log difficulty
-    target: float = Field(default=0.8, gt=0.0, le=1.0)  # start on the cheapest tier predicted this good
+    ledger: Path | None = None  # the shared record of outcomes; none: only log what Jev says
+    target: float = Field(default=0.8, gt=0.0, le=1.0)  # start on the cheapest tier drawn at least this good
 
 
 class TeamConfig(Strict):
@@ -184,7 +184,7 @@ class TeamConfig(Strict):
     constraints: tuple[str, ...] = ()  # extra rules given to the model with every task
     relevance: str | None = None  # a Jev relevance judge asked before working (analyzer teams)
     max_depth: int = Field(default=3, ge=1)  # decomposition: how deep tasks may be split
-    routing: RoutingConfig | None = None  # executors: ask Jev for the task's difficulty before starting
+    routing: RoutingConfig | None = None  # executors: Jev describes the task, the router picks the tier
 
 
 class SupervisorConfig(Strict):
@@ -306,7 +306,7 @@ class ProjectConfig(Strict):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """Load a config file. Relative `seed` and routing `curves` paths are resolved against its folder."""
+        """Load a config file. Relative `seed` and routing `ledger` paths are resolved against its folder."""
         text = path.read_text()
         raw = yaml.safe_load(text)
         config = cls.model_validate(raw)
@@ -320,8 +320,8 @@ class ProjectConfig(Strict):
     @staticmethod
     def _resolve_curves(team: TeamConfig, base: Path) -> TeamConfig:
         routing = team.routing
-        if routing is None or routing.curves is None or routing.curves.is_absolute():
+        if routing is None or routing.ledger is None:
             return team
-        curves = (base / routing.curves).resolve()
-        resolved = routing.model_copy(update={"curves": curves})
+        ledger = (base / routing.ledger.expanduser()).resolve()
+        resolved = routing.model_copy(update={"ledger": ledger})
         return team.model_copy(update={"routing": resolved})
