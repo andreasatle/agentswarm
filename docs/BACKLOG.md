@@ -22,7 +22,8 @@ Jev retries, model tiers, sharper wording and the harder suite (Phase 4), spend 
 - **Phase 8 (in progress): small swarms against bigger models.** Revised after the first live runs and the
   research review: the atomic benchmark (probes) is the measuring instrument, on imported EvalPlus tasks;
   every setup is compared at equal cost against one model making n attempts selected by checks; consistency
-  is reported as pass^k. See docs/design/phase-8-goldilocks.md, steps 8-14.
+  is reported as pass^k. Routing is learned from outcomes (Jev describes, plain code counts and picks). Next: a qualification run
+  on the open models, then a real project with a high-level goal. See docs/design/phase-8-goldilocks.md, steps 8-15.
 - **Phase 9 (planned, next): conventions that hold.** One level of configuration: the project's test
   structure is shared and defined once (seed, conventions file, checks); each analyzer's probe tests are its
   own method, in its team config. No toolchain layer, detection, plugins or other languages until a real

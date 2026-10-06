@@ -169,35 +169,32 @@ the kind of call and the difficulty of its payload, using curves per (kind of ca
 atomic benchmark. Every team gets routing without knowing about it. Models aren't switched between steps
 of one tool loop: that would need a truth for "was this a good next step", which nothing provides.
 
-### Revised steps (updated 2026-10-05 with the research findings)
+### Revised steps (updated 2026-10-05: research findings, routing learned in use)
 
 [RESEARCH.md](../RESEARCH.md) changes what a fair comparison is. Its strongest finding is that several
 independent attempts, selected by tests, beat more elaborate setups at equal cost (P2, P8). So the baseline
 every setup must beat is **one model, n attempts, checks select, same token budget**, and reliability is
 reported as consistency over repeated attempts (P6), not as single successes.
 
-8. **The atomic benchmark** (done): `agentswarm probe` with `produce` and `critique` probes, results per
-   (kind, model), resumable; invalid JSON, cut-off and missing answers recorded as separate outcomes; each
-   answer stored, so it can be rated blind later.
-9. **Probe hardening from the research:**
-   - `repeats: k` per probe at a temperature above 0, reported as pass^k next to the success rate (P6);
-   - `samples: n` per probe with selection: by the hidden tests (the ceiling, pass@n) and by tests the model
-     itself wrote (the realistic case, CodeT-style) (P2, P3);
-   - red-flagging: invalid, cut-off or overlong answers discarded and resampled, counted separately (P7);
-   - a variant with a reasoning field before the answer, to settle the structured-output question per model
-     (RESEARCH.md section 10).
-10. **The task set:** EvalPlus HumanEval+ and MBPP+ imported and checked (538 tasks, done). Jev rates every
-    task's difficulty; a stratified subset of a few hundred spans easy to hard. LiveCodeBench follows if
-    results look inflated by contamination (RESEARCH.md section 13).
-11. **Probe runs:** the six local models; Claude and OpenAI models when the user approves the spend.
-    Questions answered: which models produce valid answers at all; success, pass^k and best-of-n per (kind,
-    model, difficulty).
-12. **Curves and routing per call:** curves per (kind, model) from the probes; check whether they cross; a
-    routing worker that picks a model per call.
-13. **End-to-end validation at equal cost:** `compare` gains the baseline setup (one model, n attempts,
-    selected by checks) at the token budget of the team setups. Reviewing: broad red team, narrow red
-    teams, and n samples of the broad red team, at equal cost (P10).
-14. **Results**, honestly reported, as in step 7, including where small swarms lose.
+8. **The atomic benchmark** (done): `agentswarm probe`, one prompt and one answer per probe, scored by plain
+   code; invalid, cut-off and missing answers counted apart; answers stored for blind rating.
+9. **The task set** (done): EvalPlus imported (538 tasks) and every task rated by Jev (`agentswarm rate`).
+   The hard end is thin (24 tasks); harder tasks get imported if the models separate only there.
+10. **Routing learned from outcomes** (done, replacing curves from a big upfront run): Jev describes each task
+    once (`CallProfile`), the router picks the cheapest tier whose drawn success rate meets the target
+    (Thompson sampling over a shared ledger), and every attempt's outcome teaches it.
+11. **Sanity run** (done): the whole pipeline on one fixed model (`sanity.yaml`): gemma4-e4b solved 3/3.
+    Qwen 14B describes tool calls instead of making them, so tool use is part of qualifying a model.
+12. **Qualification run, open models first** (next): a short probe run (about 10 tasks per band, one planted
+    bug, Gemma's thinking off) that writes to the ledger; it rules out models that can't answer validly and
+    gives the router its first outcomes. Hosted models follow once the open ones have been seen.
+13. **A real project, not toy tasks:** the greeter only checks that the steps run in the right order; one
+    model call solves its tasks. The goldilocks question needs a project with a high-level goal: several
+    modules, a decomposition, reviews. One is chosen and run end to end, routed, against the baseline.
+14. **Baselines at equal cost:** one model making n attempts selected by checks, at the team setups' token
+    budget (P2, P8); narrow red teams against n samples of a broad one (P10). Probe repeats (pass^k) and a
+    reasoning-field variant are added when a question needs them.
+15. **Results**, honestly reported, as in step 7, including where small swarms lose.
 
 What this phase measures feeds [Phase 10](phase-10-robustness.md), which builds the robustness mechanisms
 that win.
