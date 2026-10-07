@@ -1,0 +1,8 @@
+# Smoke run of the framework experiment's swarm setup alone (one task per level), after a fix that affects only it
+# (unique acceptance file names, so a split's children's tests run together). See framework.yaml.
+#   uv run agentswarm compare examples/goldilocks/framework-smoke-swarm.yaml --workdir ~/agentswarm-runs/framework-smoke-swarm
+suite: ../inventory/evaluation/suite.yaml
+order: by_task
+tasks: [search, pricing, report-sort, alerts, fifo]  # one per level
+setups:
+  swarm-haiku: framework/swarm-haiku.yaml
