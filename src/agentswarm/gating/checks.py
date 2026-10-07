@@ -80,10 +80,16 @@ class CommandCheck:
     def run(self, cwd: Path) -> CheckResult:
         return self.run_on(cwd, ())
 
-    def run_on(self, cwd: Path, paths: Sequence[str]) -> CheckResult:
-        """Run the check's command on specific paths (appended as arguments), e.g. one test file."""
+    def run_on(
+        self, cwd: Path, paths: Sequence[str], failure_exit_codes: tuple[int, ...] | None = None
+    ) -> CheckResult:
+        """Run the check's command on specific paths (appended as arguments), e.g. one test file.
+
+        `failure_exit_codes` overrides the check's own, e.g. to count a test that can't import yet as failing.
+        """
         result = self._sandbox.run((*self._config.command, *paths), cwd, self._config.timeout_s)
-        status = CheckStatus.of(result, self._config.failure_exit_codes)
+        codes = failure_exit_codes if failure_exit_codes is not None else self._config.failure_exit_codes
+        status = CheckStatus.of(result, codes)
         return CheckResult(name=self._name, status=status, output=result.output[-self.OUTPUT_LIMIT :])
 
 

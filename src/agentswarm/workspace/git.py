@@ -138,6 +138,21 @@ class Worktree:
     def reset_hard(self, commit: str) -> None:
         self._run("reset", "--quiet", "--hard", commit)
 
+    def restore(self, folder: str) -> list[str]:
+        """Put `folder` back as it is in the last commit: changes undone, new files there deleted.
+
+        Returns the paths that had changed, so a caller can note it.
+        """
+        status = self._run("status", "--porcelain", "--untracked-files=all", "--", folder)
+        changed = sorted(line.split(maxsplit=1)[1] for line in status.splitlines() if line.strip())
+        if not changed:
+            return []
+        tracked = self._run("ls-tree", "-r", "--name-only", "HEAD", "--", folder)
+        if tracked:
+            self._run("checkout", "HEAD", "--", folder)
+        self._run("clean", "--quiet", "--force", "-d", "--", folder)
+        return changed
+
     def discard_changes(self) -> None:
         """Back to the last commit: changed files restored, new files deleted (ignored ones kept)."""
         self._run("reset", "--quiet", "--hard", "HEAD")

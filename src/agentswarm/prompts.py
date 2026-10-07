@@ -28,7 +28,6 @@ from agentswarm.core.domain import (
 )
 from agentswarm.evaluation.probe import (
     AcceptAnswer,
-    Accepting,
     AcceptRequest,
     CritiqueAnswer,
     CritiqueRequest,
@@ -43,6 +42,7 @@ from agentswarm.jev.spec import QuestionSet
 from agentswarm.judging.deciders import LLMAnswers, LLMDecider, LLMQuestions
 from agentswarm.judging.judges import ChangeReadiness, Judge, JudgeCatalog, JudgeState
 from agentswarm.llm.workers import LangChainWorker, Prompts
+from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.analyzer import (
     AnalysisReport,
     AnalysisRequest,
@@ -262,9 +262,9 @@ class PromptCatalogue:
                 None,
             ),
             CallFamily(
-                "Probe: acceptance tests in one answer (benchmark)",
-                (Caller("", Accepting, Accepting.INSTRUCTIONS),),
-                Accepting,
+                "Acceptance tester: tests written before the work (also its benchmark probe)",
+                (Caller("acceptance_tester", AcceptanceTester, AcceptanceTester.INSTRUCTIONS),),
+                AcceptanceTester,
                 SampleData.accept(),
                 AcceptAnswer,
                 None,

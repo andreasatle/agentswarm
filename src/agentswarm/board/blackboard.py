@@ -7,6 +7,8 @@ from typing import ClassVar, assert_never
 
 from agentswarm.board.eventlog import EventLog
 from agentswarm.core.domain import (
+    AcceptanceRestored,
+    AcceptanceWritten,
     Artifact,
     ArtifactCreated,
     ArtifactId,
@@ -128,8 +130,8 @@ class BoardViews:
                 self._moving[event.branch] = event
             case PromotionSettled():
                 self._moving.pop(event.branch, None)
-            case Routed():
-                pass  # kept in the artifact's history, where the executor reads its starting tier
+            case Routed() | AcceptanceWritten() | AcceptanceRestored():
+                pass  # kept in the artifact's history, where the teams read them
             case Rejected():
                 self._findings[event.artifact] = list(event.findings)
                 self._unjudged.pop(event.artifact, None)

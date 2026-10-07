@@ -8,6 +8,8 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.domain import (
+    AcceptanceRestored,
+    AcceptanceWritten,
     ArtifactContext,
     CommitPushed,
     Escalated,
@@ -24,6 +26,7 @@ from agentswarm.core.domain import (
 )
 from agentswarm.gating.checks import CheckResult, HardCheck
 from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.routing import Router
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.files import UnsafePath
@@ -130,10 +133,13 @@ class Executor(ABC):
     sized as fitting one branch; fix artifacts are small by construction and need no sizing.
     """
 
-    def __init__(self, watches: Level, name: TeamName, requires_sizing: bool = False) -> None:
+    def __init__(
+        self, watches: Level, name: TeamName, requires_sizing: bool = False, requires_acceptance: bool = False
+    ) -> None:
         self._watches = watches
         self._name = name
         self._requires_sizing = requires_sizing
+        self._requires_acceptance = requires_acceptance
 
     @property
     def name(self) -> TeamName:
@@ -153,6 +159,9 @@ class Executor(ABC):
             return Relevance.NO  # an umbrella: its children do the work
         if self._requires_sizing and ctx.artifact.fixes is None and not sized:
             return Relevance.NO  # wait for the decomposition team
+        accepted = any(isinstance(e, AcceptanceWritten) for e in ctx.history)
+        if self._requires_acceptance and ctx.artifact.fixes is None and not accepted:
+            return Relevance.NO  # wait for the acceptance team
         milestones = [
             e
             for e in ctx.history
@@ -208,6 +217,8 @@ You are the executor in a software team. Implement the task in `instruction.goal
 - Follow every rule in `instruction.constraints`.
 - Add or update tests for the behaviour you change.
 - Run run_checks after your changes and keep fixing until every check passes.
+- Tests under tests/acceptance/ were written by someone else to check your work: make them pass. You
+  can't change them; any change to them is undone before your work is committed.
 - When you are done, give your final answer in the required structured format: a one-line summary
   of the change, and whether the task is complete. Do not finish with a plain-text reply."""
 
@@ -221,11 +232,12 @@ You are the executor in a software team. Implement the task in `instruction.goal
         requires_sizing: bool = False,
         router: Router | None = None,  # chooses the starting tier by the task's difficulty (Phase 8)
         attempts: int = 1,  # independent attempts per action; the first that passes its checks is kept
+        requires_acceptance: bool = False,  # wait for the acceptance team's tests before the first attempt
     ) -> None:
         if attempts < 1:
             raise ValueError("an executor needs at least one attempt")
         self._attempts = attempts
-        super().__init__(watches, name, requires_sizing)
+        super().__init__(watches, name, requires_sizing, requires_acceptance)
         self._router = router
         self._tiers: tuple[Tier, ...] | None = tuple(workers) if isinstance(workers, Sequence) else None
         self._single = workers if not isinstance(workers, Sequence) else None
@@ -261,17 +273,25 @@ You are the executor in a software team. Implement the task in `instruction.goal
             if not last:
                 worktree.discard_changes()
                 return None
+            worktree.restore(AcceptanceTester.FOLDER)
             return self._escalate(ctx, worktree, f"executor failed: {error}")
+        restored = worktree.restore(AcceptanceTester.FOLDER)  # the producer can't change its acceptance tests
+        protection: list[Event] = (
+            [AcceptanceRestored(artifact=artifact.id, paths=tuple(restored))] if restored else []
+        )
         if not worktree.has_changes():
             if not last:
                 return None
-            return [Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}")]
+            return [
+                *protection,
+                Escalated(artifact=artifact.id, reason=f"executor made no changes: {report.summary}"),
+            ]
         checks = toolbox.check_report()
         if not (checks.passed and report.complete) and not last:
             worktree.discard_changes()
             return None
         sha = worktree.commit(f"{artifact.id}: {report.summary}")
-        events: list[Event] = [CommitPushed(artifact=artifact.id, commit=sha, model=model)]
+        events: list[Event] = [*protection, CommitPushed(artifact=artifact.id, commit=sha, model=model)]
         if not checks.passed:
             events.append(Escalated(artifact=artifact.id, reason=f"checks still fail:\n{checks.summary()}"))
         elif not report.complete:

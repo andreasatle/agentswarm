@@ -11,6 +11,7 @@ from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
 from agentswarm.judging.judgement import Judgement, Judgements
 from agentswarm.judging.policy import Policy
 from agentswarm.llm.workers import Meter, Worker, WorkerProvider
+from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.analyzer import (
     ContractTester,
     EdgeValueTester,
@@ -145,8 +146,10 @@ class TeamCatalog:
                 requires_sizing=resources.plans(),
                 router=resources.router_for(team),
                 attempts=team.attempts,
+                requires_acceptance=resources.has_team("acceptance_tester"),
             ),
         )
+        catalog.register("acceptance_tester", cls._acceptance_tester)
         catalog.register(
             "writer",
             lambda team, resources: Writer(
@@ -198,6 +201,18 @@ class TeamCatalog:
                 ),
             )
         return catalog
+
+    @staticmethod
+    def _acceptance_tester(team: TeamConfig, resources: TeamResources) -> Team:
+        if team.watches != resources.ladder.lowest:
+            raise ValueError(f"the {team.use} must watch the lowest level, {resources.ladder.lowest!r}")
+        return AcceptanceTester(
+            team.watches,
+            resources.worker_for(team),
+            resources.test_runner_for(team),
+            requires_sizing=resources.plans(),
+            name=TeamName(team.use),
+        )
 
     @staticmethod
     def size_thresholds(team: TeamConfig) -> dict[str, Threshold] | None:

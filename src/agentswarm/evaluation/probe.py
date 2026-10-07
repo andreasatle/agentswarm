@@ -46,6 +46,7 @@ from agentswarm.llm.workers import (
     WorkerError,
     WorkerProvider,
 )
+from agentswarm.teams.acceptance import AcceptanceTester, AcceptAnswer, AcceptRequest, SourceFile
 from agentswarm.teams.routing import Bands, CallKind, RoutedCall, RoutingLedger
 from agentswarm.workspace.files import ConfinedFiles, UnsafePath
 from agentswarm.workspace.sandbox import Sandbox, Sandboxes
@@ -59,11 +60,6 @@ class ProbeKind(StrEnum):
     PRODUCE = "produce"
     CRITIQUE = "critique"
     ACCEPT = "accept"  # write the acceptance tests for a task before anyone builds it
-
-
-class SourceFile(Frozen):
-    path: str = Field(description="relative to the project root, e.g. greeter.py or tests/test_greeter.py")
-    content: str = Field(description="the complete text of the file")
 
 
 class ProduceRequest(Frozen):
@@ -409,36 +405,12 @@ was meant to accomplish, every file of the project after the change, and the cha
         return Scored(outcome=Outcome.CAUGHT, detail=answer.explanation)
 
 
-class AcceptRequest(Frozen):
-    """The payload of an accept probe."""
-
-    north_star: str
-    task: str
-    files: tuple[SourceFile, ...]  # every file of the project as it is, before the task is done
-
-
-class AcceptAnswer(Frozen):
-    """The acceptance tests for the task: written before the work, by someone other than its producer."""
-
-    test: str = Field(description="a complete pytest file that checks every requirement the task states")
-    summary: str = Field(description="one line: what the tests cover")
-
-
 class Accepting:
-    """Accept probes: write a task's acceptance tests before it is built, judged against the known answer."""
+    """Accept probes: the acceptance team's own prompt, judged against the known answer."""
 
     KIND = ProbeKind.ACCEPT
     ANSWER = AcceptAnswer
-    INSTRUCTIONS = """\
-You write the acceptance tests for one task in a small Python project, before anyone implements it, in a
-single answer. The data holds the task and every file of the project as it is now.
-
-- Write one complete pytest file that checks every requirement the task states: one test per stated rule
-  or example, with the exact expected values.
-- Test only through the public interface the task describes (functions, classes, commands), importing the
-  code the way the project's own tests do. The test runs from the project root.
-- The tests must fail now, because the feature doesn't exist yet, and pass once it is done correctly.
-- Do not test anything the task doesn't ask for, and do not implement the feature."""
+    INSTRUCTIONS = AcceptanceTester.INSTRUCTIONS
 
     def request(self, probe: Probe) -> AcceptRequest:
         files = ProjectFiles.sources(ProjectFiles.of(probe.seed))

@@ -230,6 +230,7 @@ Every team's instructions, payload, tools and answer are in [PROMPTS.md](PROMPTS
 | --- | --- | --- | --- |
 | `executor` | lowest | A model edits the artifact's branch with a toolbox (list/read/write/delete files, run checks), commits. | Model tiers; waits for sizing when the project has a decomposer; commits and escalates failing or incomplete work. |
 | `fake_executor` | lowest | Writes the task to a file. | No model; for tests and dry runs. |
+| `acceptance_tester` | lowest | Writes each new leaf artifact's acceptance tests (`tests/acceptance/<id>/`) from the task, before the executor; keeps them only if they fail on the current code. | Executors wait for its `AcceptanceWritten` and can't change the folder: it is restored before every commit. Not for fixes or umbrellas. |
 | `integration_tester` | above lowest | A model writes and runs tests through real call paths; reports problems. | Analyzer; finding kind `test_failure`. |
 | `red_team` | above lowest | A model tries to break the change with hostile input. | Analyzer; finding kind `edge_case`. |
 | `decomposer` | lowest | Asks Jev if a task fits one branch; if clearly not, a model splits it; Jev checks the split. | Children `a-0001.1`; umbrella joins later. Splits only when `size:*` is active; a shadow `split:*` never blocks. |

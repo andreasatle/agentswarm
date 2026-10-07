@@ -162,6 +162,41 @@ class SignedOff(Frozen):
         return self.artifact
 
 
+class AcceptanceFile(Frozen):
+    path: str  # relative to the project root
+    sha256: str
+
+
+class AcceptanceWritten(Frozen):
+    """An artifact's acceptance tests, written before its work by a team other than its producer.
+
+    The producer sees them but can't change them: its commits are checked against this record.
+    """
+
+    kind: Literal["acceptance_written"] = "acceptance_written"
+    artifact: ArtifactId
+    team: TeamName
+    commit: str  # the commit on the artifact's branch that adds them
+    files: tuple[AcceptanceFile, ...]  # empty when no usable tests could be written; note says why
+    note: str = ""
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
+class AcceptanceRestored(Frozen):
+    """The producer had changed acceptance tests; they were put back before its work was committed."""
+
+    kind: Literal["acceptance_restored"] = "acceptance_restored"
+    artifact: ArtifactId
+    paths: tuple[str, ...]
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class Sized(Frozen):
     """The decomposition team's verdict: the artifact fits one branch, or was split into children."""
 
@@ -344,6 +379,8 @@ type Event = Annotated[
     | FindingResolved
     | SignedOff
     | Sized
+    | AcceptanceWritten
+    | AcceptanceRestored
     | Paused
     | Resumed
     | Spent

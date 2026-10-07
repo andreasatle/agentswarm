@@ -15,6 +15,8 @@ from agentswarm.control.escalations import Escalations
 from agentswarm.core.clock import SystemClock
 from agentswarm.core.config import JevConfig, ProjectConfig, SandboxConfig
 from agentswarm.core.domain import (
+    AcceptanceRestored,
+    AcceptanceWritten,
     ArtifactCreated,
     ArtifactId,
     Claimed,
@@ -108,6 +110,10 @@ class Report:
                 difficulty = f"difficulty {score:.2f}" if score is not None else "no score"
                 how = "chosen from the ledger" if event.acted else "cheapest tier"
                 return f"routed to {event.model} ({difficulty}, {how})"
+            case AcceptanceWritten():
+                return f"acceptance tests by {event.team}: {', '.join(f.path for f in event.files)}"
+            case AcceptanceRestored():
+                return f"acceptance tests restored after the producer changed them: {', '.join(event.paths)}"
             case PromotionStarted():
                 return f"moving {event.branch} to {event.target[:10]}"
             case PromotionSettled():

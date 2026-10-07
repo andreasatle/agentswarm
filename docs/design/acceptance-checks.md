@@ -32,4 +32,9 @@ Whoever does the work doesn't decide what counts as done. A separate team writes
 
 ## Decisions made during implementation
 
-(none yet)
+**Steps 1-2 (2026-10-06).**
+- **One prompt, two uses.** The acceptance team (`teams/acceptance.py`) owns its instructions and typed request and answer; the `accept` probe uses exactly those, so measuring the probe measures what the framework runs.
+- **A test that can't import yet counts as failing.** Before the work, an acceptance test usually fails at `from inventory import search`, which pytest reports as a collection error (exit 2). The team first checks that the file compiles, then counts exit codes 1 and 2 as failing (`CommandCheck.run_on` takes `failure_exit_codes` for this).
+- **No usable tests is recorded, not a dead end.** After two tries that test nothing or don't compile, the team records `AcceptanceWritten` without files and with the reason, so the executor isn't blocked and the gap is visible.
+- **Protection by restoring, not by refusing.** Before every commit, the executor puts `tests/acceptance/` back as it is in the last commit (`Worktree.restore`: changes undone, new files there removed) and records `AcceptanceRestored` when it had to. That protects a fix artifact from changing its parent's merged acceptance tests too. The executor's instructions say the folder is fixed.
+- **Wiring:** `use: acceptance_tester` watches the lowest level; executors wait for its `AcceptanceWritten` (not on fix artifacts), as they wait for sizing in a planned project.

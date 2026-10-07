@@ -37,7 +37,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Reviewing analyzers: evidence is a verbatim quote](#reviewing-analyzers-evidence-is-a-verbatim-quote) | `consistency_checker`, `fact_checker`, `audience_reviewer` | `ReviewReport` |
 | [Judge fallback: a model answering Jev's questions](#judge-fallback-a-model-answering-jevs-questions) | (`LLMDecider`) | `LLMAnswers` |
 | [Probe: produce in one answer (benchmark)](#probe-produce-in-one-answer-benchmark) | (`Producing`) | `ProduceAnswer` |
-| [Probe: acceptance tests in one answer (benchmark)](#probe-acceptance-tests-in-one-answer-benchmark) | (`Accepting`) | `AcceptAnswer` |
+| [Acceptance tester: tests written before the work (also its benchmark probe)](#acceptance-tester-tests-written-before-the-work-also-its-benchmark-probe) | `acceptance_tester` | `AcceptAnswer` |
 | [Probe: critique in one answer (benchmark)](#probe-critique-in-one-answer-benchmark) | (`Critiquing`) | `CritiqueAnswer` |
 | [Jev questions](#jev-questions) | gates, relevance filters, planners, router | answers |
 
@@ -58,6 +58,8 @@ You are the executor in a software team. Implement the task in `instruction.goal
 - Follow every rule in `instruction.constraints`.
 - Add or update tests for the behaviour you change.
 - Run run_checks after your changes and keep fixing until every check passes.
+- Tests under tests/acceptance/ were written by someone else to check your work: make them pass. You
+  can't change them; any change to them is undone before your work is committed.
 - When you are done, give your final answer in the required structured format: a one-line summary
   of the change, and whether the task is complete. Do not finish with a plain-text reply.
 ```
@@ -922,11 +924,13 @@ class SourceFile(Frozen):
 
 `Producing`: Produce probes: implement the task in one answer, without tools.
 
-## Probe: acceptance tests in one answer (benchmark)
+## Acceptance tester: tests written before the work (also its benchmark probe)
 
-### Accepting
+### `acceptance_tester`
 
-`agentswarm.evaluation.probe.Accepting`: Accept probes: write a task's acceptance tests before it is built, judged against the known answer.
+`agentswarm.teams.acceptance.AcceptanceTester`: Writes the acceptance tests of each new leaf artifact at the lowest level, before the executor starts.
+
+Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting.
 
 ```text
 You write the acceptance tests for one task in a small Python project, before anyone implements it, in a
@@ -965,7 +969,7 @@ single answer. The data holds the task and every file of the project as it is no
 
 ```python
 class AcceptRequest(Frozen):
-    """The payload of an accept probe."""
+    """The payload an acceptance writer receives."""
 
     north_star: str
     task: str
@@ -1018,7 +1022,9 @@ class AcceptAnswer(Frozen):
 
 ### What happens to the answer
 
-`Accepting`: Accept probes: write a task's acceptance tests before it is built, judged against the known answer.
+`AcceptanceTester`: Writes the acceptance tests of each new leaf artifact at the lowest level, before the executor starts.
+
+Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting.
 
 ## Probe: critique in one answer (benchmark)
 
