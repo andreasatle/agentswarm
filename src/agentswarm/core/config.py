@@ -1,5 +1,6 @@
 """Project configuration: one YAML file per project, validated on load (proposal §17)."""
 
+import os
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from importlib.resources import files
@@ -235,6 +236,30 @@ class Presets:
         return preset | dict(data)
 
 
+class ModelOverride:
+    """One model for every role of every project loaded: a baseline run without editing configs.
+
+    `AGENTSWARM_MODEL` names a YAML file holding one model entry (e.g. examples/models/haiku.yaml). Whether a
+    failure means the framework or the model is too weak is only known once a capable model has been tried.
+    """
+
+    VARIABLE = "AGENTSWARM_MODEL"
+
+    @classmethod
+    def path(cls) -> Path | None:
+        value = os.environ.get(cls.VARIABLE, "").strip()
+        return Path(value).expanduser() if value else None
+
+    @classmethod
+    def from_env(cls) -> "ModelConfig | None":
+        path = cls.path()
+        if path is None:
+            return None
+        if not path.is_file():
+            raise ValueError(f"{cls.VARIABLE}={path}: no such file")
+        return ModelConfig.model_validate(yaml.safe_load(path.read_text()))
+
+
 class ProjectConfig(Strict):
     project: str
     domain: Domain
@@ -321,10 +346,16 @@ class ProjectConfig(Strict):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """Load a config file. Relative `seed` and routing `ledger` paths are resolved against its folder."""
+        """Load a config file. Relative `seed` and routing `ledger` paths are resolved against its folder.
+
+        With `AGENTSWARM_MODEL` set, every model the config names is replaced by that one (`ModelOverride`).
+        """
         text = path.read_text()
         raw = yaml.safe_load(text)
         config = cls.model_validate(raw)
+        override = ModelOverride.from_env()
+        if override is not None:
+            config = config.model_copy(update={"models": {name: override for name in config.models}})
         base = path.parent
         if config.seed is not None and not config.seed.is_absolute():
             seed = (base / config.seed).resolve()

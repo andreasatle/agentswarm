@@ -1,0 +1,5 @@
+# One model for every role: AGENTSWARM_MODEL=examples/models/haiku.yaml replaces every model a project names.
+# Prices in US dollars per million tokens (2026-10-05).
+model: "anthropic:claude-haiku-4-5"
+max_tokens: 16384
+usd_per_million: {input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25}

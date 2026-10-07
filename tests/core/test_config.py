@@ -1,9 +1,10 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
-from agentswarm.core.config import Domain, LevelLadder, Presets, Price, ProjectConfig
+from agentswarm.core.config import Domain, LevelLadder, ModelOverride, Presets, Price, ProjectConfig
 from agentswarm.core.domain import FindingKind, Level, Usage
 from tests.support.paths import RepoPaths
 
@@ -155,3 +156,27 @@ class TestPrice:
         anthropic = Price(input=1.0, output=5.0, cache_read=0.1, cache_write=1.25)
         assert anthropic.usd_of(usage) == pytest.approx(0.1 + 0.08 + 0.125)
         assert Price(input=1.0, output=5.0).usd_of(usage) == pytest.approx(1.0)
+
+
+class TestModelOverride:
+    def test_replaces_every_model_a_config_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = tmp_path / "haiku.yaml"
+        model.write_text("model: 'anthropic:claude-haiku-4-5'\nmax_tokens: 100\n")
+        config = tmp_path / "project.yaml"
+        config.write_text(
+            "project: p\ndomain: software\nnorth_star: n\nlevels: [raw, experimental]\n"
+            "models: {small: {model: 'ollama:x'}, large: {model: 'ollama:y'}}\n"
+            "teams: [{use: executor, watches: raw, model_tiers: [small, large]}]\n"
+            "gates: [{from: raw, to: experimental}]\n"
+        )
+        monkeypatch.setenv(ModelOverride.VARIABLE, str(model))
+        loaded = ProjectConfig.load(config)
+        assert {name: m.model for name, m in loaded.models.items()} == {
+            "small": "anthropic:claude-haiku-4-5",
+            "large": "anthropic:claude-haiku-4-5",
+        }
+        monkeypatch.setenv(ModelOverride.VARIABLE, str(tmp_path / "missing.yaml"))
+        with pytest.raises(ValueError, match="no such file"):
+            ProjectConfig.load(config)

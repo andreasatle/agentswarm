@@ -13,7 +13,7 @@ from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.escalations import Escalations
 from agentswarm.core.clock import SystemClock
-from agentswarm.core.config import JevConfig, ProjectConfig, SandboxConfig
+from agentswarm.core.config import JevConfig, ModelOverride, ProjectConfig, SandboxConfig
 from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
@@ -202,6 +202,11 @@ class Cli:
     @classmethod
     def main(cls, argv: Sequence[str] | None = None) -> int:
         load_dotenv(Path.cwd() / ".env")  # never overrides variables already set
+        override = ModelOverride.path()
+        if override is not None:  # said loudly: it changes every project's models
+            print(
+                f"{ModelOverride.VARIABLE}={override}: every model is replaced by this one", file=sys.stderr
+            )
         return cls().dispatch(sys.argv[1:] if argv is None else argv)
 
     def dispatch(self, argv: Sequence[str]) -> int:

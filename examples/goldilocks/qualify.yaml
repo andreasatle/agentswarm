@@ -1,0 +1,22 @@
+# The qualification run (routing-per-role.md, step 3): the routing ledger's first outcomes for Haiku and gemma4-e4b.
+# 17 tasks per difficulty band from every rated suite; per task a produce probe, a clean critique, one planted bug
+# and an accept probe: about 200 probes per model. Every result teaches the shared ledger.
+#   uv run agentswarm probe examples/goldilocks/qualify.yaml --workdir ~/agentswarm-runs/qualify
+# Models run one at a time, so each loads once; a rerun resumes where it stopped.
+suites:
+  - ../greeter/evaluation/suite.yaml
+  - ../greeter/evaluation/hard/suite.yaml
+  - ../greeter/evaluation/heldout/suite.yaml
+  - ../greeter/evaluation/complex/suite.yaml
+  - ../inventory/evaluation/suite.yaml
+  - ~/agentswarm-data/suites/humanevalplus/suite.yaml
+  - ~/agentswarm-data/suites/mbppplus/suite.yaml
+sample: {ratings: ~/agentswarm-data/ratings.jsonl, easy: 17, medium: 17, hard: 17, seed: 0}
+kinds: [produce, critique, accept]
+bugs_per_task: 1
+constraints: [Use only the Python standard library.]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+ledger: ~/agentswarm-data/routing.sqlite
+models:  # the same settings as the complexity and acceptance experiments
+  claude-haiku: {model: "anthropic:claude-haiku-4-5", max_tokens: 16384, usd_per_million: {input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25}}
+  gemma4-e4b: {model: "ollama:gemma4:e4b", temperature: 0, max_tokens: 16384}
