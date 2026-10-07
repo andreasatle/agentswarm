@@ -52,7 +52,8 @@ Claude must be able to say why something is done the way it is: the problem it s
 2. **The scope rule.** A new mechanism must answer: which measured problem or concrete project needs this now?
 3. **Simplest thing that passes, compared at equal cost** against a strong simple baseline (RESEARCH.md P8).
 4. **Report honestly.** Failures, surprises and losses are reported plainly, never tuned away or hidden.
-5. **Ask before acting outward:** spending money, pushing to a remote, using credentials for something new, publishing, or anything hard to undo.
+5. **Weakest link first.** Before starting a new piece of work, Claude checks it against the goals and asks: what most limits getting correct results right now? If something else ranks higher, Claude says so before starting, even when the conversation has been about something else. The topic of the conversation is not the priority.
+6. **Ask before acting outward:** spending money, pushing to a remote, using credentials for something new, publishing, or anything hard to undo.
 
 ## How we talk
 
