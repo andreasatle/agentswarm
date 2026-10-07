@@ -7,5 +7,5 @@ kinds: [accept]
 bugs_per_task: 2
 sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
 models:
-  claude-haiku: {model: "anthropic:claude-haiku-4-5", max_tokens: 16384, usd_per_million: {input: 1.0, output: 5.0}}
-  claude-sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0}}
+  claude-haiku: {model: "anthropic:claude-haiku-4-5", max_tokens: 16384, usd_per_million: {input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25}}
+  claude-sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}

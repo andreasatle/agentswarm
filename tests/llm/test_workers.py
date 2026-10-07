@@ -13,6 +13,7 @@ from agentswarm.llm.workers import (
     LangChainWorker,
     Prompts,
     Stops,
+    Tokens,
     Toolbox,
     WorkerError,
 )
@@ -103,6 +104,24 @@ class TestLangChainWorker:
             assert Stops.at_limit(AIMessage(content="", response_metadata=metadata))
         assert not Stops.at_limit(AIMessage(content="", response_metadata={"done_reason": "stop"}))
         assert not Stops.at_limit(None)
+
+    def test_cached_input_is_counted_apart(self) -> None:
+        details = {"cache_read": 900, "cache_creation": 50}
+        message = AIMessage(
+            content="",
+            usage_metadata={
+                "input_tokens": 1000,
+                "output_tokens": 10,
+                "total_tokens": 1010,
+                "input_token_details": details,
+            },
+        )
+        usage = Tokens.of(message)
+        assert (usage.input_tokens, usage.cache_read_tokens, usage.cache_write_tokens) == (1000, 900, 50)
+
+    def test_prompt_caching_is_on_when_the_anthropic_package_is_there(self) -> None:
+        names = [type(m).__name__ for m in LangChainWorker.caching()]
+        assert names == ["AnthropicPromptCachingMiddleware"]
 
     def test_toolbox_methods_become_tools(self) -> None:
         (tool,) = LangChainWorker.tools_of(Notebook())

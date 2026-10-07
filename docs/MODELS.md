@@ -62,6 +62,10 @@ Every team, and every probe, calls a model the same way, through a worker (`llm/
 
 Every reply's token counts are recorded as it completes, even when a later reply fails, so spend is never undercounted. Teams record them on the board as `Spent` events; probes record them per answer.
 
+## Prompt caching
+
+An agent resends its whole history on every step, so input tokens dominate the cost: a hard inventory task cost up to $2 on Haiku, almost all of it input. Workers now add LangChain's Anthropic prompt caching middleware (a no-op for other providers; OpenAI caches long prompts by itself), and usage records count cache reads and writes apart, priced by `cache_read` and `cache_write` in `usd_per_million` (without them, cached input costs as plain input). Measured: one level-4 task with acceptance tests went from $0.99 to $0.13, with 89% of the input read from the cache.
+
 ## 4. Lessons from the first live runs (Ollama)
 
 The first Phase 8 runs lost a large share of their answers to settings, not to the models:

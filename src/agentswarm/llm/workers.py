@@ -9,10 +9,10 @@ works. `FakeWorker` follows a script and needs no model.
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import ClassVar, Protocol
+from typing import Any, ClassVar, Protocol
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelCallLimitMiddleware
+from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware
 from langchain.agents.structured_output import StructuredOutputError
 from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.tools import BaseTool
@@ -103,7 +103,10 @@ class LangChainWorker:
             tools=self.tools_of(toolbox),
             system_prompt=Prompts.system(instructions),
             response_format=output,
-            middleware=[ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end")],
+            middleware=[
+                ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
+                *self.caching(),
+            ],
         )
         tokens = Tokens()
         try:
@@ -168,6 +171,18 @@ class LangChainWorker:
             self._meter(usage)
 
     @staticmethod
+    def caching() -> list[AgentMiddleware[Any, Any]]:
+        """Prompt caching for Anthropic models, so an agent's repeated history is billed at the cache price.
+
+        A no-op for other providers (OpenAI caches long prompts itself); absent without langchain-anthropic.
+        """
+        try:
+            from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+        except ImportError:
+            return []
+        return [AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")]
+
+    @staticmethod
     def tools_of(toolbox: Toolbox | None) -> list[BaseTool]:
         if toolbox is None:
             return []
@@ -195,9 +210,16 @@ class Tokens(BaseCallbackHandler):
         """The usage LangChain reports on an AI message (`usage_metadata`)."""
         if not isinstance(message, AIMessage) or not message.usage_metadata:
             return Usage()
+        details = message.usage_metadata.get("input_token_details", {})
+        written = details.get("cache_creation", 0) or 0
+        written += (details.get("ephemeral_5m_input_tokens", 0) or 0) + (
+            details.get("ephemeral_1h_input_tokens", 0) or 0
+        )
         return Usage(
             input_tokens=message.usage_metadata.get("input_tokens", 0),
             output_tokens=message.usage_metadata.get("output_tokens", 0),
+            cache_read_tokens=details.get("cache_read", 0) or 0,
+            cache_write_tokens=written,
         )
 
 

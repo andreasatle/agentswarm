@@ -249,15 +249,23 @@ class Resumed(Frozen):
 
 
 class Usage(Frozen):
-    """Tokens one model call (or a run of them) used."""
+    """Tokens one model call (or a run of them) used.
+
+    input_tokens counts every input token; the cache counts are the parts of it read from, or written
+    to, the provider's prompt cache, which are priced differently.
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
         )
 
 
@@ -271,6 +279,8 @@ class Spent(Frozen):
     output_tokens: int
     usd: float
     priced: bool  # False when the model has no price in the config, so usd is 0
+    cache_read_tokens: int = 0  # parts of input_tokens read from the provider's prompt cache
+    cache_write_tokens: int = 0
 
     @property
     def subject(self) -> None:

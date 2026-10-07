@@ -9,7 +9,7 @@ from typing import Any, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from agentswarm.core.domain import FindingKind, Level
+from agentswarm.core.domain import FindingKind, Level, Usage
 
 
 class Strict(BaseModel):
@@ -85,13 +85,22 @@ class SandboxConfig(Strict):
 
 
 class Price(Strict):
-    """US dollars per million tokens."""
+    """US dollars per million tokens. Cached input has its own prices; without them it is plain input."""
 
     input: float = Field(ge=0)
     output: float = Field(ge=0)
+    cache_read: float | None = Field(default=None, ge=0)  # e.g. Anthropic: a tenth of input
+    cache_write: float | None = Field(default=None, ge=0)  # e.g. Anthropic: 1.25 times input
 
     def usd(self, input_tokens: int, output_tokens: int) -> float:
         return (input_tokens * self.input + output_tokens * self.output) / 1_000_000
+
+    def usd_of(self, usage: Usage) -> float:
+        read = self.cache_read if self.cache_read is not None else self.input
+        write = self.cache_write if self.cache_write is not None else self.input
+        plain = usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens
+        cents = plain * self.input + usage.cache_read_tokens * read + usage.cache_write_tokens * write
+        return (cents + usage.output_tokens * self.output) / 1_000_000
 
 
 class JevConfig(Strict):

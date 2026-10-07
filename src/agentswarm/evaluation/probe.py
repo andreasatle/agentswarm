@@ -540,11 +540,7 @@ class ProbeSummary(Frozen):
         cls, model: str, kind: ProbeKind, results: Sequence[ProbeResult], price: Price | None = None
     ) -> Self:
         successes = sum(r.success for r in results)
-        usd = (
-            round(sum(price.usd(r.usage.input_tokens, r.usage.output_tokens) for r in results), 4)
-            if price is not None
-            else None
-        )
+        usd = round(sum(price.usd_of(r.usage) for r in results), 4) if price is not None else None
         tokens = [r.usage.input_tokens + r.usage.output_tokens for r in results]
         return cls(
             model=model,

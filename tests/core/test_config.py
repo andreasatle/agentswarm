@@ -3,8 +3,8 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agentswarm.core.config import Domain, LevelLadder, Presets, ProjectConfig
-from agentswarm.core.domain import FindingKind, Level
+from agentswarm.core.config import Domain, LevelLadder, Presets, Price, ProjectConfig
+from agentswarm.core.domain import FindingKind, Level, Usage
 from tests.support.paths import RepoPaths
 
 EXAMPLE = RepoPaths.EXAMPLES / "retry-client.yaml"
@@ -145,3 +145,13 @@ class TestPresets:
     def test_preset_teams_need_the_project_to_define_their_model(self) -> None:
         with pytest.raises(ValidationError, match="undefined model 'coder'"):
             ProjectConfig.model_validate({"project": "p", "domain": "software", "north_star": "n"})
+
+
+class TestPrice:
+    def test_cached_input_costs_its_own_price_or_plain_input_without_one(self) -> None:
+        usage = Usage(
+            input_tokens=1_000_000, output_tokens=0, cache_read_tokens=800_000, cache_write_tokens=100_000
+        )
+        anthropic = Price(input=1.0, output=5.0, cache_read=0.1, cache_write=1.25)
+        assert anthropic.usd_of(usage) == pytest.approx(0.1 + 0.08 + 0.125)
+        assert Price(input=1.0, output=5.0).usd_of(usage) == pytest.approx(1.0)
