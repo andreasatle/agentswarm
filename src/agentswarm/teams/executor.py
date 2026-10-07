@@ -15,11 +15,14 @@ from agentswarm.core.domain import (
     Escalated,
     EscalationResolved,
     Event,
+    Finding,
+    FindingKind,
     Instruction,
     Level,
     Promoted,
     Rejected,
     Resolution,
+    Severity,
     Sized,
     TeamName,
 )
@@ -156,6 +159,8 @@ class Executor(ABC):
         sized = [e for e in ctx.history if isinstance(e, Sized)]
         if any(not s.fits for s in sized):
             return Relevance.NO  # an umbrella: its children do the work
+        if ctx.waits_for is not None:
+            return Relevance.NO  # the children of a split go in order, each on what the earlier ones merged
         if self._requires_sizing and ctx.artifact.fixes is None and not sized:
             return Relevance.NO  # wait for the decomposition team
         accepted = any(isinstance(e, AcceptanceWritten) for e in ctx.history)
@@ -226,7 +231,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
         router: Router | None = None,  # chooses the starting tier by the task's difficulty (Phase 8)
         attempts: int = 1,  # independent attempts per action; the first that passes its checks is kept
         requires_acceptance: bool = False,  # wait for the acceptance team's tests before the first attempt
+        sync_from: Level | None = None,  # the level merged into the branch before each action (the base)
     ) -> None:
+        self._sync_from = sync_from
         if attempts < 1:
             raise ValueError("an executor needs at least one attempt")
         self._attempts = attempts
@@ -243,24 +250,59 @@ You are the executor in a software team. Implement the task in `instruction.goal
         # The route is chosen before the first attempt (a Routed event, when routing is on); later actions
         # on the artifact start from it and step up a tier per rejection.
         start, routed = self._routing.start(ctx, worktree.head()) if self._routing is not None else (0, [])
+        synced = self.sync(ctx, worktree)
+        if synced is not None:
+            return [*routed, synced]
         model, worker = self.tier_for(ctx, start)
         events: list[Event] = list(routed)
-        for number in range(1, self._attempts + 1):
-            kept = await self._attempt(ctx, worktree, model, worker, last=number == self._attempts)
-            if isinstance(kept, AttemptFailed):
-                events.append(kept)  # thrown away: a failure of this model, for the outcome recorder
-                continue
-            events.extend(kept)
-            break
+        number, nudged = 1, False
+        while number <= self._attempts:
+            last = number == self._attempts
+            kept = await self._attempt(ctx, worktree, model, worker, last, nudged)
+            if not isinstance(kept, AttemptFailed):
+                events.extend(kept)
+                break
+            events.append(kept)  # thrown away: a failure of this model, for the outcome recorder
+            if kept.changed_nothing and not nudged:
+                nudged = True  # the same attempt once more, told that nothing changed
+            else:
+                number += 1
         return events
 
+    def sync(self, ctx: ArtifactContext, worktree: Worktree) -> Event | None:
+        """Merge the base level into the branch, so the work starts from what has been merged since it forked.
+
+        Plain code does what a conflict finding asks: a rejection for conflicts alone is settled by the merge,
+        and the merged branch goes back to the gate without a model. A merge that conflicts is escalated:
+        the builder has no tool to resolve it. None: carry on with the model.
+        """
+        if self._sync_from is None:
+            return None
+        before = worktree.head()
+        if not worktree.merge(self._sync_from, f"{ctx.artifact.id}: merge {self._sync_from}"):
+            return Escalated(
+                artifact=ctx.artifact.id,
+                reason=f"conflicts with {self._sync_from}, which a person must resolve",
+            )
+        merged = worktree.head() != before
+        conflicts = [f for f in ctx.open_findings if f.kind is FindingKind.CONFLICT]
+        if merged and conflicts and len(conflicts) == len(ctx.open_findings):
+            return CommitPushed(artifact=ctx.artifact.id, commit=worktree.head())
+        return None
+
     async def _attempt(
-        self, ctx: ArtifactContext, worktree: Worktree, model: str | None, worker: Worker, last: bool
+        self,
+        ctx: ArtifactContext,
+        worktree: Worktree,
+        model: str | None,
+        worker: Worker,
+        last: bool,
+        nudged: bool = False,  # the model said it was done without changing anything, and is told so
     ) -> list[Event] | AttemptFailed:
         """One attempt's events, or why an attempt before the last failed and was thrown away."""
         artifact = ctx.artifact
         toolbox = WorktreeToolbox(worktree, self._checks)
-        request = self.request(ctx, worktree)
+        request = self.request(ctx, worktree, nudged)
         try:
             report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
         except WorkerError as error:
@@ -275,9 +317,11 @@ You are the executor in a software team. Implement the task in `instruction.goal
             [AcceptanceRestored(artifact=artifact.id, paths=tuple(restored))] if restored else []
         )
         if not worktree.has_changes():
-            if not last:
-                return self._failed(ctx, model, f"made no changes: {report.summary}")
-            failed = self._failed(ctx, model, f"executor made no changes: {report.summary}")
+            failed = self._failed(
+                ctx, model, f"executor made no changes: {report.summary}", changed_nothing=True
+            )
+            if not nudged or not last:
+                return failed
             return [*protection, failed, Escalated(artifact=artifact.id, reason=failed.reason)]
         checks = toolbox.check_report()
         if not (checks.passed and report.complete) and not last:
@@ -294,8 +338,16 @@ You are the executor in a software team. Implement the task in `instruction.goal
             )
         return events
 
-    def _failed(self, ctx: ArtifactContext, model: str | None, reason: str) -> AttemptFailed:
-        return AttemptFailed(artifact=ctx.artifact.id, team=self.name, model=model, reason=reason)
+    def _failed(
+        self, ctx: ArtifactContext, model: str | None, reason: str, changed_nothing: bool = False
+    ) -> AttemptFailed:
+        return AttemptFailed(
+            artifact=ctx.artifact.id,
+            team=self.name,
+            model=model,
+            reason=reason,
+            changed_nothing=changed_nothing,
+        )
 
     def tier_index(self, ctx: ArtifactContext, start: int = 0) -> int:
         """An attempt's tier: from the starting tier, one up per rejection, staying on the strongest."""
@@ -321,12 +373,26 @@ You are the executor in a software team. Implement the task in `instruction.goal
         sha = worktree.commit(f"{ctx.artifact.id}: work in progress (escalated)")
         return [CommitPushed(artifact=ctx.artifact.id, commit=sha), escalated]
 
-    def request(self, ctx: ArtifactContext, worktree: Worktree) -> ExecutorRequest:
+    NOTHING_CHANGED = (
+        "Your last answer said the task was done, but no file in the project had changed. Make the changes "
+        "with write_file, run run_checks, and answer only when they are made."
+    )
+
+    def request(self, ctx: ArtifactContext, worktree: Worktree, nudged: bool = False) -> ExecutorRequest:
+        must_fix = ctx.open_findings
+        if nudged:
+            nothing = Finding(
+                artifact=ctx.artifact.id,
+                level=self.watches,
+                team=self.name,
+                kind=FindingKind.INCOMPLETE,
+                severity=Severity.MAJOR,
+                detail=self.NOTHING_CHANGED,
+            )
+            must_fix = (*must_fix, nothing)
         return ExecutorRequest(
             north_star=ctx.north_star,
-            instruction=Instruction(
-                goal=ctx.artifact.task, must_fix=ctx.open_findings, constraints=self._constraints
-            ),
+            instruction=Instruction(goal=ctx.artifact.task, must_fix=must_fix, constraints=self._constraints),
             files=tuple(worktree.files()),
             diff_summary=ctx.diff_summary,
         )

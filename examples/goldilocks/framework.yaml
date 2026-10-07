@@ -1,4 +1,4 @@
-# The framework experiment: what do AgentSwarm's own parts (decomposition, red teams, fix tasks) add when every role
+# The framework experiment: what do AgentSwarm's own parts (decomposition, for now) add when every role
 # has a capable model? A failure with a model too small for a role says nothing about the framework, so this comes
 # before tuning smaller models. Both setups use Haiku to build and Sonnet's acceptance tests; scored by hidden tests.
 #   uv run agentswarm compare examples/goldilocks/framework-smoke.yaml --workdir ~/agentswarm-runs/framework-smoke

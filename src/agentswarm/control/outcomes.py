@@ -24,6 +24,7 @@ from agentswarm.core.domain import (
     CommitPushed,
     Escalated,
     Event,
+    FindingKind,
     OutcomeRecorded,
     Profiled,
     Promoted,
@@ -133,6 +134,8 @@ class OutcomeRecorder:
             match event:
                 case Promoted():
                     return True
+                case Rejected() if all(f.kind is FindingKind.CONFLICT for f in event.findings):
+                    pass  # a sibling merged first: not the model's doing, and settled by merging it in
                 case Rejected():
                     return False
                 case Escalated(parks=True, approval_for=None):

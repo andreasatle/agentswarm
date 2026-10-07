@@ -118,7 +118,8 @@ class TeamRunner:
         version = self._board.current().version(artifact.id)
         ctx = self._contexts.build(artifact.id)
         if self._team.relevant(ctx) is not Relevance.YES:
-            self._handled.add((artifact.id, version))
+            if ctx.waits_for is None:  # waiting for a sibling depends on its state: look again each step
+                self._handled.add((artifact.id, version))
             return False
         claim = self._claims.claim(artifact.id, self._team.name, self._lease)
         if claim is None:

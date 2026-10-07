@@ -1,8 +1,9 @@
 # Framework experiment, setup "swarm-haiku": haiku-accept plus AgentSwarm's own parts, on the same capable model, so
 # any difference comes from them and not from a model too small for a role. A decomposer splits tasks Jev doesn't
 # clearly judge small (p(fits) at most 0.7; Jev active only at the size point), Sonnet writes each leaf's acceptance
-# tests, Haiku builds (one attempt, as in haiku-accept), the gate runs the tests, and three narrow red teams review
-# merged work; what they prove becomes fix tasks.
+# tests, Haiku builds (one attempt, as in haiku-accept), and the gate runs the tests. The children of a split go in
+# order, each from what the earlier ones merged. The three narrow red teams are off: in the first smoke run they
+# spent 90% of the tokens and found nothing (phase-8-goldilocks.md); they return where a check shows they find bugs.
 project: inventory
 domain: software
 north_star: A small, reliable inventory tool with a Python API and a command line.
@@ -21,9 +22,6 @@ teams:
     checks: [unit_tests]
     max_model_calls: 60
     constraints: [Use only the Python standard library., Put tests in tests/ and run them with run_checks.]
-  - {use: contract_tester, watches: experimental, model: builder, checks: [unit_tests]}
-  - {use: error_tester, watches: experimental, model: builder, checks: [unit_tests]}
-  - {use: edge_value_tester, watches: experimental, model: builder, checks: [unit_tests]}
 gates:
   - {from: raw, to: experimental, hard_checks: [unit_tests]}
 jev: {mode: shadow, active: ["size:*"]}  # the split check is logged only: its threshold is uncalibrated

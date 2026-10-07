@@ -160,7 +160,7 @@ class Gate:
 
     def conflict_finding(self, ctx: ArtifactContext) -> Finding:
         return self._finding(
-            ctx, FindingKind.INCONSISTENT, f"Conflicts with {self.to_level}; rebase onto it and resolve"
+            ctx, FindingKind.CONFLICT, f"Conflicts with {self.to_level}; rebase onto it and resolve"
         )
 
     def _finding(

@@ -29,7 +29,7 @@ class TestMergeQueue:
         assert "a.txt" in h.repository.files_at("experimental")
         assert len(queue) == 0
 
-    def test_conflict_rejects_as_inconsistent_and_leaves_the_level_untouched(self, tmp_path: Path) -> None:
+    def test_conflict_rejects_as_a_conflict_and_leaves_the_level_untouched(self, tmp_path: Path) -> None:
         h = Harness(tmp_path)
         a, b = h.create(Samples.A), h.create(Samples.B)
         sha_a = h.push(a, {"shared.txt": "a\n"})
@@ -40,7 +40,7 @@ class TestMergeQueue:
         first, second = queue.process()
         assert isinstance(first, Promoted)
         assert isinstance(second, Rejected)
-        assert second.findings[0].kind is FindingKind.INCONSISTENT
+        assert second.findings[0].kind is FindingKind.CONFLICT
         assert second.gate_decision == "d-2"
 
     def test_checks_rerun_on_the_merged_result(self, tmp_path: Path) -> None:

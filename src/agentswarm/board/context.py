@@ -25,4 +25,5 @@ class ContextBuilder:
             signed_off_by=views.signed_off_by(id),
             merge_commit=merge_commit,
             depth=views.depth(id),
+            waits_for=views.waits_for(id),
         )

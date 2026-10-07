@@ -5,6 +5,9 @@ from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.eventlog import InMemoryEventLog
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.domain import (
+    Artifact,
+    ArtifactCreated,
+    ArtifactId,
     Claim,
     Claimed,
     DecisionId,
@@ -166,6 +169,37 @@ class TestBlackboardViews:
             ]
         )
         assert views.version(Samples.A) == 2
+
+
+class TestSplitOrder:
+    def test_children_of_a_split_wait_for_the_earlier_ones_to_merge(self) -> None:
+        b = Board()
+        parent = Samples.artifact()
+        kids = [
+            Artifact(
+                id=ArtifactId(f"{parent.id}.{i}"),
+                task=f"part {i}",
+                branch=f"raw/{parent.id}.{i}",
+                level=Samples.RAW,
+                parent=parent.id,
+                created_by=Samples.EXECUTOR,
+            )
+            for i in (1, 2, 3)
+        ]
+        views = b.board.append([ArtifactCreated(artifact=a) for a in (parent, *kids)])
+        assert [views.waits_for(k.id) for k in kids] == [None, kids[0].id, kids[0].id]
+        first_merged = Promoted(
+            artifact=kids[0].id,
+            from_level=Samples.RAW,
+            to_level=Samples.EXPERIMENTAL,
+            gate_decision=None,
+            commit="m1",
+        )
+        views = b.board.append([first_merged])
+        assert [views.waits_for(k.id) for k in kids] == [None, None, kids[1].id]
+        views = b.board.append([Escalated(artifact=kids[1].id, reason="stuck")])
+        assert views.waits_for(kids[2].id) is None  # a parked sibling doesn't hold the rest
+        assert views.waits_for(parent.id) is None
 
 
 class TestBlackboardReplay:

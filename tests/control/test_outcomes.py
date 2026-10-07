@@ -12,6 +12,7 @@ from agentswarm.core.domain import (
     DecisionId,
     Escalated,
     Event,
+    FindingKind,
     OutcomeRecorded,
     Profiled,
     Promoted,
@@ -120,6 +121,17 @@ class TestProducerOutcomes:
         assert r.step(r.commit("small", "c2"), r.commit("large", "c3")) == [("produce", SMALL, False)]
         escalated = Escalated(artifact=r.artifact.id, reason="checks still fail")
         assert r.step(escalated) == [("produce", LARGE, False)]
+
+    def test_a_rejection_for_conflicts_alone_is_not_the_models_failure(self, tmp_path: Path) -> None:
+        r = Recording(tmp_path)
+        conflict = Samples.finding().model_copy(update={"kind": FindingKind.CONFLICT})
+        rejected = Rejected(
+            artifact=r.artifact.id, level=Samples.RAW, findings=(conflict,), gate_decision=None
+        )
+        merged = CommitPushed(artifact=r.artifact.id, commit="c2")  # the base merged in by plain code
+        routed = r.routed(Samples.EXECUTOR, CallKind.PRODUCE)
+        assert r.step(routed, r.commit("small", "c1"), rejected, merged) == []
+        assert r.step(r.promoted()) == [("produce", SMALL, True)]
 
     def test_nothing_without_a_profile_a_router_or_for_reviews(self, tmp_path: Path) -> None:
         r = Recording(tmp_path)

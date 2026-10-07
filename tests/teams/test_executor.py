@@ -2,7 +2,17 @@ from pathlib import Path
 
 import pytest
 
-from agentswarm.core.domain import AttemptFailed, CommitPushed, DecisionId, Escalated, FindingAdded, Rejected
+from agentswarm.core.domain import (
+    AttemptFailed,
+    CommitPushed,
+    DecisionId,
+    Escalated,
+    Finding,
+    FindingAdded,
+    FindingKind,
+    Rejected,
+    Severity,
+)
 from agentswarm.llm.workers import FakeWorker, LangChainWorker, Toolbox, WorkerError
 from agentswarm.teams.executor import (
     ExecutorReport,
@@ -206,12 +216,24 @@ class TestExecutorTeam:
         assert isinstance(events[-1], Escalated)
         assert "incomplete: half done" in events[-1].reason
 
-    async def test_no_changes_is_escalated_without_a_commit(self, tmp_path: Path) -> None:
+    async def test_no_changes_is_told_once_then_escalated_without_a_commit(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
-        worker = FakeWorker([Steps.write({})])
-        failed, event = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
-        assert isinstance(failed, AttemptFailed) and isinstance(event, Escalated)
+        worker = FakeWorker([Steps.write({}), Steps.write({})])
+        first, second, event = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(
+            w.ctx(), w.worktree
+        )
+        assert isinstance(first, AttemptFailed) and first.changed_nothing
+        assert isinstance(second, AttemptFailed) and isinstance(event, Escalated)
         assert "no changes" in event.reason
+        told = worker.calls[1][1]
+        assert isinstance(told, ExecutorRequest)
+        assert told.instruction.must_fix[-1].detail == ExecutorTeam.NOTHING_CHANGED
+
+    async def test_told_that_nothing_changed_the_model_does_the_work(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        worker = FakeWorker([Steps.write({}), Steps.write({"greeting.py": "def farewell(name): ...\n"})])
+        failed, commit = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        assert isinstance(failed, AttemptFailed) and isinstance(commit, CommitPushed)  # one attempt, nudged
 
     async def test_worker_failure_keeps_the_work_done_so_far(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
@@ -255,3 +277,54 @@ class TestExecutorTeam:
         assert "def farewell" in w.worktree.read("greeting.py")
         message = w.h.repository.git.run(w.worktree.path, "log", "-1", "--format=%s")
         assert message == "a-0001: add farewell"
+
+
+class TestSyncWithTheBase:
+    """Before each action the base level is merged in: what siblings merged meanwhile is there to build on."""
+
+    @staticmethod
+    def advance_base(w: Workspace, files: dict[str, str]) -> None:
+        level = w.h.repository.checkout_level(Samples.EXPERIMENTAL)
+        for path, content in files.items():
+            level.write(path, content)
+        level.commit("a sibling merged")
+        level.remove()
+
+    @staticmethod
+    def conflicted(w: Workspace) -> None:
+        commit = w.worktree.head()
+        finding = Finding(
+            artifact=w.artifact.id,
+            level=Samples.RAW,
+            team=Samples.TESTER,
+            kind=FindingKind.CONFLICT,
+            severity=Severity.BLOCKER,
+            detail="Conflicts with experimental; rebase onto it and resolve",
+        )
+        rejected = Rejected(
+            artifact=w.artifact.id, level=Samples.RAW, findings=(finding,), gate_decision=None
+        )
+        w.h.board.append([CommitPushed(artifact=w.artifact.id, commit=commit, model="coder"), rejected])
+
+    async def test_a_rejection_for_conflicts_alone_is_settled_by_the_merge_without_a_model(
+        self, tmp_path: Path
+    ) -> None:
+        w = Workspace(tmp_path)
+        w.worktree.write("greeting.py", "def farewell(name): ...\n")
+        w.worktree.commit("farewell")
+        self.advance_base(w, {"other.py": "x = 1\n"})
+        self.conflicted(w)
+        team = ExecutorTeam(FakeWorker([]), [Toolboxes.CHECK], Samples.RAW, sync_from=Samples.EXPERIMENTAL)
+        (event,) = await team.act(w.ctx(), w.worktree)
+        assert isinstance(event, CommitPushed) and event.model is None
+        assert set(w.worktree.files()) == {"greeting.py", "other.py"}
+
+    async def test_a_real_conflict_goes_to_a_person(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        w.worktree.write("greeting.py", "def farewell(name): ...\n")
+        w.worktree.commit("farewell")
+        self.advance_base(w, {"greeting.py": "def hello(): ...\n"})
+        self.conflicted(w)
+        team = ExecutorTeam(FakeWorker([]), [Toolboxes.CHECK], Samples.RAW, sync_from=Samples.EXPERIMENTAL)
+        (event,) = await team.act(w.ctx(), w.worktree)
+        assert isinstance(event, Escalated) and "conflicts with experimental" in event.reason

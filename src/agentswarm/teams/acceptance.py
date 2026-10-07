@@ -116,6 +116,8 @@ single answer. The data holds the task and every file of the project as it is no
             return Relevance.NO
         if self._requires_sizing and not sized:
             return Relevance.NO  # wait for the decomposition team
+        if ctx.waits_for is not None:
+            return Relevance.NO  # written against the code the earlier children of the split have merged
         started = any(isinstance(e, AcceptanceWritten | CommitPushed) for e in history)
         return Relevance.NO if started else Relevance.YES
 

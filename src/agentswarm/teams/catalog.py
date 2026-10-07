@@ -160,6 +160,7 @@ class TeamCatalog:
                 router=resources.router_for(team, CallKind.PRODUCE),
                 attempts=team.attempts,
                 requires_acceptance=resources.has_team("acceptance_tester"),
+                sync_from=resources.ladder.base,
             ),
         )
         catalog.register("acceptance_tester", cls._acceptance_tester)
@@ -173,6 +174,7 @@ class TeamCatalog:
                 name=TeamName(team.use),
                 requires_sizing=resources.plans(),
                 router=resources.router_for(team, CallKind.PRODUCE),
+                sync_from=resources.ladder.base,
             ),
         )
         catalog.register(

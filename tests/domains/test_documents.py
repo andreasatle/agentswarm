@@ -104,11 +104,13 @@ class TestDocumentDomain:
         assert all(views.artifact(s.id).level == "final" for s in sections)
         assert views.artifact(goal.id).level == "final"  # joined at reviewed, then final
 
-        # Publishing needs a person: the train escalated the last section of the batch.
+        # Publishing needs a person. Sections are written one after another, so each may arrive in a batch of
+        # its own: every batch the train asks about is approved.
         queue = Escalations(project.board, project.decisions)
-        (waiting,) = queue.open()
-        assert "needs human approval" in waiting.reason
-        queue.resolve(waiting.artifact, Resolution.ACCEPT, "approved for publishing")
+        waiting = queue.open()
+        assert waiting and all("needs human approval" in w.reason for w in waiting)
+        for w in waiting:
+            queue.resolve(w.artifact, Resolution.ACCEPT, "approved for publishing")
         await project.run_until_idle()
 
         views = project.views()

@@ -44,6 +44,9 @@ class FindingKind(StrEnum):
     INCOMPLETE = "incomplete"
     SECURITY = "security"
     INCONSISTENT = "inconsistent"
+    CONFLICT = (
+        "conflict"  # doesn't merge into the next level: settled by merging that level in, not by rework
+    )
     TOO_LARGE = "too_large"  # should be decomposed
     EDGE_CASE = "edge_case"  # breaks on unusual input or misuse (red team)
     UNSUPPORTED = "unsupported"  # a claim that may be wrong or lacks support (fact checker)
@@ -362,6 +365,9 @@ class AttemptFailed(Frozen):
     team: TeamName
     model: str | None  # the name in the project's `models`
     reason: str
+    changed_nothing: bool = (
+        False  # it said it was done without changing a file: told so, it gets one more try
+    )
 
     @property
     def subject(self) -> ArtifactId:
@@ -490,6 +496,7 @@ class ArtifactContext(Frozen):
     signed_off_by: tuple[TeamName, ...]  # analyzer teams that signed off this version
     merge_commit: str | None  # where it joined the first shared level; None while it is on its own branch
     depth: int  # how many decompositions above it: 0 for a task a person created
+    waits_for: ArtifactId | None = None  # an earlier sibling of a split, still to be merged first
 
 
 class Instruction(Frozen):
