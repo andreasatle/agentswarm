@@ -497,6 +497,10 @@ class ArtifactContext(Frozen):
     merge_commit: str | None  # where it joined the first shared level; None while it is on its own branch
     depth: int  # how many decompositions above it: 0 for a task a person created
     waits_for: ArtifactId | None = None  # an earlier sibling of a split, still to be merged first
+    # The last child of a split closes it: the parent it closes, and the parent's acceptance tests once
+    # written, which become the last child's own, so the whole is checked against the original task.
+    closes: ArtifactId | None = None
+    parent_acceptance: AcceptanceWritten | None = None
 
 
 class Instruction(Frozen):

@@ -108,6 +108,10 @@ class Worktree:
         """What HEAD changes relative to where it forked from `ref` (git diff ref...HEAD)."""
         return self._run("diff", f"--unified={context_lines}", f"{ref}...HEAD")
 
+    def show(self, commit: str, path: str) -> str:
+        """A file's text as it is in `commit` (any commit of the repository)."""
+        return self._run("show", f"{commit}:{path}")
+
     def diff_between(self, base: str, head: str) -> str:
         return self._run("diff", base, head)
 

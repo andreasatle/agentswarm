@@ -244,6 +244,14 @@ class BoardViews:
                 return sibling.id
         return None
 
+    def closes(self, id: ArtifactId) -> ArtifactId | None:
+        """The parent whose split this artifact closes, if it is its last child."""
+        artifact = self._artifacts[id]
+        if artifact.parent is None or artifact.fixes is not None:
+            return None
+        children = self.children(artifact.parent)
+        return artifact.parent if children and children[-1].id == id else None
+
     def depth(self, id: ArtifactId) -> int:
         """How many decompositions above this artifact: 0 for a task a person created."""
         depth, artifact = 0, self._artifacts[id]

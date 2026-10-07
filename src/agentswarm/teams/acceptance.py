@@ -115,14 +115,20 @@ single answer. The data holds the task and every file of the project as it is no
         return f"{cls.FOLDER}/test_{artifact.replace('-', '_').replace('.', '_')}.py"
 
     def relevant(self, ctx: ArtifactContext) -> Relevance:
+        """Leaves, and the umbrellas of a split: their tests come from the original task, not the planner's.
+
+        An umbrella's tests stay on its own branch, which never merges; its last child inherits them.
+        """
         history = ctx.history
         sized = [e for e in history if isinstance(e, Sized)]
-        if ctx.artifact.fixes is not None or any(not s.fits for s in sized):
+        if ctx.artifact.fixes is not None:
             return Relevance.NO
         if self._requires_sizing and not sized:
             return Relevance.NO  # wait for the decomposition team
         if ctx.waits_for is not None:
             return Relevance.NO  # written against the code the earlier children of the split have merged
+        if ctx.closes is not None and ctx.parent_acceptance is None:
+            return Relevance.NO  # the last child inherits its parent's tests: wait for them
         started = any(isinstance(e, AcceptanceWritten | CommitPushed) for e in history)
         return Relevance.NO if started else Relevance.YES
 
@@ -137,6 +143,23 @@ single answer. The data holds the task and every file of the project as it is no
         return AcceptRequest(north_star=ctx.north_star, task=ctx.artifact.task, files=tuple(files))
 
     async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+        events = await self.write(ctx, worktree)
+        parent = ctx.parent_acceptance
+        if parent is None or not parent.files:
+            return events
+        # The last child of a split: its parent's tests join its own, so the whole meets the original task.
+        for file in parent.files:
+            worktree.write(file.path, worktree.show(parent.commit, file.path))
+        commit = worktree.commit(
+            f"{ctx.artifact.id}: acceptance tests of {parent.artifact}, whose split it closes"
+        )
+        written = events[-1]
+        assert isinstance(written, AcceptanceWritten)
+        inherited = written.model_copy(update={"commit": commit, "files": (*written.files, *parent.files)})
+        return [*events[:-1], inherited]
+
+    async def write(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+        """The artifact's own acceptance tests, committed; or a record that none could be written."""
         artifact = ctx.artifact.id
         path = self.path_for(artifact)
         request = self.request(ctx, worktree)

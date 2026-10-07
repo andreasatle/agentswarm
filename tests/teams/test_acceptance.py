@@ -8,8 +8,10 @@ from agentswarm.core.config import CheckConfig
 from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
+    ArtifactCreated,
     ArtifactId,
     CommitPushed,
+    Promoted,
     Sized,
 )
 from agentswarm.gating.checks import CheckStatus, CommandCheck
@@ -87,7 +89,38 @@ class TestAcceptanceTester:
         )
         assert team.relevant(a.h.contexts.build(fix.id)) is Relevance.NO
         a.h.board.append([Sized(artifact=a.artifact.id, fits=False)])
-        assert team.relevant(a.h.contexts.build(a.artifact.id)) is Relevance.NO
+        assert team.relevant(a.h.contexts.build(a.artifact.id)) is Relevance.YES  # an umbrella gets its own
+
+
+class TestSplitAcceptance:
+    async def test_the_last_child_inherits_the_parents_tests(self, tmp_path: Path) -> None:
+        a = Accepting(tmp_path)
+        factory = ArtifactFactory(a.h.board, Harness.LADDER)
+        kids = [factory.child(a.artifact, i, f"part {i}", Samples.EXECUTOR) for i in (1, 2)]
+        sized = Sized(artifact=a.artifact.id, fits=False, children=tuple(k.id for k in kids))
+        a.h.board.append([*(ArtifactCreated(artifact=k) for k in kids), sized])
+        team, _ = a.team(GOOD, GOOD.replace("farewell", "parting"))
+        last = a.h.contexts.build(kids[1].id)
+        assert last.closes == a.artifact.id and team.relevant(last) is Relevance.NO  # waits for its sibling
+        merged = Promoted(
+            artifact=kids[0].id,
+            from_level=Samples.RAW,
+            to_level=Samples.EXPERIMENTAL,
+            gate_decision=None,
+            commit="m",
+        )
+        a.h.board.append([merged])
+        assert team.relevant(a.h.contexts.build(kids[1].id)) is Relevance.NO  # and for its parent's tests
+        # One step: the umbrella's tests, from the original task, on its own branch; then the last child's.
+        assert await a.h.runner(team).step() == 2
+        views = a.h.board.current()
+        (parent,) = [e for e in views.history(a.artifact.id) if isinstance(e, AcceptanceWritten)]
+        assert [f.path for f in parent.files] == [AcceptanceTester.path_for(a.artifact.id)]
+        history = views.history(kids[1].id)
+        (written,) = [e for e in history if isinstance(e, AcceptanceWritten)]
+        paths = [f.path for f in written.files]
+        assert paths == [AcceptanceTester.path_for(kids[1].id), AcceptanceTester.path_for(a.artifact.id)]
+        assert set(paths) <= set(a.h.repository.files_at(kids[1].branch))
 
 
 class TestProtectedAcceptanceTests:

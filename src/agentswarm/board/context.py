@@ -1,7 +1,7 @@
 """Builds the typed context that teams, gates and models see (proposal §8.3)."""
 
 from agentswarm.board.blackboard import Blackboard
-from agentswarm.core.domain import ArtifactContext, ArtifactId
+from agentswarm.core.domain import AcceptanceWritten, ArtifactContext, ArtifactId
 from agentswarm.workspace.git import Repository
 
 
@@ -15,6 +15,8 @@ class ContextBuilder:
         views = self._board.current()
         artifact = views.artifact(id)
         merge_commit = views.merge_commit(id)
+        closes = views.closes(id)
+        written = [e for e in views.history(closes) if isinstance(e, AcceptanceWritten)] if closes else []
         return ArtifactContext(
             north_star=self._north_star,
             artifact=artifact,
@@ -26,4 +28,6 @@ class ContextBuilder:
             merge_commit=merge_commit,
             depth=views.depth(id),
             waits_for=views.waits_for(id),
+            closes=closes,
+            parent_acceptance=written[0] if written else None,
         )
