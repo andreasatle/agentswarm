@@ -107,7 +107,12 @@ single answer. The data holds the task and every file of the project as it is no
 
     @classmethod
     def path_for(cls, artifact: ArtifactId) -> str:
-        return f"{cls.FOLDER}/{artifact.replace('-', '_').replace('.', '_')}/test_acceptance.py"
+        """One file per artifact, each with its own basename.
+
+        Pytest refuses two test modules of the same name in folders without `__init__.py`, and the merged
+        acceptance tests of a split's children live side by side.
+        """
+        return f"{cls.FOLDER}/test_{artifact.replace('-', '_').replace('.', '_')}.py"
 
     def relevant(self, ctx: ArtifactContext) -> Relevance:
         history = ctx.history

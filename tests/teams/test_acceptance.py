@@ -8,10 +8,11 @@ from agentswarm.core.config import CheckConfig
 from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
+    ArtifactId,
     CommitPushed,
     Sized,
 )
-from agentswarm.gating.checks import CommandCheck
+from agentswarm.gating.checks import CheckStatus, CommandCheck
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.acceptance import AcceptanceTester, AcceptAnswer, AcceptRequest
 from agentswarm.teams.executor import ExecutorReport, ExecutorTeam, WorktreeToolbox
@@ -113,3 +114,16 @@ class TestProtectedAcceptanceTests:
         worktree = a.h.repository.checkout_artifact(a.artifact)
         assert worktree.read(path) == GOOD
         assert "tests/acceptance/extra.py" not in worktree.files()
+
+
+class TestAcceptanceFiles:
+    def test_the_tests_of_several_artifacts_run_together(self, tmp_path: Path) -> None:
+        """Merged acceptance tests of a split's children sit side by side; pytest must collect them all."""
+        a = Accepting(tmp_path)
+        worktree = a.h.repository.checkout_artifact(a.artifact)
+        for i in (1, 2):
+            worktree.write(
+                AcceptanceTester.path_for(ArtifactId(f"a-0001.{i}")), f"def test_{i}():\n    pass\n"
+            )
+        result = a.runner.run_on(worktree.path, [AcceptanceTester.FOLDER])
+        assert result.status is CheckStatus.PASSED, result.output
