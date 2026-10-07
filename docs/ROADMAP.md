@@ -40,6 +40,8 @@ Models per role (routing, already built), local and hosted models, concurrency, 
 
 The research question, studied once the framework behaves well: against a single big model given the same goal and the same verifier, at problem sizes from small to large, measuring solved share, cost and time. The user's expectation, to test: past some size, no model does it in one step, and a well-behaved swarm wins.
 
+**The model axis (the user, 2026-10-07): one family, many sizes.** Qwen offers dense models from under 1B to 32B and mixture-of-experts models (for example 30B-A3B, 235B-A22B, Coder 480B-A35B), open weights, local and hosted. Within one family, size is the only variable, without differences in training data or style between providers; MoE adds a second axis, total parameters (knowledge) against active parameters per token (compute and cost), so the study can ask which of the two a swarm needs. The stage 3 probes start with the Qwen models this study will use.
+
 ## What changes now
 
 - Inventory-suite experiments, routing probes and baseline comparisons pause; their results stay recorded (phase-8-goldilocks.md) and feed stage 3.
