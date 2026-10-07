@@ -269,3 +269,4 @@ What this phase measures feeds [Phase 10](phase-10-robustness.md), which builds 
 3. Then Qwen (a version that makes real tool calls; possibly through llama-server).
 4. Over time, all available models. Constraint: 24 GB of local memory, so local models are evaluated one at a time.
 
+**Order of work, revised with the user (2026-10-06): model per role first, the goldilocks question later.** The swarm's result depends on which model fills which role; a swarm with one small model everywhere can lose only because that model plans or reviews badly, a false negative. So: (1) the complexity experiment finishes, as a measure of each model's capability by level; (2) model per role is tuned: which model is good enough to plan, to build and to review, measured with probes and a few mixed setups (for example Haiku plans and reviews while gemma builds); (3) the goldilocks comparison is run again with the best assignment per role.
