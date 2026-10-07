@@ -32,6 +32,7 @@ from agentswarm.gating.checks import CheckResult, CheckStatus, CommandCheck
 from agentswarm.judging.judges import JudgeState
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.relevance import RelevanceCheck, RelevanceFilter
+from agentswarm.teams.routing import RoutedTiers
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.files import UnsafePath
 from agentswarm.workspace.git import Repository, Worktree
@@ -136,12 +137,18 @@ class Analyzer(ABC):
     _log = logging.getLogger(__name__)
 
     def __init__(
-        self, name: TeamName, watches: Level, worker: Worker, relevance: RelevanceFilter | None = None
+        self,
+        name: TeamName,
+        watches: Level,
+        worker: Worker,
+        relevance: RelevanceFilter | None = None,
+        routing: RoutedTiers | None = None,  # instead of `worker`: tiers, and a router to start on one
     ) -> None:
         self._name = name
         self._watches = watches
         self._worker = worker
         self._relevance = relevance
+        self._routing = routing
 
     @property
     def name(self) -> TeamName:
@@ -176,12 +183,17 @@ class Analyzer(ABC):
         request = AnalysisRequest(
             north_star=ctx.north_star, task=ctx.artifact.task, diff=JudgeState.truncate(diff)
         )
+        worker = self._worker
+        routed: list[Event] = []
+        if self._routing is not None:
+            start, routed = self._routing.start(ctx, ctx.merge_commit)
+            worker = self._routing.tiers[start].worker
         try:
-            examination = await self.examine(ctx, worktree, diff, request)
+            examination = await self.examine(ctx, worktree, diff, request, worker)
         except WorkerError as error:
             # A notice, not a park: one reviewer's trouble mustn't stop the other reviewers.
             reason = f"{self._name} failed: {error}"
-            return [Escalated(artifact=ctx.artifact.id, reason=reason, parks=False)]
+            return [*routed, Escalated(artifact=ctx.artifact.id, reason=reason, parks=False)]
         if examination.dropped:
             self._log.info(
                 "%s: dropped %d problem(s) on %s without evidence",
@@ -192,11 +204,11 @@ class Analyzer(ABC):
         if self._relevance is not None:
             summary = f"{len(examination.findings)} finding(s), {examination.dropped} dropped"
             self._relevance.record_result(check, bool(examination.findings), summary)
-        return [*(FindingAdded(finding=f) for f in examination.findings), sign_off]
+        return [*routed, *(FindingAdded(finding=f) for f in examination.findings), sign_off]
 
     @abstractmethod
     async def examine(
-        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest
+        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest, worker: Worker
     ) -> Examination:
         """Let the model look, keep only problems backed by evidence. May raise WorkerError."""
 
@@ -221,15 +233,16 @@ class ProbingAnalyzer(Analyzer):
         worker: Worker,
         runner: CommandCheck,
         relevance: RelevanceFilter | None = None,
+        routing: RoutedTiers | None = None,
     ) -> None:
-        super().__init__(name, watches, worker, relevance)
+        super().__init__(name, watches, worker, relevance, routing)
         self._runner = runner
 
     async def examine(
-        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest
+        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest, worker: Worker
     ) -> Examination:
         toolbox = AnalysisToolbox(worktree, diff, self._runner)
-        report = await self._worker.run(self.INSTRUCTIONS, request, AnalysisReport, toolbox)
+        report = await worker.run(self.INSTRUCTIONS, request, AnalysisReport, toolbox)
         findings = tuple(
             self.finding(
                 ctx,
@@ -303,10 +316,10 @@ class ReviewingAnalyzer(Analyzer):
     """Evidence is a verbatim quote: a problem must cite text that really is in the named file."""
 
     async def examine(
-        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest
+        self, ctx: ArtifactContext, worktree: Worktree, diff: str, request: AnalysisRequest, worker: Worker
     ) -> Examination:
         toolbox = ReadingToolbox(worktree, diff)
-        report = await self._worker.run(self.INSTRUCTIONS, request, ReviewReport, toolbox)
+        report = await worker.run(self.INSTRUCTIONS, request, ReviewReport, toolbox)
         findings = tuple(
             self.finding(ctx, p.severity, f'{p.title}: {p.detail}\n\nIn {p.file}: "{p.quote.strip()}"')
             for p in report.problems

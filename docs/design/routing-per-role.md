@@ -1,6 +1,6 @@
 # Routing for every role
 
-Status: **designed** (2026-10-07), step 2 of the order agreed with the user: (1) independent acceptance checks, (2) routing for every role learning from those checks, (3) the goldilocks comparison with the best assignment per role.
+Status: **steps 1-2 done** (2026-10-07), step 2 of the order agreed with the user: (1) independent acceptance checks, (2) routing for every role learning from those checks, (3) the goldilocks comparison with the best assignment per role.
 
 ## The goal
 
@@ -46,9 +46,16 @@ A cell (kind, band, model) needs about ten outcomes before the router tells a 60
 
 The inventory suite with every role routed over gemma4-e4b and Haiku (then adding Sonnet and Opus), compared with the best fixed setup so far (Haiku building against Sonnet's acceptance tests, 20/25), at equal cost (P8). The question: does the router find an assignment that solves as much for less, or more for the same?
 
-## Targets per role
+## Targets per role (decided with the user, 2026-10-07)
 
-What counts as good enough is the user's call. Proposed: 0.8 for build, plan and review; **0.9 for acceptance writers**, because a wrong acceptance test blocks correct work and is charged to the producer, which also misleads the router about the producer.
+0.8 for build, plan and review; **0.9 for acceptance writers**, because a wrong acceptance test blocks correct work and is charged to the producer, which also misleads the router about the producer. To be adapted when the data says so.
+
+## Checking the acceptance tests themselves (the user's question, 2026-10-07)
+
+Inside a project nothing yet checks whether an acceptance test demands the right thing; only hidden tests catch a wrong one. Two additions, measured before they act:
+
+1. **Jev checks each acceptance test when it is written** ("Do these tests demand only what the task asks, with the right expected values?"), in shadow first. The accept probes know which tests were wrong (9 of 50 so far, more after step 3), so Jev's agreement with the truth is measured there; the check acts only once it is shown reliable.
+2. **The producer can dispute a test.** A producer that says a test contradicts the task sends the dispute to an arbiter (Jev, or a person) instead of failing silently; the outcome is recorded for neither the producer nor the acceptance writer until the arbiter has ruled.
 
 ## Steps
 
@@ -57,9 +64,21 @@ What counts as good enough is the user's call. Proposed: 0.8 for build, plan and
 3. Qualification probes, Haiku and gemma4-e4b, writing to the ledger. Haiku's share costs money: estimated from the accept probes ($0.43 for 25), about $3-5 for 200 probes; confirmed with the user before running.
 4. The routed run on the inventory suite against the fixed baseline. Cost estimated from step 3's tokens, confirmed before running.
 5. Sonnet and Opus added: probes, then the routed run again.
+6. The Jev check on acceptance tests, in shadow, measured on the accept probes; the producer's dispute.
 
 ## Known limits
 
 - An acceptance test that is wrong makes a correct producer fail; with probe-measured acceptance writers and a 0.9 target this should be rare, and the evaluation runs show how rare (acceptance verdict against hidden tests).
 - Plan outcomes in projects are weak evidence; until parent-level acceptance tests exist (the acceptance tester skips umbrellas today), the planner is judged mainly by evaluation runs. Parent acceptance tests are a follow-up if plan routing proves to matter.
 - Bands come from one Jev question; the logged attributes join the router only when the data shows they predict success.
+
+## Decisions made during implementation
+
+**Steps 1-2 (2026-10-07).**
+- **One profile, one decision point.** `Router.profile` reads a `Profiled` event from the artifact's history, or asks Jev at `route:profile` and returns the event for the team to append. Configs that activate `route:*` keep working.
+- **`RoutedTiers`** (teams/routing.py) is the one place a team's starting tier is chosen: once per artifact and team, recorded as `Routed` with its `call_kind`. Executors and writers step up a tier per rejection as before; the acceptance tester's second try goes one tier up; analyzers and planners make one call on the chosen tier. A planner is routed only when it actually calls the model (a task that fits makes no call).
+- **Every team kind takes `model_tiers` and `routing`:** executors and writers (produce), probing and reviewing analyzers (critique), decomposer and outliner (plan), acceptance tester (accept).
+- **`AttemptFailed`** replaces silent discards: an executor attempt with nothing for the gate to judge (thrown away before the next attempt, or the last one escalated without a commit of its work) goes on the board, so failures that never reach the gate still count against the model.
+- **`OutcomeRecorder`** (control/outcomes.py) runs with the other controllers each step. A commit by a model succeeds when promoted and fails when rejected, escalated (not an approval request) or reworked before promotion. A split succeeds when the umbrella is promoted, fails when the planner escalates, a child is escalated or the umbrella is rejected. Each outcome is written once, keyed by the settled event's position in the artifact's history (`OutcomeRecorded`). Critique and accept calls are not settled in projects.
+- **Comparisons settle plans from the hidden tests** (`settle_plans=False` for their projects, then `OutcomeRecorder.settle_plans` with the delivered result). Produce outcomes come from the board everywhere, so the same evidence teaches the router in projects and experiments.
+- **`Routed.call_kind` defaults to produce,** so boards from before this change still load.

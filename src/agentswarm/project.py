@@ -13,6 +13,7 @@ from agentswarm.board.context import ContextBuilder
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.board.spend import SpendLedger
 from agentswarm.control.budget import Budget
+from agentswarm.control.outcomes import OutcomeRecorder
 from agentswarm.control.router import FindingRouter
 from agentswarm.control.scheduler import Scheduler
 from agentswarm.control.supervisor import Supervisor
@@ -59,6 +60,7 @@ class ProjectServices:
     clock: Clock = field(default_factory=SystemClock)
     lease: timedelta = timedelta(minutes=10)
     scheduler: Scheduler | None = None  # shared by several projects in one process (agentswarm swarm)
+    settle_plans: bool = True  # False: plan outcomes come from outside, e.g. a comparison's hidden tests
 
 
 class Project:
@@ -75,6 +77,7 @@ class Project:
         artifacts: ArtifactFactory,
         supervisor: Supervisor,
         owned: list[Closeable],
+        outcomes: OutcomeRecorder | None = None,
     ) -> None:
         self.config = config
         self.board = board
@@ -87,6 +90,7 @@ class Project:
         self._router = FindingRouter(board, self._artifacts, config.levels)
         self._publisher = LevelPublisher(board, repository)  # settles branch moves a crash interrupted
         self._supervisor = supervisor
+        self.outcomes = outcomes or OutcomeRecorder(board, {}, {})  # settles routed calls for the ledger
 
     @classmethod
     def open(cls, config: ProjectConfig, root: Path, services: ProjectServices | None = None) -> Self:
@@ -212,14 +216,17 @@ class Project:
             )
         drift = judgements.build("DriftCheck") if decider is not None else None
         supervisor = Supervisor(config, board, repository, decisions, drift, clock, budget)
-        return cls(config, board, repository, runners, promoters, decisions, artifacts, supervisor, owned)
+        outcomes = OutcomeRecorder(board, resources.routers, resources.model_ids, services.settle_plans)
+        return cls(
+            config, board, repository, runners, promoters, decisions, artifacts, supervisor, owned, outcomes
+        )
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
         """Put a new artifact on the board at the lowest level, with the next free id."""
         return self._artifacts.create(task, created_by)
 
     async def step(self) -> int:
-        """Run every team, every gate, the router and the supervisor once. Returns the actions taken."""
+        """Run every team, gate and controller (outcome recorder included) once. Returns the actions taken."""
         actions = 0
         for runner in self._runners:
             actions += await runner.step()
@@ -230,6 +237,7 @@ class Project:
             actions += await asyncio.to_thread(promoter.step)
         actions += await asyncio.to_thread(self._router.step)
         actions += await asyncio.to_thread(self._supervisor.step)
+        actions += await asyncio.to_thread(self.outcomes.step)
         return actions
 
     async def run_until_idle(self, max_rounds: int = 50) -> int:

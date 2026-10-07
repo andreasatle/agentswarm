@@ -25,6 +25,7 @@ from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.policy import Verdict
 from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.teams.routing import RoutedTiers
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.git import Worktree
 
@@ -68,7 +69,9 @@ You are the planner. The task in the data is too large for one change by one tea
         artifacts: ArtifactFactory,
         max_depth: int,
         build_at_max_depth: bool = False,  # at the limit, let the executor try instead of asking a person
+        routing: RoutedTiers | None = None,  # instead of `worker`: tiers, and a router to start on one
     ) -> None:
+        self._routing = routing
         self._build_at_max_depth = build_at_max_depth
         self._watches = watches
         self._worker = worker
@@ -109,24 +112,31 @@ You are the planner. The task in the data is too large for one change by one tea
             return [Escalated(artifact=artifact.id, reason=f"too large, but already split {ctx.depth} times")]
 
         request = SplitRequest(north_star=ctx.north_star, task=artifact.task, depth=ctx.depth)
+        worker = self._worker
+        routed: list[Event] = []  # routed only when the model is needed: a task that fits makes no call
+        if self._routing is not None:
+            start, routed = self._routing.start(ctx, head)
+            worker = self._routing.tiers[start].worker
         try:
-            split = await self._worker.run(self.INSTRUCTIONS, request, Split)
+            split = await worker.run(self.INSTRUCTIONS, request, Split)
         except WorkerError as error:
-            return [Escalated(artifact=artifact.id, reason=f"decomposition failed: {error}")]
+            return [*routed, Escalated(artifact=artifact.id, reason=f"decomposition failed: {error}")]
         proposal = [child.task for child in split.children]
         try:
             check = self._split.ask(f"split:{self._watches}", ctx, head, head, "", proposal)
         except DeciderError as error:
-            return [Escalated(artifact=artifact.id, reason=f"split could not be checked: {error}")]
+            return [*routed, Escalated(artifact=artifact.id, reason=f"split could not be checked: {error}")]
         if (
             check.mode is JevMode.ACTIVE and check.ruling.verdict is not Verdict.PROMOTE
         ):  # shadow never blocks
             return [
-                Escalated(artifact=artifact.id, reason="proposed split is not clearly smaller than the task")
+                *routed,
+                Escalated(artifact=artifact.id, reason="proposed split is not clearly smaller than the task"),
             ]
 
         children = [self._artifacts.child(artifact, i, task, self.NAME) for i, task in enumerate(proposal, 1)]
         return [
+            *routed,
             *(ArtifactCreated(artifact=child) for child in children),
             Sized(artifact=artifact.id, fits=False, children=tuple(c.id for c in children), decision=size.id),
         ]

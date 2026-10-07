@@ -26,6 +26,7 @@ from agentswarm.core.domain import (
 )
 from agentswarm.gating.checks import CheckStatus, CommandCheck
 from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.teams.routing import RoutedTiers
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.git import Worktree
 
@@ -83,7 +84,9 @@ single answer. The data holds the task and every file of the project as it is no
         runner: CommandCheck,
         requires_sizing: bool = False,
         name: TeamName = TeamName("acceptance_tester"),
+        routing: RoutedTiers | None = None,  # instead of `worker`: tiers, and a router to start on one
     ) -> None:
+        self._routing = routing
         self._watches = watches
         self._worker = worker
         self._runner = runner
@@ -131,9 +134,10 @@ single answer. The data holds the task and every file of the project as it is no
         path = self.path_for(artifact)
         request = self.request(ctx, worktree)
         why = ""
-        for _ in range(self.TRIES):
+        start, routed = self._routing.start(ctx, worktree.head()) if self._routing is not None else (0, [])
+        for number in range(self.TRIES):
             try:
-                answer = await self._worker.run(self.INSTRUCTIONS, request, AcceptAnswer)
+                answer = await self.worker(start + number).run(self.INSTRUCTIONS, request, AcceptAnswer)
             except WorkerError as error:
                 why = f"no valid answer: {error}"
                 continue
@@ -150,7 +154,10 @@ single answer. The data holds the task and every file of the project as it is no
                 commit = worktree.commit(f"{artifact}: acceptance tests ({answer.summary})")
                 digest = hashlib.sha256(answer.test.encode()).hexdigest()
                 files = (AcceptanceFile(path=path, sha256=digest),)
-                return [AcceptanceWritten(artifact=artifact, team=self._name, commit=commit, files=files)]
+                return [
+                    *routed,
+                    AcceptanceWritten(artifact=artifact, team=self._name, commit=commit, files=files),
+                ]
             why = (
                 "they pass before the work is done"
                 if result.status is CheckStatus.PASSED
@@ -161,4 +168,11 @@ single answer. The data holds the task and every file of the project as it is no
         skipped = AcceptanceWritten(
             artifact=artifact, team=self._name, commit=worktree.head(), files=(), note=why
         )
-        return [skipped]
+        return [*routed, skipped]
+
+    def worker(self, tier: int) -> Worker:
+        """The worker for a try: from the routed tier, the next try one tier up, staying on the strongest."""
+        if self._routing is None:
+            return self._worker
+        tiers = self._routing.tiers
+        return tiers[min(tier, len(tiers) - 1)].worker

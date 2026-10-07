@@ -12,6 +12,7 @@ from agentswarm.core.domain import (
     Artifact,
     ArtifactCreated,
     ArtifactId,
+    AttemptFailed,
     Claim,
     Claimed,
     CommitPushed,
@@ -24,7 +25,9 @@ from agentswarm.core.domain import (
     FindingId,
     FindingResolved,
     Level,
+    OutcomeRecorded,
     Paused,
+    Profiled,
     Promoted,
     PromotionSettled,
     PromotionStarted,
@@ -130,7 +133,14 @@ class BoardViews:
                 self._moving[event.branch] = event
             case PromotionSettled():
                 self._moving.pop(event.branch, None)
-            case Routed() | AcceptanceWritten() | AcceptanceRestored():
+            case (
+                Profiled()
+                | Routed()
+                | AttemptFailed()
+                | OutcomeRecorded()
+                | AcceptanceWritten()
+                | AcceptanceRestored()
+            ):
                 pass  # kept in the artifact's history, where the teams read them
             case Rejected():
                 self._findings[event.artifact] = list(event.findings)

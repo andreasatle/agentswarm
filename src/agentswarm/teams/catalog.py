@@ -6,7 +6,7 @@ from typing import ClassVar, Self
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import LevelLadder, TeamConfig, Threshold
-from agentswarm.core.domain import TeamName
+from agentswarm.core.domain import CallKind, TeamName
 from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
 from agentswarm.judging.judgement import Judgement, Judgements
 from agentswarm.judging.policy import Policy
@@ -25,7 +25,7 @@ from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
 from agentswarm.teams.relevance import RelevanceFilter
-from agentswarm.teams.routing import CallKind, Router, RoutingLedger
+from agentswarm.teams.routing import RoutedTiers, Router, RoutingLedger
 from agentswarm.teams.runner import Team
 
 
@@ -53,6 +53,7 @@ class TeamResources:
         self.ladder = ladder
         self._team_uses = frozenset(team_uses)
         self._ledgers: dict[Path, RoutingLedger] = {}
+        self.routers: dict[TeamName, Router] = {}  # every team's router, by team, as the teams are built
         self.project = project
 
     def has_team(self, use: str) -> bool:
@@ -77,8 +78,8 @@ class TeamResources:
             for model in models
         ]
 
-    def router_for(self, team: TeamConfig) -> Router | None:
-        """The team's router, if its configuration asks for one (Phase 8)."""
+    def router_for(self, team: TeamConfig, kind: CallKind) -> Router | None:
+        """The team's router, if its configuration asks for one (Phase 8). Kept for the outcome recorder."""
         routing = team.routing
         if routing is None:
             return None
@@ -87,22 +88,34 @@ class TeamResources:
         if routing.ledger is not None and routing.ledger not in self._ledgers:
             self._ledgers[routing.ledger] = RoutingLedger(routing.ledger)
         ledger = self._ledgers.get(routing.ledger) if routing.ledger is not None else None
-        judgement = self._judgements.build("CallProfile")
-        return Router(
-            judgement,
-            f"route:{team.use}",
-            CallKind.PRODUCE,
+        router = Router(
+            self._judgements.build("CallProfile"),
+            kind,
             model_ids,
             ledger,
             routing.target,
             self._judgements.clock,
             source=f"project:{self.project}",
         )
+        self.routers[TeamName(team.use)] = router
+        return router
+
+    def routing_for(self, team: TeamConfig, kind: CallKind) -> RoutedTiers | None:
+        """The tiers and router of a team making single calls: reviewers, planners, acceptance writers."""
+        if team.routing is None:
+            return None
+        return RoutedTiers(TeamName(team.use), self.tiers_for(team), self.router_for(team, kind))
+
+    @property
+    def model_ids(self) -> dict[str, str]:
+        return dict(self._model_ids)
 
     def worker_for(self, team: TeamConfig) -> Worker:
-        if team.model is None:
+        """The team's one model, or the cheapest of its tiers."""
+        model = team.model or (team.model_tiers[0] if team.model_tiers else None)
+        if model is None:
             raise ValueError(f"team {team.use!r} needs a model; set `model:` in its configuration")
-        return self._workers.worker(team.model, team.max_model_calls, self._meter(team, team.model))
+        return self._workers.worker(model, team.max_model_calls, self._meter(team, model))
 
     def _meter(self, team: TeamConfig, model: str) -> Meter | None:
         return self._meters(team.use, model) if self._meters is not None else None
@@ -144,7 +157,7 @@ class TeamCatalog:
                 team.watches,
                 team.constraints,
                 requires_sizing=resources.plans(),
-                router=resources.router_for(team),
+                router=resources.router_for(team, CallKind.PRODUCE),
                 attempts=team.attempts,
                 requires_acceptance=resources.has_team("acceptance_tester"),
             ),
@@ -159,6 +172,7 @@ class TeamCatalog:
                 team.constraints,
                 name=TeamName(team.use),
                 requires_sizing=resources.plans(),
+                router=resources.router_for(team, CallKind.PRODUCE),
             ),
         )
         catalog.register(
@@ -179,6 +193,7 @@ class TeamCatalog:
                     team.watches,
                     resources.worker_for(team),
                     resources.relevance_for(team),
+                    resources.routing_for(team, CallKind.CRITIQUE),
                 ),
             )
         probing: tuple[tuple[str, type[ProbingAnalyzer]], ...] = (
@@ -198,6 +213,7 @@ class TeamCatalog:
                     resources.worker_for(team),
                     resources.test_runner_for(team),
                     resources.relevance_for(team),
+                    resources.routing_for(team, CallKind.CRITIQUE),
                 ),
             )
         return catalog
@@ -212,6 +228,7 @@ class TeamCatalog:
             resources.test_runner_for(team),
             requires_sizing=resources.plans(),
             name=TeamName(team.use),
+            routing=resources.routing_for(team, CallKind.ACCEPT),
         )
 
     @staticmethod
@@ -234,6 +251,7 @@ class TeamCatalog:
             resources.artifacts,
             team.max_depth,
             team.build_at_max_depth,
+            resources.routing_for(team, CallKind.PLAN),
         )
 
     def knows(self, name: str) -> bool:

@@ -82,4 +82,3 @@ def test_load_rejects_every_malformed_book_with_value_error(tmp_path, content):
     path.write_text(json.dumps(content))
     with pytest.raises(ValueError):
         load(path)
-

@@ -6,6 +6,7 @@ task's hidden tests run against the tip of the first shared level, where merged 
 Tokens come from the `Spent` events on the board, per model, so any price list can be applied later.
 """
 
+import dataclasses
 import statistics
 import time
 from collections.abc import Callable, Sequence
@@ -233,7 +234,8 @@ class ComparisonRun:
         if root.exists():
             raise FileExistsError(f"{root} exists; use a new workdir for a new comparison")
         config = self._configs[setup]
-        services = self._services_for(setup, task)
+        # Plans are judged by what was delivered, not by the board: the planner wrote its children's tasks.
+        services = dataclasses.replace(self._services_for(setup, task), settle_plans=False)
         project = Project.open(config, root, services)
         try:
             project.create_artifact(task.task)
@@ -245,6 +247,8 @@ class ComparisonRun:
                 note = str(error)
             seconds = time.monotonic() - started
             solved = self._delivered(project, config, task, f"{setup}-{task.id}")
+            if solved is not None:
+                project.outcomes.settle_plans(project.views(), solved)
             return self._measure(project, config, setup, task, solved, seconds, note)
         finally:
             project.close()

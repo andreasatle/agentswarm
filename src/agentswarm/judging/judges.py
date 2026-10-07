@@ -190,10 +190,11 @@ class TaskDifficulty(BaseModel):
 
 
 class CallProfile(BaseModel):
-    """What a task asks of a model, for routing (Phase 8): asked once per artifact at `route:<team>`.
+    """What a task asks of a model, for routing (Phase 8): asked once per artifact at `route:profile`.
 
-    `simple` is TaskDifficulty's question, word for word: the router's difficulty is 1 - p(simple). The others
-    are logged with every routed call and only join the routing once the ledger shows they predict success.
+    Every routed team reads the one answer. `simple` is TaskDifficulty's question, word for word: the router's
+    difficulty is 1 - p(simple). The others are logged with every routed call and only join the routing once
+    the ledger shows they predict success.
     """
 
     simple: Annotated[

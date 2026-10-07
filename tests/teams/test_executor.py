@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from agentswarm.core.domain import CommitPushed, DecisionId, Escalated, FindingAdded, Rejected
+from agentswarm.core.domain import AttemptFailed, CommitPushed, DecisionId, Escalated, FindingAdded, Rejected
 from agentswarm.llm.workers import FakeWorker, LangChainWorker, Toolbox, WorkerError
 from agentswarm.teams.executor import (
     ExecutorReport,
@@ -178,7 +178,10 @@ class TestExecutorTeam:
             ]
         )
         team = ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, attempts=3)
-        (event,) = await team.act(w.ctx(), w.worktree)
+        failed, event = await team.act(w.ctx(), w.worktree)
+        assert (
+            isinstance(failed, AttemptFailed) and failed.reason == "checks fail"
+        )  # counted against the model
         assert isinstance(event, CommitPushed) and len(worker.calls) == 2
         assert w.h.repository.files_at(w.artifact.branch) == [
             "greeting.py"
@@ -187,9 +190,10 @@ class TestExecutorTeam:
     async def test_when_every_attempt_fails_the_last_is_committed_and_escalated(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"}) for _ in range(2)])
-        commit, escalated = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, attempts=2).act(
-            w.ctx(), w.worktree
-        )
+        failed, commit, escalated = await ExecutorTeam(
+            worker, [Toolboxes.CHECK], Samples.RAW, attempts=2
+        ).act(w.ctx(), w.worktree)
+        assert isinstance(failed, AttemptFailed)
         assert isinstance(commit, CommitPushed) and isinstance(escalated, Escalated)
         assert len(worker.calls) == 2
 
@@ -205,8 +209,8 @@ class TestExecutorTeam:
     async def test_no_changes_is_escalated_without_a_commit(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker([Steps.write({})])
-        (event,) = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
-        assert isinstance(event, Escalated)
+        failed, event = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        assert isinstance(failed, AttemptFailed) and isinstance(event, Escalated)
         assert "no changes" in event.reason
 
     async def test_worker_failure_keeps_the_work_done_so_far(self, tmp_path: Path) -> None:
@@ -217,8 +221,11 @@ class TestExecutorTeam:
             toolbox.write_file("greeting.py", "def farewell(): ...\n")
             raise WorkerError("ran out of model calls")
 
-        commit, escalated = await ExecutorTeam(FakeWorker([half]), [], Samples.RAW).act(w.ctx(), w.worktree)
-        assert isinstance(commit, CommitPushed)
+        failed, commit, escalated = await ExecutorTeam(FakeWorker([half]), [], Samples.RAW).act(
+            w.ctx(), w.worktree
+        )
+        assert isinstance(failed, AttemptFailed)  # the work in progress was not the model's answer
+        assert isinstance(commit, CommitPushed) and commit.model is None
         assert isinstance(escalated, Escalated)
         assert w.h.repository.files_at(w.artifact.branch) == ["greeting.py"]
 
@@ -228,8 +235,8 @@ class TestExecutorTeam:
         def fail(toolbox: Toolbox | None) -> ExecutorReport:
             raise WorkerError("model unreachable")
 
-        (event,) = await ExecutorTeam(FakeWorker([fail]), [], Samples.RAW).act(w.ctx(), w.worktree)
-        assert isinstance(event, Escalated)
+        failed, event = await ExecutorTeam(FakeWorker([fail]), [], Samples.RAW).act(w.ctx(), w.worktree)
+        assert isinstance(failed, AttemptFailed) and isinstance(event, Escalated)
         assert "model unreachable" in event.reason
 
     async def test_drives_the_toolbox_through_a_real_langchain_agent(self, tmp_path: Path) -> None:

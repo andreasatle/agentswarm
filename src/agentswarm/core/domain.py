@@ -302,15 +302,41 @@ class Promoted(Frozen):
         return self.artifact
 
 
-class Routed(Frozen):
-    """Which model an executor started an artifact on, and why (Phase 8, routing).
+class CallKind(StrEnum):
+    """What a model call does, whichever team makes it: what a model's routing record is kept per."""
 
-    Recorded once per artifact, before its first attempt; later attempts step up the tiers from there.
+    PRODUCE = "produce"  # executors, writers, produce probes
+    CRITIQUE = "critique"  # analyzers, critique probes
+    PLAN = "plan"  # decomposers, outliners
+    ACCEPT = "accept"  # acceptance writers, accept probes
+
+
+class Profiled(Frozen):
+    """What Jev said about an artifact's task, for routing: asked once, read by every routed team."""
+
+    kind: Literal["profiled"] = "profiled"
+    artifact: ArtifactId
+    difficulty: float  # 1 - p(simple)
+    attributes: dict[str, float]  # Jev's p(yes) per CallProfile question
+    decision: DecisionId
+    active: bool  # whether Jev acts at the profile point; in shadow, routers keep the cheapest tier
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
+class Routed(Frozen):
+    """Which model a team started an artifact on, and why (Phase 8, routing).
+
+    Recorded once per artifact and team, before its first model call; an executor's later attempts step up
+    the tiers from there.
     """
 
     kind: Literal["routed"] = "routed"
     artifact: ArtifactId
     team: TeamName
+    call_kind: CallKind = CallKind.PRODUCE  # boards from before every role was routed: only executors
     model: str  # the name in the project's `models`
     model_id: str  # the model itself, "<provider>:<model>", which the routing ledger is keyed by
     difficulty: float | None  # 1 - p(simple) from Jev; None when Jev couldn't answer
@@ -319,6 +345,39 @@ class Routed(Frozen):
     attributes: dict[str, float] = Field(
         default_factory=dict[str, float]
     )  # Jev's p(yes) per CallProfile question
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
+class AttemptFailed(Frozen):
+    """An executor attempt that failed with nothing for the gate to judge: for routing, a model failure.
+
+    Thrown away before the next attempt, or the last attempt, escalated without a commit of its model's work.
+    """
+
+    kind: Literal["attempt_failed"] = "attempt_failed"
+    artifact: ArtifactId
+    team: TeamName
+    model: str | None  # the name in the project's `models`
+    reason: str
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
+class OutcomeRecorded(Frozen):
+    """A routed call's outcome, settled by later events and written to the routing ledger (once)."""
+
+    kind: Literal["outcome_recorded"] = "outcome_recorded"
+    artifact: ArtifactId
+    team: TeamName
+    call_kind: CallKind
+    model_id: str
+    success: bool
+    settles: int  # the position, in the artifact's history, of the event whose outcome this is
 
     @property
     def subject(self) -> ArtifactId:
@@ -395,7 +454,10 @@ type Event = Annotated[
     | Resumed
     | Spent
     | Promoted
+    | Profiled
     | Routed
+    | AttemptFailed
+    | OutcomeRecorded
     | PromotionStarted
     | PromotionSettled
     | Rejected

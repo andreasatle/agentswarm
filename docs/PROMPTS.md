@@ -1278,9 +1278,9 @@ The answer is a score, not a verdict: the router uses 1 - p(simple) as the task'
 
 ### CallProfile
 
-Version `e222b6e6056d`. What a task asks of a model, for routing (Phase 8): asked once per artifact at `route:<team>`.
+Version `e222b6e6056d`. What a task asks of a model, for routing (Phase 8): asked once per artifact at `route:profile`.
 
-`simple` is TaskDifficulty's question, word for word: the router's difficulty is 1 - p(simple). The others are logged with every routed call and only join the routing once the ledger shows they predict success.
+Every routed team reads the one answer. `simple` is TaskDifficulty's question, word for word: the router's difficulty is 1 - p(simple). The others are logged with every routed call and only join the routing once the ledger shows they predict success.
 
 - **simple**: Is this a simple task: one small, clearly specified change that needs no design decisions and has no tricky rules or edge cases?
 - **design**: Does the task leave design decisions open, such as structure, interfaces or data formats?

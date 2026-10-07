@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from agentswarm.core.config import JevMode, ProjectConfig
-from agentswarm.core.domain import Rejected, Routed
+from agentswarm.core.domain import Profiled, Rejected, Routed
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.judges import CallProfile, Judge
@@ -59,7 +59,6 @@ class Routing:
         rng = random.Random(0)
         return Router(
             self.judgement,
-            "route:executor",
             CallKind.PRODUCE,
             model_ids,
             self.ledger,
@@ -124,8 +123,9 @@ class TestRouter:
         shadow = Routing(tmp_path / "shadow", simple=0.1, mode=JevMode.SHADOW, ledger=Outcomes.ledger())
         ctx = shadow.h.contexts.build(shadow.artifact.id)
         choice = shadow.router.choose(ctx, "c0ffee")
-        assert (choice.tier, choice.difficulty, choice.acted) == (0, 0.9, False)
-        assert set(choice.attributes) == {
+        assert choice.profile is not None and choice.fresh
+        assert (choice.tier, choice.profile.difficulty, choice.acted) == (0, 0.9, False)
+        assert set(choice.profile.attributes) == {
             "simple",
             "design",
             "underspecified",
@@ -135,9 +135,21 @@ class TestRouter:
         no_ledger = Routing(tmp_path / "none", simple=0.1, mode=JevMode.ACTIVE, ledger=None)
         assert no_ledger.choose() == 0
 
+    def test_asks_jev_once_per_artifact_whichever_team_asks_first(self, tmp_path: Path) -> None:
+        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=Outcomes.ledger())
+        ctx = r.h.contexts.build(r.artifact.id)
+        first = r.router.choose(ctx, "c0ffee")
+        assert first.profile is not None
+        r.h.board.append([first.profile])
+        again = r.make((SMALL, LARGE)).choose(r.h.contexts.build(r.artifact.id), "c0ffee")
+        assert again.profile == first.profile and not again.fresh
+        assert len(r.decider.calls) == 1
+
     def test_records_each_outcome_with_its_band_and_model(self, tmp_path: Path) -> None:
         r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=RoutingLedger(":memory:"))
-        r.router.record(1, 0.9, {"simple": 0.1}, success=True)
+        profile = r.router.choose(r.h.contexts.build(r.artifact.id), "c0ffee").profile
+        assert profile is not None
+        assert r.router.record(LARGE, profile, success=True)
         (call,) = r.ledger.calls() if r.ledger is not None else []
         assert (call.model_id, call.band, call.success, call.source) == (LARGE, 2, True, "project")
 
@@ -160,7 +172,7 @@ class Recorder:
 
 
 class TestRoutedExecutor:
-    async def test_starts_on_the_routed_tier_steps_up_and_teaches_the_ledger(self, tmp_path: Path) -> None:
+    async def test_starts_on_the_routed_tier_and_steps_up_after_a_rejection(self, tmp_path: Path) -> None:
         used: list[str] = []
         r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=Outcomes.ledger())
         cheap, middle, strong = Recorder("small", used), Recorder("medium", used), Recorder("large", used)
@@ -172,7 +184,6 @@ class TestRoutedExecutor:
         router = r.make((SMALL, "ollama:medium", LARGE))
         executor = ExecutorTeam(tiers, [], Samples.RAW, router=router)
         runner = r.h.runner(executor)
-        before = len(r.ledger.calls()) if r.ledger is not None else 0
         assert await runner.step() == 1
         history = r.h.board.current().history(r.artifact.id)
         routed = [e for e in history if isinstance(e, Routed)]
@@ -185,11 +196,9 @@ class TestRoutedExecutor:
         r.h.board.append([rejected])
         assert await runner.step() == 1
         history = r.h.board.current().history(r.artifact.id)
-        assert sum(isinstance(e, Routed) for e in history) == 1  # Jev is asked once per artifact
+        assert sum(isinstance(e, Routed) for e in history) == 1  # routed once per artifact and team
+        assert sum(isinstance(e, Profiled) for e in history) == 1  # Jev is asked once per artifact
         assert used == ["large", "large"]  # stays on the strongest after a rejection
-        assert r.ledger is not None
-        recorded = r.ledger.calls()[before:]
-        assert [(c.model_id, c.band, c.success) for c in recorded] == [(LARGE, 2, True), (LARGE, 2, True)]
 
 
 class TestRoutingConfig:

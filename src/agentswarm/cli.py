@@ -19,6 +19,7 @@ from agentswarm.core.domain import (
     AcceptanceWritten,
     ArtifactCreated,
     ArtifactId,
+    AttemptFailed,
     Claimed,
     CommitPushed,
     Escalated,
@@ -26,7 +27,9 @@ from agentswarm.core.domain import (
     Event,
     FindingAdded,
     FindingResolved,
+    OutcomeRecorded,
     Paused,
+    Profiled,
     ProjectId,
     Promoted,
     PromotionSettled,
@@ -109,7 +112,14 @@ class Report:
                 score = event.difficulty
                 difficulty = f"difficulty {score:.2f}" if score is not None else "no score"
                 how = "chosen from the ledger" if event.acted else "cheapest tier"
-                return f"routed to {event.model} ({difficulty}, {how})"
+                return f"{event.call_kind} routed to {event.model} ({difficulty}, {how})"
+            case Profiled():
+                return f"profiled: difficulty {event.difficulty:.2f}{'' if event.active else ' (shadow)'}"
+            case AttemptFailed():
+                return f"attempt by {event.model or event.team} discarded: {event.reason}"
+            case OutcomeRecorded():
+                verdict = "success" if event.success else "failure"
+                return f"outcome for routing: {event.call_kind} by {event.model_id}, {verdict}"
             case AcceptanceWritten():
                 return f"acceptance tests by {event.team}: {', '.join(f.path for f in event.files)}"
             case AcceptanceRestored():

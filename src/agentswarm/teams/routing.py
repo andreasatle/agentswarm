@@ -2,15 +2,18 @@
 
 Three parts that never depend on each other's internals:
 
-- **Jev describes the task.** One question set (`CallProfile`) at the `route:<team>` point, asked once per
-  artifact: how simple the task is, plus attributes that are only logged until data shows they matter. The
-  difficulty is 1 - p(simple), and its third (`Bands`) is what routing uses.
+- **Jev describes the task.** One question set (`CallProfile`) at the `route:profile` point, asked once per
+  artifact and shared by every routed team (`Profiled`): how simple the task is, plus attributes that are
+  only logged until data shows they matter. The difficulty is 1 - p(simple), and its third (`Bands`) is what
+  routing uses.
 - **The ledger remembers outcomes.** Every routed call's model, band and success go to one SQLite file
   shared by projects and probes, so they all teach the same router.
 - **The router is plain code.** Per (kind of call, band, model) it counts successes and failures on top of a
   small starting guess (`Prior`), draws a plausible success rate from those counts (Thompson sampling), and
   starts on the cheapest model whose draw meets the target. Uncertain models still get tried now and then;
   proven ones are used most of the time. A rejection steps up a tier from there, as before.
+- **Outcomes are settled by an observer** (`control/outcomes.py`), from events after the call: the team
+  that made a call never grades it.
 
 In shadow mode, or without a ledger, the router only records what Jev said and keeps the cheapest tier.
 """
@@ -19,8 +22,8 @@ import json
 import random
 import sqlite3
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar
 
@@ -28,22 +31,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.core.clock import Clock
 from agentswarm.core.config import JevMode
-from agentswarm.core.domain import ArtifactContext, DecisionId
+from agentswarm.core.domain import ArtifactContext, CallKind, Event, Profiled, Routed, TeamName
 from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.judgement import Judgement
+from agentswarm.llm.workers import Worker
 
 
 class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-
-
-class CallKind(StrEnum):
-    """What a call does, whichever team makes it: what a model's record is kept per."""
-
-    PRODUCE = "produce"  # executors, writers, produce probes
-    CRITIQUE = "critique"  # analyzers, critique probes
-    PLAN = "plan"  # decomposers, outliners
-    ACCEPT = "accept"  # acceptance writers, accept probes
 
 
 class Bands:
@@ -75,7 +70,9 @@ class RoutingLedger:
     def __init__(self, path: Path | str) -> None:
         if isinstance(path, Path):
             path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(path))
+        # check_same_thread=False: the outcome recorder runs with the controllers in a worker thread, one step
+        # at a time, so the connection is never used by two threads at once.
+        self._db = sqlite3.connect(str(path), check_same_thread=False)
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS calls (kind TEXT, band INTEGER, model_id TEXT, success INTEGER, "
             "attributes TEXT, source TEXT, at TEXT)"
@@ -182,19 +179,30 @@ class Beliefs:
 
 class RouteChoice(Frozen):
     tier: int  # the index of the starting tier, cheapest first
-    difficulty: float | None
-    attributes: dict[str, float]
-    decision: DecisionId | None
+    profile: Profiled | None  # None when Jev couldn't answer
+    fresh: bool  # whether Jev was asked now, so the profile still has to go on the board
     acted: bool
 
 
+@dataclass(frozen=True)
+class Tier:
+    model: str  # the name in the project's `models`
+    worker: Worker
+
+
 class Router:
-    """Chooses the starting tier for one team's tasks, and records how each attempt went."""
+    """Chooses the starting tier for one team's calls, from the artifact's profile and the ledger.
+
+    The profile is asked once per artifact, at one decision point, whichever team needs it first; the others
+    read it from the artifact's history. Outcomes are recorded by `control.outcomes.OutcomeRecorder`, which
+    settles them from later events: a team never grades its own calls.
+    """
+
+    POINT: ClassVar[str] = "route:profile"
 
     def __init__(
         self,
         judgement: Judgement,  # asks CallProfile
-        point: str,
         kind: CallKind,
         model_ids: Sequence[str],  # the team's tiers, cheapest first, as "<provider>:<model>"
         ledger: RoutingLedger | None,
@@ -206,7 +214,6 @@ class Router:
     ) -> None:
         self._clock = clock
         self._judgement = judgement
-        self._point = point
         self._kind = kind
         self._model_ids = tuple(model_ids)
         self._ledger = ledger
@@ -215,21 +222,37 @@ class Router:
         self._source = source
         self._rng = rng or random.Random()
 
+    @property
+    def kind(self) -> CallKind:
+        return self._kind
+
     def model_id(self, tier: int) -> str:
         return self._model_ids[tier]
 
-    def choose(self, ctx: ArtifactContext, head: str) -> RouteChoice:
+    def profile(self, ctx: ArtifactContext, head: str) -> tuple[Profiled | None, bool]:
+        """The artifact's profile, and whether it was asked just now."""
+        known = [e for e in ctx.history if isinstance(e, Profiled)]
+        if known:
+            return known[0], False
         try:
-            decision = self._judgement.ask(self._point, ctx, head, head, "")
+            decision = self._judgement.ask(self.POINT, ctx, head, head, "")
         except DeciderError:
-            return RouteChoice(tier=0, difficulty=None, attributes={}, decision=None, acted=False)
+            return None, False
         attributes = {field: round(decision.p_yes(field), 4) for field in self._judgement.judge.fields()}
-        difficulty = round(1.0 - attributes["simple"], 4)
-        active = decision.mode is JevMode.ACTIVE and self._ledger is not None
-        tier = self.tier_for(difficulty) if active else 0
-        return RouteChoice(
-            tier=tier, difficulty=difficulty, attributes=attributes, decision=decision.id, acted=active
+        profile = Profiled(
+            artifact=ctx.artifact.id,
+            difficulty=round(1.0 - attributes["simple"], 4),
+            attributes=attributes,
+            decision=decision.id,
+            active=decision.mode is JevMode.ACTIVE,
         )
+        return profile, True
+
+    def choose(self, ctx: ArtifactContext, head: str) -> RouteChoice:
+        profile, fresh = self.profile(ctx, head)
+        active = profile is not None and profile.active and self._ledger is not None
+        tier = self.tier_for(profile.difficulty) if active and profile is not None else 0
+        return RouteChoice(tier=tier, profile=profile, fresh=fresh, acted=active)
 
     def tier_for(self, difficulty: float) -> int:
         """The cheapest tier whose drawn success rate meets the target; else the strongest."""
@@ -241,17 +264,69 @@ class Router:
                 return index
         return len(self._model_ids) - 1
 
-    def record(self, tier: int, difficulty: float, attributes: dict[str, float], success: bool) -> None:
-        """One attempt's outcome, for the ledger (nothing without one)."""
+    def record(self, model_id: str, profile: Profiled, success: bool) -> bool:
+        """One settled call's outcome, for the ledger. False when there is no ledger to teach."""
         if self._ledger is None:
-            return
+            return False
         call = RoutedCall(
             kind=self._kind,
-            band=Bands.of(difficulty),
-            model_id=self.model_id(tier),
+            band=Bands.of(profile.difficulty),
+            model_id=model_id,
             success=success,
-            attributes=attributes,
+            attributes=profile.attributes,
             source=self._source,
             at=self._clock.now(),
         )
         self._ledger.record(call)
+        return True
+
+
+class RoutedTiers:
+    """A team's model tiers and, optionally, its router: which tier its calls on an artifact start on.
+
+    The choice is made once per artifact and team, and recorded as a `Routed` event (with the artifact's
+    `Profiled` event the first time anyone asks Jev about it).
+    """
+
+    def __init__(self, team: TeamName, tiers: Sequence[Tier], router: Router | None) -> None:
+        if not tiers:
+            raise ValueError("a team needs at least one model tier")
+        self._team = team
+        self._tiers = tuple(tiers)
+        self._router = router
+
+    @property
+    def tiers(self) -> tuple[Tier, ...]:
+        return self._tiers
+
+    @property
+    def router(self) -> Router | None:
+        return self._router
+
+    def routed(self, ctx: ArtifactContext) -> Routed | None:
+        earlier = [e for e in ctx.history if isinstance(e, Routed) and e.team == self._team]
+        return earlier[0] if earlier else None
+
+    def start(self, ctx: ArtifactContext, head: str) -> tuple[int, list[Event]]:
+        """The starting tier's index, and the events recording the choice when it was made just now."""
+        names = [t.model for t in self._tiers]
+        earlier = self.routed(ctx)
+        if earlier is not None:
+            return (names.index(earlier.model) if earlier.model in names else 0), []
+        if self._router is None:
+            return 0, []
+        choice = self._router.choose(ctx, head)
+        profile = choice.profile
+        routed = Routed(
+            artifact=ctx.artifact.id,
+            team=self._team,
+            call_kind=self._router.kind,
+            model=self._tiers[choice.tier].model,
+            model_id=self._router.model_id(choice.tier),
+            difficulty=profile.difficulty if profile is not None else None,
+            decision=profile.decision if profile is not None else None,
+            acted=choice.acted,
+            attributes=profile.attributes if profile is not None else {},
+        )
+        fresh: list[Event] = [profile] if choice.fresh and profile is not None else []
+        return choice.tier, [*fresh, routed]
