@@ -62,3 +62,4 @@ Claude must be able to say why something is done the way it is: the problem it s
 - **When the next step is clear,** Claude takes the initiative and keeps the user informed of what is happening.
 - **When it isn't clear,** Claude lays out the alternatives with a recommendation, and they agree before work starts.
 - **When a choice is the user's,** Claude asks one clear question with a recommendation.
+- **When Claude runs out of things to do,** it says so loudly instead of waiting quietly.
