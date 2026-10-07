@@ -15,7 +15,7 @@ The split exists because the user's earlier projects drifted when goals and impl
 Kept current: a goal is added when the user states one, changed when they change it, and every piece of work should serve one of them. Details live in the docs named.
 
 1. **The ultimate goal:** a generic way to let agents work toward any goal. Software and documents are only the first two samples to generalize from.
-2. **The hypothesis to test:** a "goldilocks" range where many small, narrowly tasked, checked agents beat one big model, more so as complexity grows. Token cost matters less than solving harder problems (Phase 8). First tune which model to use in which role (plan, build, review); test the hypothesis after that, with the best assignment.
+2. **The hypothesis to test:** a "goldilocks" range where many small, narrowly tasked, checked agents beat one big model, more so as complexity grows. Token cost matters less than solving harder problems (Phase 8). Order: first independent acceptance checks (the producer can't write or change its own), then tune which model to use in which role (plan, build, review) using those checks, then test the hypothesis with the best assignment.
 3. **Robustness and correct answers,** especially when goals are high level (Phase 10, RESEARCH.md).
 4. **Small models as much as possible:** route to the cheapest model whose measured success is good enough. Fully local operation is a later option for data that can't leave a company, not a starting constraint.
 5. **Models to evaluate, in order:** Claude Haiku and gemma4-e4b; then Sonnet and Opus; then Qwen; over time all of them (phase-8-goldilocks.md).
