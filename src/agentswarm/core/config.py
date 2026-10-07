@@ -167,7 +167,9 @@ class ModelConfig(Strict):
     model: str = Field(pattern=r"^[A-Za-z0-9_\-]+:.+$")  # "<provider>:<model name>"
     temperature: float | None = None
     max_tokens: int | None = None
-    base_url: str | None = None  # e.g. a remote Ollama server
+    base_url: str | None = None  # e.g. a remote Ollama server, or an OpenAI-compatible service
+    # The environment variable holding the key for `base_url`, e.g. OPENROUTER_API_KEY: its name, not the key.
+    api_key_env: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]*$")
     timeout_s: float | None = None
     context_window: int | None = Field(default=None, gt=0)  # tokens the model reads at once; see ChatModels
     thinking: bool | None = None  # a thinking model's reasoning on or off; None: the provider's default

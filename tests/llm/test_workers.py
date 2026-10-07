@@ -192,6 +192,20 @@ class TestChatModels:
         assert model.model_dump()["num_predict"] == 4096
         assert ChatModels.settings(ModelConfig(model="openai:gpt-5", max_tokens=10)) == {"max_tokens": 10}
 
+    def test_another_host_gets_only_the_key_its_config_names(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        router = "https://openrouter.ai/api/v1"
+        monkeypatch.setenv("TEST_ROUTER_KEY", "k-test")
+        named = ModelConfig(model="openai:qwen/qwen3-coder", base_url=router, api_key_env="TEST_ROUTER_KEY")
+        assert ChatModels.settings(named) == {"base_url": router, "api_key": "k-test"}
+        with pytest.raises(ModelUnavailable, match="needs `api_key_env`"):  # else the OpenAI key would leave
+            ChatModels.settings(ModelConfig(model="openai:qwen/qwen3-coder", base_url=router))
+        monkeypatch.delenv("TEST_ROUTER_KEY")
+        with pytest.raises(ModelUnavailable, match="TEST_ROUTER_KEY is not set"):
+            ChatModels.settings(named)
+        assert "api_key" not in ChatModels.settings(
+            ModelConfig(model="ollama:x", base_url="http://gpu:11434")
+        )
+
     def test_thinking_can_be_switched_off_for_ollama_and_is_refused_elsewhere(self) -> None:
         assert (
             ChatModels.settings(ModelConfig(model="ollama:gemma4:26b", thinking=False))["reasoning"] is False

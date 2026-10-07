@@ -23,7 +23,8 @@ teams:
 | `temperature` | the provider's | Randomness. 0 makes answers repeatable, which is what measurements need |
 | `max_tokens` | none | The most output tokens one reply may have, **thinking included**. Without it a thinking model can run for hours |
 | `context_window` | Ollama: 32768 | How many tokens the model reads at once. Only Ollama lets you set it; for other providers it is fixed by the model and setting it is refused |
-| `base_url` | none | A different server, e.g. Ollama on another machine |
+| `base_url` | none | A different server, e.g. Ollama on another machine, or an OpenAI-compatible service such as OpenRouter |
+| `api_key_env` | none | The environment variable holding the key for `base_url` (e.g. `OPENROUTER_API_KEY`): its name, never the key. Required when an `openai:` or `anthropic:` model has a `base_url`, or that provider's own key would be sent to the other host |
 | `timeout_s` | none | How long one request may take |
 | `usd_per_million` | none | `{input: …, output: …}` in US dollars per million tokens, for spend and budgets. An unpriced model counts as free, and reports say so |
 

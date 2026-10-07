@@ -2,6 +2,7 @@
 # pyright: reportUnknownVariableType=false, reportUnknownMemberType=false
 """Chat models from any LangChain provider, built from the project configuration."""
 
+import os
 from typing import Any, ClassVar
 
 from langchain.chat_models import init_chat_model
@@ -73,6 +74,7 @@ class ChatModels:
                     f"(settable for: {sorted(cls.THINKING_SETTING)})"
                 )
             candidates[setting] = config.thinking
+        candidates["api_key"] = cls.api_key(config)
         context = config.context_window or cls.DEFAULT_CONTEXT.get(config.provider)
         if context is not None:
             setting = cls.CONTEXT_SETTING.get(config.provider)
@@ -83,6 +85,27 @@ class ChatModels:
                 )
             candidates[setting] = context
         return {key: value for key, value in candidates.items() if value is not None}
+
+    # Providers whose package reads its own key from the environment (OPENAI_API_KEY, ANTHROPIC_API_KEY):
+    # sent to another host through `base_url`, that key would leak, so such a model must name its own key.
+    KEYED: ClassVar[frozenset[str]] = frozenset({"openai", "anthropic"})
+
+    @classmethod
+    def api_key(cls, config: ModelConfig) -> str | None:
+        """The key for a model served by another host than its provider's own, from `api_key_env`."""
+        if config.api_key_env is None:
+            if config.base_url is not None and config.provider in cls.KEYED:
+                raise ModelUnavailable(
+                    f"{config.model}: a `base_url` needs `api_key_env`, or the {config.provider} key "
+                    f"would be sent to {config.base_url}"
+                )
+            return None
+        key = os.environ.get(config.api_key_env, "")
+        if not key:
+            raise ModelUnavailable(
+                f"{config.model}: the environment variable {config.api_key_env} is not set"
+            )
+        return key
 
     @classmethod
     def install_hint(cls, config: ModelConfig) -> str:
