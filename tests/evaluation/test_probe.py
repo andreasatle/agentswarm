@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from agentswarm.cli import Cli
 from agentswarm.evaluation.difficulty import DifficultyRatings, TaskRating
 from agentswarm.evaluation.probe import (
+    AcceptAnswer,
+    AcceptRequest,
     CritiqueAnswer,
     CritiqueRequest,
     Critiquing,
@@ -169,6 +171,29 @@ class TestTaskSample:
         assert {r.difficulty for r in report.results} == {0.2}
         assert report.summaries[0].usd == 0.0  # the fake worker reports no tokens; priced, so not None
         assert "$0.00" in report.render()
+
+
+class TestAcceptProbes:
+    def run(self, tmp_path: Path, test: str) -> tuple[Outcome, int | None, int | None]:
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        p = Probes(tmp_path)
+        raw = yaml.safe_load((tmp_path / "probe.yaml").read_text())
+        raw["kinds"] = ["accept"]
+        (tmp_path / "probe.yaml").write_text(yaml.safe_dump(raw))
+        p.experiment = ProbeExperiment.load(tmp_path / "probe.yaml")
+        worker = FakeWorker([p.answer(AcceptAnswer(test=test, summary="tests"))])
+        run = ProbeRun(p.experiment, p.workdir, FakeWorkers({"small": worker}), LocalSandbox())
+        (result,) = asyncio.run(run.run()).results
+        assert isinstance(worker.calls[0][1], AcceptRequest)
+        return result.outcome, result.bugs_caught, result.bugs
+
+    def test_right_tests_pass_on_the_reference_fail_on_the_seed_and_catch_bugs(self, tmp_path: Path) -> None:
+        hidden = "\n\n".join(t.read_text() for t in GreeterSuite.task("farewell").hidden_tests)
+        assert self.run(tmp_path, hidden) == (Outcome.ACCEPTED, 1, 1)
+
+    def test_tests_that_demand_too_much_or_test_nothing(self, tmp_path: Path) -> None:
+        assert self.run(tmp_path / "a", Probes.TEST_ON_CLEAN_FAILS)[0] is Outcome.WRONG_REQUIREMENT
+        assert self.run(tmp_path / "b", "def test_nothing():\n    assert True\n")[0] is Outcome.TESTS_NOTHING
 
 
 class TestProbeFailures:

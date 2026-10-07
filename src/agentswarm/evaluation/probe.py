@@ -58,6 +58,7 @@ class Frozen(BaseModel):
 class ProbeKind(StrEnum):
     PRODUCE = "produce"
     CRITIQUE = "critique"
+    ACCEPT = "accept"  # write the acceptance tests for a task before anyone builds it
 
 
 class SourceFile(Frozen):
@@ -116,6 +117,7 @@ class Probe:
     task: EvalTask
     bug: PlantedBug | None  # critique probes only; None is the clean control
     difficulty: float | None = None  # Jev's rating of the task, when the experiment has one
+    bugs: tuple[PlantedBug, ...] = ()  # accept probes: the planted bugs the tests should catch
 
 
 class Outcome(StrEnum):
@@ -126,18 +128,25 @@ class Outcome(StrEnum):
     WRONG_EVIDENCE = "wrong_evidence"  # the test fails on the reference too: it doesn't show the bug
     QUIET = "quiet"  # critique of clean code: no test that fails on it
     FALSE_ALARM = "false_alarm"
+    ACCEPTED = "accepted"  # accept: the tests pass on the reference and fail on the seed
+    WRONG_REQUIREMENT = (
+        "wrong_requirement"  # accept: they fail on the reference, so they ask for more or else
+    )
+    TESTS_NOTHING = "tests_nothing"  # accept: they pass on the seed, before any work
     INVALID_ANSWER = "invalid_answer"  # the model replied, but never with JSON that fits the schema
     CUT_OFF = "cut_off"  # the reply stopped at the output limit
     NO_ANSWER = "no_answer"  # the provider failed or the call limit was reached
 
     @property
     def success(self) -> bool:
-        return self in (Outcome.SOLVED, Outcome.CAUGHT, Outcome.QUIET)
+        return self in (Outcome.SOLVED, Outcome.CAUGHT, Outcome.QUIET, Outcome.ACCEPTED)
 
 
 class Scored(Frozen):
     outcome: Outcome
     detail: str = ""  # why, for reading the results: test output or the error
+    bugs_caught: int | None = None  # accept: how many of the planted bugs the tests catch
+    bugs: int | None = None
 
 
 class ProbeResult(Frozen):
@@ -153,7 +162,9 @@ class ProbeResult(Frozen):
     seconds: float
     detail: str
     difficulty: float | None = None  # Jev's rating of the task
-    answer: str | None = None  # the model's answer as JSON, for reading and for rating it blind later
+    answer: str | None = None
+    bugs_caught: int | None = None  # accept probes: planted bugs the tests catch
+    bugs: int | None = None  # the model's answer as JSON, for reading and for rating it blind later
 
     @property
     def success(self) -> bool:
@@ -398,7 +409,62 @@ was meant to accomplish, every file of the project after the change, and the cha
         return Scored(outcome=Outcome.CAUGHT, detail=answer.explanation)
 
 
-type ProbeHandler = Producing | Critiquing
+class AcceptRequest(Frozen):
+    """The payload of an accept probe."""
+
+    north_star: str
+    task: str
+    files: tuple[SourceFile, ...]  # every file of the project as it is, before the task is done
+
+
+class AcceptAnswer(Frozen):
+    """The acceptance tests for the task: written before the work, by someone other than its producer."""
+
+    test: str = Field(description="a complete pytest file that checks every requirement the task states")
+    summary: str = Field(description="one line: what the tests cover")
+
+
+class Accepting:
+    """Accept probes: write a task's acceptance tests before it is built, judged against the known answer."""
+
+    KIND = ProbeKind.ACCEPT
+    ANSWER = AcceptAnswer
+    INSTRUCTIONS = """\
+You write the acceptance tests for one task in a small Python project, before anyone implements it, in a
+single answer. The data holds the task and every file of the project as it is now.
+
+- Write one complete pytest file that checks every requirement the task states: one test per stated rule
+  or example, with the exact expected values.
+- Test only through the public interface the task describes (functions, classes, commands), importing the
+  code the way the project's own tests do. The test runs from the project root.
+- The tests must fail now, because the feature doesn't exist yet, and pass once it is done correctly.
+- Do not test anything the task doesn't ask for, and do not implement the feature."""
+
+    def request(self, probe: Probe) -> AcceptRequest:
+        files = ProjectFiles.sources(ProjectFiles.of(probe.seed))
+        return AcceptRequest(north_star=probe.north_star, task=probe.task.task, files=files)
+
+    def score(self, probe: Probe, answer: AcceptAnswer, bench: TestBench) -> Scored:
+        """Right tests pass on the reference, fail on the untouched seed, and catch the planted bugs."""
+        reference = Critiquing.reference(probe)
+        on_reference = bench.probe_test(probe, bench.lay_out(probe, reference), answer.test)
+        on_seed = bench.probe_test(probe, bench.lay_out(probe, {}), answer.test)
+        caught = 0
+        for bug in probe.bugs:
+            buggy = reference | {bug.path: bug.source}
+            if bench.probe_test(probe, bench.lay_out(probe, buggy), answer.test) is CheckStatus.FAILED:
+                caught += 1
+        counts = {"bugs_caught": caught, "bugs": len(probe.bugs)}
+        if on_reference is not CheckStatus.PASSED:
+            return Scored(
+                outcome=Outcome.WRONG_REQUIREMENT, detail=f"fails on the reference ({on_reference})", **counts
+            )
+        if on_seed is CheckStatus.PASSED:
+            return Scored(outcome=Outcome.TESTS_NOTHING, detail="passes before the work is done", **counts)
+        return Scored(outcome=Outcome.ACCEPTED, detail=answer.summary, **counts)
+
+
+type ProbeHandler = Producing | Critiquing | Accepting
 
 
 class ProbeSet:
@@ -452,12 +518,16 @@ class ProbeSet:
         probes: list[Probe] = []
         if ProbeKind.PRODUCE in self._experiment.kinds:
             probes.append(probe(f"{task.id}/produce", ProbeKind.PRODUCE, None))
+        needs_bugs = {ProbeKind.CRITIQUE, ProbeKind.ACCEPT} & set(self._experiment.kinds)
+        if needs_bugs and task.reference and task.id not in bugs:
+            bugs[task.id] = planter.plant(task, config.seed, self._experiment.bugs_per_task)
         if ProbeKind.CRITIQUE in self._experiment.kinds and task.reference:
             if self._experiment.controls:
                 probes.append(probe(f"{task.id}/clean", ProbeKind.CRITIQUE, None))
-            if task.id not in bugs:
-                bugs[task.id] = planter.plant(task, config.seed, self._experiment.bugs_per_task)
             probes += [probe(f"{task.id}/{b.label}", ProbeKind.CRITIQUE, b) for b in bugs[task.id]]
+        if ProbeKind.ACCEPT in self._experiment.kinds and task.reference:
+            accept = probe(f"{task.id}/accept", ProbeKind.ACCEPT, None)
+            probes.append(replace(accept, bugs=tuple(bugs[task.id])))
         return probes
 
 
@@ -612,6 +682,7 @@ class ProbeRun:
         self._handlers: dict[ProbeKind, ProbeHandler] = {
             ProbeKind.PRODUCE: Producing(experiment.constraints),
             ProbeKind.CRITIQUE: Critiquing(),
+            ProbeKind.ACCEPT: Accepting(),
         }
         self._files = ProbeFiles(workdir)
 
@@ -671,11 +742,14 @@ class ProbeRun:
             detail=scored.detail,
             difficulty=probe.difficulty,
             answer=answered,
+            bugs_caught=scored.bugs_caught,
+            bugs=scored.bugs,
         )
 
     KINDS: ClassVar[dict[ProbeKind, CallKind]] = {
         ProbeKind.PRODUCE: CallKind.PRODUCE,
         ProbeKind.CRITIQUE: CallKind.CRITIQUE,
+        ProbeKind.ACCEPT: CallKind.ACCEPT,
     }
 
     def _teach(self, result: ProbeResult) -> None:
@@ -707,5 +781,7 @@ class ProbeRun:
         if isinstance(handler, Producing) and isinstance(answer, ProduceAnswer):
             return handler.score(probe, answer, bench)
         if isinstance(handler, Critiquing) and isinstance(answer, CritiqueAnswer):
+            return handler.score(probe, answer, bench)
+        if isinstance(handler, Accepting) and isinstance(answer, AcceptAnswer):
             return handler.score(probe, answer, bench)
         raise TypeError(f"{type(answer).__name__} doesn't fit {type(handler).__name__}")

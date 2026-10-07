@@ -43,6 +43,7 @@ class CallKind(StrEnum):
     PRODUCE = "produce"  # executors, writers, produce probes
     CRITIQUE = "critique"  # analyzers, critique probes
     PLAN = "plan"  # decomposers, outliners
+    ACCEPT = "accept"  # acceptance writers, accept probes
 
 
 class Bands:

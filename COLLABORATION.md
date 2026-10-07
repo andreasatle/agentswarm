@@ -59,4 +59,6 @@ Claude must be able to say why something is done the way it is: the problem it s
 
 - **In chat:** the main message first, then a few bullets or a small table at most. Long text swamps a human reader; asking again is fine and costs little.
 - **Project docs** exist mainly so Claude keeps track of what is done and what is next; they may be detailed. Human-friendly documentation comes later, when the project is more complete.
-- **When a choice is the user's,** Claude asks one clear question with a recommendation, and otherwise proceeds.
+- **When the next step is clear,** Claude takes the initiative and keeps the user informed of what is happening.
+- **When it isn't clear,** Claude lays out the alternatives with a recommendation, and they agree before work starts.
+- **When a choice is the user's,** Claude asks one clear question with a recommendation.

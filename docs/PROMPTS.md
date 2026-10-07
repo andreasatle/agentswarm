@@ -37,6 +37,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Reviewing analyzers: evidence is a verbatim quote](#reviewing-analyzers-evidence-is-a-verbatim-quote) | `consistency_checker`, `fact_checker`, `audience_reviewer` | `ReviewReport` |
 | [Judge fallback: a model answering Jev's questions](#judge-fallback-a-model-answering-jevs-questions) | (`LLMDecider`) | `LLMAnswers` |
 | [Probe: produce in one answer (benchmark)](#probe-produce-in-one-answer-benchmark) | (`Producing`) | `ProduceAnswer` |
+| [Probe: acceptance tests in one answer (benchmark)](#probe-acceptance-tests-in-one-answer-benchmark) | (`Accepting`) | `AcceptAnswer` |
 | [Probe: critique in one answer (benchmark)](#probe-critique-in-one-answer-benchmark) | (`Critiquing`) | `CritiqueAnswer` |
 | [Jev questions](#jev-questions) | gates, relevance filters, planners, router | answers |
 
@@ -920,6 +921,104 @@ class SourceFile(Frozen):
 ### What happens to the answer
 
 `Producing`: Produce probes: implement the task in one answer, without tools.
+
+## Probe: acceptance tests in one answer (benchmark)
+
+### Accepting
+
+`agentswarm.evaluation.probe.Accepting`: Accept probes: write a task's acceptance tests before it is built, judged against the known answer.
+
+```text
+You write the acceptance tests for one task in a small Python project, before anyone implements it, in a
+single answer. The data holds the task and every file of the project as it is now.
+
+- Write one complete pytest file that checks every requirement the task states: one test per stated rule
+  or example, with the exact expected values.
+- Test only through the public interface the task describes (functions, classes, commands), importing the
+  code the way the project's own tests do. The test runs from the project root.
+- The tests must fail now, because the feature doesn't exist yet, and pass once it is done correctly.
+- Do not test anything the task doesn't ask for, and do not implement the feature.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "north_star": "A small greeting library",
+  "task": "Add farewell(name) that returns 'Goodbye, <name>!' and raises ValueError for an empty name.",
+  "files": [
+    {
+      "path": "greeter.py",
+      "content": "def greet(name: str) -> str:\n    return f\"Hello, {name}!\"\n"
+    },
+    {
+      "path": "tests/test_greeter.py",
+      "content": "from greeter import greet\n\n\ndef test_greet():\n    assert greet(\"Ada\") == \"Hello, Ada!\"\n"
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class AcceptRequest(Frozen):
+    """The payload of an accept probe."""
+
+    north_star: str
+    task: str
+    files: tuple[SourceFile, ...]  # every file of the project as it is, before the task is done
+
+
+class SourceFile(Frozen):
+    path: str = Field(description="relative to the project root, e.g. greeter.py or tests/test_greeter.py")
+    content: str = Field(description="the complete text of the file")
+```
+
+### Answer
+
+```python
+class AcceptAnswer(Frozen):
+    """The acceptance tests for the task: written before the work, by someone other than its producer."""
+
+    test: str = Field(description="a complete pytest file that checks every requirement the task states")
+    summary: str = Field(description="one line: what the tests cover")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "The acceptance tests for the task: written before the work, by someone other than its producer.",
+  "properties": {
+    "test": {
+      "description": "a complete pytest file that checks every requirement the task states",
+      "title": "Test",
+      "type": "string"
+    },
+    "summary": {
+      "description": "one line: what the tests cover",
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "test",
+    "summary"
+  ],
+  "title": "AcceptAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Accepting`: Accept probes: write a task's acceptance tests before it is built, judged against the known answer.
 
 ## Probe: critique in one answer (benchmark)
 

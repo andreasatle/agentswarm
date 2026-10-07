@@ -27,6 +27,9 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.evaluation.probe import (
+    AcceptAnswer,
+    Accepting,
+    AcceptRequest,
     CritiqueAnswer,
     CritiqueRequest,
     Critiquing,
@@ -149,6 +152,11 @@ class SampleData:
         return ProduceRequest(north_star=cls.NORTH_STAR, task=cls.TASK, constraints=constraints, files=files)
 
     @classmethod
+    def accept(cls) -> AcceptRequest:
+        request = cls.produce()
+        return AcceptRequest(north_star=request.north_star, task=request.task, files=request.files)
+
+    @classmethod
     def critique(cls) -> CritiqueRequest:
         farewell = (  # the planted bug: `if name` should be `if not name`
             "def farewell(name: str) -> str:\n"
@@ -251,6 +259,14 @@ class PromptCatalogue:
                 Producing,
                 SampleData.produce(),
                 ProduceAnswer,
+                None,
+            ),
+            CallFamily(
+                "Probe: acceptance tests in one answer (benchmark)",
+                (Caller("", Accepting, Accepting.INSTRUCTIONS),),
+                Accepting,
+                SampleData.accept(),
+                AcceptAnswer,
                 None,
             ),
             CallFamily(
