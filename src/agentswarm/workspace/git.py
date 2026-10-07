@@ -58,6 +58,19 @@ class Git:
             raise GitError(args, result.returncode, result.stderr)
         return result.stdout.strip()
 
+    def archive(self, cwd: Path, commit: str) -> bytes:
+        """The files of `commit` as a tar archive, without any git metadata."""
+        result = subprocess.run(
+            ["git", *self.SAFETY, "archive", "--format=tar", commit],
+            cwd=cwd,
+            env=self._env,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise GitError(("archive", commit), result.returncode, result.stderr.decode(errors="replace"))
+        return result.stdout
+
     def attempt(self, cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         """Run git and return the result whatever the exit code, for commands that may legitimately fail."""
         return subprocess.run(

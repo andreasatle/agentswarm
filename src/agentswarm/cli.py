@@ -43,6 +43,7 @@ from agentswarm.core.domain import (
     Sized,
     Spent,
 )
+from agentswarm.evaluation.commonmark import CommonMarkImport
 from agentswarm.evaluation.compare import (
     ComparisonFiles,
     ComparisonReport,
@@ -56,6 +57,7 @@ from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, Import
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
+from agentswarm.evaluation.score import Scoreboard
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.audit import GateAudit
@@ -167,6 +169,8 @@ class Cli:
         routing LEDGER                             what the router has learned: outcomes per model and band
         probe EXPERIMENT --workdir DIR             one prompt, one answer: models scored on single calls
         import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
+        import-commonmark SPEC --out DIR           the CommonMark spec as a seed project and held-out tests
+        score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         rate SUITE... --out FILE                   Jev rates every task's difficulty, resumable
         prompts                                    every model call and Jev question, as the model sees it
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
@@ -228,6 +232,10 @@ class Cli:
                 return asyncio.run(self.probe(args))
             case "import-evalplus":
                 return self.import_evalplus(args)
+            case "import-commonmark":
+                return self.import_commonmark(args)
+            case "score":
+                return self.score(args)
             case "rate":
                 return self.rate(args)
             case "prompts":
@@ -318,6 +326,35 @@ class Cli:
         report = SuiteWriter(out, args.name or kind.value, check).write(tasks)
         self._show(report.render())
         self._show(f"Suite: {out / 'suite.yaml'}")
+        return 0
+
+    def import_commonmark(self, args: argparse.Namespace) -> int:
+        """The CommonMark spec's examples as a seed project, every fifth held out (ROADMAP.md, stage 1)."""
+        summary = CommonMarkImport(Path(args.spec).expanduser(), Path(args.out).expanduser()).write()
+        self._show(
+            f"{summary.sections} sections: {summary.visible} examples in {summary.seed}, "
+            f"{summary.held_out} held out in {summary.held_out_tests}"
+        )
+        return 0
+
+    def score(self, args: argparse.Namespace) -> int:
+        """The share of a test suite that passes on the project's first shared level."""
+        config = ProjectConfig.load(Path(args.config))
+        name = args.check or (config.worklist.check if config.worklist is not None else None)
+        if name is None or name not in config.checks:
+            self._show("name the test check with --check (or give the project a worklist)")
+            return 2
+        check = config.checks[name]
+        board = Scoreboard(
+            Path(args.root).expanduser() / "repo",
+            Sandboxes.build(config.sandbox),
+            check.command,
+            check.timeout_s,
+        )
+        extra = [Path(e).expanduser().resolve() for e in args.extra]
+        groups = [("acceptance tests (seen by the agents)", "tests/acceptance/")]
+        groups += [(f"held out ({e.name})", f"{Scoreboard.EXTRA}/{e.name}/") for e in extra]
+        self._show(board.score(config.levels.base, extra).render(groups))
         return 0
 
     def rate(self, args: argparse.Namespace) -> int:
@@ -473,6 +510,18 @@ class Cli:
         evalplus.add_argument("--format", required=True, choices=[f.value for f in EvalPlusFormat])
         evalplus.add_argument("--out", required=True, help="the suite's folder")
         evalplus.add_argument("--name", help="the project name (default: the format)")
+
+        commonmark = commands.add_parser("import-commonmark", help="the CommonMark spec as a seed project")
+        commonmark.add_argument("spec", help="the spec's examples (spec.json from spec.commonmark.org)")
+        commonmark.add_argument("--out", required=True, help="where the seed and the held-out tests go")
+
+        score = commands.add_parser("score", help="how far the first shared level is through a test suite")
+        score.add_argument("config", help="the project's YAML configuration")
+        score.add_argument("--root", required=True, help="directory holding the project's log and repository")
+        score.add_argument("--check", help="the test check to run (default: the worklist's)")
+        score.add_argument(
+            "--extra", action="append", default=[], help="a folder of extra tests, e.g. held out"
+        )
 
         rate = commands.add_parser("rate", help="Jev rates every task's difficulty (resumable)")
         rate.add_argument("suites", nargs="+", help="suite files")

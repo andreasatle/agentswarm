@@ -46,3 +46,7 @@ The research question, studied once the framework behaves well: against a single
 
 - Inventory-suite experiments, routing probes and baseline comparisons pause; their results stay recorded (phase-8-goldilocks.md) and feed stage 3.
 - The next work is stage 1: the CommonMark project setup, the ratchet, failing-test work items, and the original goal in every agent's context.
+
+## Progress
+
+**Stage 1, built (2026-10-07):** the ratchet check (`checks.<name>.ratchet: <level>`; `gating/ratchet.py`, `checks.RatchetCheck`): more of the level's failing tests pass and none that passed breaks, judged on the merge base, with tests the producer added not counting; the worklist (`worklist:` in a project; `control/worklist.py`): each test file with failing tests on the first shared level becomes an item, `max_open` at a time, `attempts_per_file` each; executors get a `run_tests` tool to see why single tests fail; `agentswarm import-commonmark` writes the seed (a stub `mdconv.to_html`, one protected test file per spec section) and the held-out fifth; `agentswarm score` gives the pass rate of the level, held-out tests included. The project is `examples/commonmark/project.yaml`: Haiku builds, the ratchet gates, a $5 daily budget for the first run. Waiting for: the spec's examples (spec.json from spec.commonmark.org), to be downloaded with the user's permission.

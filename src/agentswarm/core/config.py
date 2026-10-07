@@ -125,6 +125,9 @@ class CheckConfig(Strict):
     # command that can't start is an error running the check: it still blocks a gate, but is never
     # evidence of a defect. Unset: every non-zero exit is a failure (CODEX_AUDIT.md F13).
     failure_exit_codes: tuple[int, ...] | None = None
+    # A ratchet (gating/ratchet.py, pytest only): instead of "everything passes", the work must make at least
+    # one more of this level's failing tests pass and break none that passed there.
+    ratchet: Level | None = None
 
 
 class Threshold(Strict):
@@ -260,6 +263,15 @@ class ModelOverride:
         return ModelConfig.model_validate(yaml.safe_load(path.read_text()))
 
 
+class WorklistConfig(Strict):
+    """Failing tests become work items (control/worklist.py; ROADMAP.md stage 1)."""
+
+    check: str  # a ratchet check (`checks.<name>.ratchet`), whose failing tests on the level are the work
+    max_open: int = Field(default=1, ge=1)  # items being worked on at once
+    attempts_per_file: int = Field(default=3, ge=1)  # items per test file before it is left to a person
+    shown: int = Field(default=10, ge=0)  # failing test ids named in an item's task
+
+
 class ProjectConfig(Strict):
     project: str
     domain: Domain
@@ -274,6 +286,7 @@ class ProjectConfig(Strict):
     budgets: Budgets = Budgets()
     supervisor: SupervisorConfig = SupervisorConfig()
     jev: JevConfig = JevConfig()
+    worklist: WorklistConfig | None = None  # failing tests of a ratchet check become work items
 
     @model_validator(mode="before")
     @classmethod
@@ -358,7 +371,7 @@ class ProjectConfig(Strict):
             config = config.model_copy(update={"models": {name: override for name in config.models}})
         base = path.parent
         if config.seed is not None and not config.seed.is_absolute():
-            seed = (base / config.seed).resolve()
+            seed = (base / config.seed.expanduser()).resolve()
             config = config.model_copy(update={"seed": seed})
         teams = tuple(cls._resolve_curves(team, base) for team in config.teams)
         return config.model_copy(update={"teams": teams})

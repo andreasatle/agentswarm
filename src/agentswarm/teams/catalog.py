@@ -161,6 +161,7 @@ class TeamCatalog:
                 attempts=team.attempts,
                 requires_acceptance=resources.has_team("acceptance_tester"),
                 sync_from=resources.ladder.base,
+                tests=resources.test_runner_for(team) if team.checks else None,
             ),
         )
         catalog.register("acceptance_tester", cls._acceptance_tester)

@@ -26,7 +26,7 @@ from agentswarm.core.domain import (
     Sized,
     TeamName,
 )
-from agentswarm.gating.checks import CheckResult, HardCheck
+from agentswarm.gating.checks import CheckResult, CommandCheck, HardCheck
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.routing import RoutedTiers, Router, Tier
@@ -65,12 +65,19 @@ class WorktreeToolbox:
     READ_LIMIT = 100_000  # characters
     TOOLS: ClassVar[tuple[str, ...]] = ("list_files", "read_file", "write_file", "delete_file", "run_checks")
 
-    def __init__(self, worktree: Worktree, checks: Sequence[HardCheck]) -> None:
+    def __init__(
+        self,
+        worktree: Worktree,
+        checks: Sequence[HardCheck],
+        tests: CommandCheck | None = None,  # runs one test file with full output: the `run_tests` tool
+    ) -> None:
         self._worktree = worktree
         self._checks = tuple(checks)
+        self._tests = tests
 
     def tools(self) -> Sequence[Callable[..., str]]:
-        return [getattr(self, name) for name in self.TOOLS]
+        names = (*self.TOOLS, "run_tests") if self._tests is not None else self.TOOLS
+        return [getattr(self, name) for name in names]
 
     def list_files(self) -> str:
         """List every file in the project, one relative path per line."""
@@ -107,6 +114,17 @@ class WorktreeToolbox:
     def run_checks(self) -> str:
         """Run the project's checks (such as the test suite) and report which passed and why others failed."""
         return self.check_report().summary()
+
+    def run_tests(self, path: str) -> str:
+        """Run the tests in one file (or folder), relative to the project root, and show why any fail."""
+        if self._tests is None:
+            return "error: no test runner"
+        try:
+            relative = self._worktree.relative(path)
+        except UnsafePath as error:
+            return f"error: {error}"
+        result = self._tests.run_on(self._worktree.path, [relative])
+        return f"{result.status}:\n{result.output}"
 
     def check_report(self) -> CheckReport:
         return CheckReport(results=tuple(check.run(self._worktree.path) for check in self._checks))
@@ -232,7 +250,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
         attempts: int = 1,  # independent attempts per action; the first that passes its checks is kept
         requires_acceptance: bool = False,  # wait for the acceptance team's tests before the first attempt
         sync_from: Level | None = None,  # the level merged into the branch before each action (the base)
+        tests: CommandCheck | None = None,  # the model may run single test files with it (`run_tests`)
     ) -> None:
+        self._tests = tests
         self._sync_from = sync_from
         if attempts < 1:
             raise ValueError("an executor needs at least one attempt")
@@ -301,7 +321,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
     ) -> list[Event] | AttemptFailed:
         """One attempt's events, or why an attempt before the last failed and was thrown away."""
         artifact = ctx.artifact
-        toolbox = WorktreeToolbox(worktree, self._checks)
+        toolbox = WorktreeToolbox(worktree, self._checks, self._tests)
         request = self.request(ctx, worktree, nudged)
         try:
             report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)

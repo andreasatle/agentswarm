@@ -1,0 +1,36 @@
+# Stage 1 of docs/ROADMAP.md: a real problem with an external definition of done. A CommonMark (Markdown to HTML)
+# converter in pure Python, from an empty stub, judged by the official spec's examples, which the agents see as
+# tests/acceptance/ and can't change; every fifth example is held out and never shown to any agent.
+#   uv run agentswarm import-commonmark ~/agentswarm-data/commonmark/spec.json --out ~/agentswarm-data/commonmark
+#   uv run agentswarm run examples/commonmark/project.yaml --root ~/agentswarm-runs/commonmark --max-rounds 400
+#   uv run agentswarm score examples/commonmark/project.yaml --root ~/agentswarm-runs/commonmark \
+#       --extra ~/agentswarm-data/commonmark/held_out
+# The suite decides how the work is split: the worklist turns each spec section with failing examples into an
+# item, one at a time, and the ratchet gate merges a change only if more examples pass and none breaks.
+project: commonmark
+domain: software
+north_star: >-
+  A CommonMark-compliant Markdown to HTML converter in pure Python: the package mdconv, whose to_html(markdown)
+  returns exactly the HTML the CommonMark spec's examples show. Done when every example passes.
+seed: ~/agentswarm-data/commonmark/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  builder: {model: "anthropic:claude-haiku-4-5", max_tokens: 16384, usd_per_million: {input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental}
+teams:
+  - use: executor
+    watches: raw
+    model: builder
+    checks: [spec]
+    max_model_calls: 80
+    constraints:
+      - Use only the Python standard library.
+      - Keep the code in the mdconv package, split into modules as it grows.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec]}
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
+budgets: {usd_per_day: 5.0}  # the first run: measure examples gained per dollar before choosing a budget
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow}

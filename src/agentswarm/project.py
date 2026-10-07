@@ -17,10 +17,11 @@ from agentswarm.control.outcomes import OutcomeRecorder
 from agentswarm.control.router import FindingRouter
 from agentswarm.control.scheduler import Scheduler
 from agentswarm.control.supervisor import Supervisor
+from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName, Usage
-from agentswarm.gating.checks import CheckSet
+from agentswarm.gating.checks import CheckSet, RatchetCheck
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.join import JoinPromoter
 from agentswarm.gating.promotion import Promoter, PromotionLoop
@@ -78,7 +79,9 @@ class Project:
         supervisor: Supervisor,
         owned: list[Closeable],
         outcomes: OutcomeRecorder | None = None,
+        worklist: Worklist | None = None,
     ) -> None:
+        self._worklist = worklist
         self.config = config
         self.board = board
         self.repository = repository
@@ -118,6 +121,13 @@ class Project:
         ]
         for judge in named:
             services.judges.get(judge)  # raises, naming the known judges
+        worklist = config.worklist
+        if worklist is not None:
+            check = config.checks.get(worklist.check)
+            if check is None or check.ratchet is None:
+                raise ValueError(
+                    f"worklist.check {worklist.check!r} must name a check with `ratchet: <level>`"
+                )
 
     @classmethod
     def _build(
@@ -217,8 +227,23 @@ class Project:
         drift = judgements.build("DriftCheck") if decider is not None else None
         supervisor = Supervisor(config, board, repository, decisions, drift, clock, budget)
         outcomes = OutcomeRecorder(board, resources.routers, resources.model_ids, services.settle_plans)
+        worklist = None
+        if config.worklist is not None:
+            check = checks.check(config.worklist.check)
+            assert isinstance(check, RatchetCheck)  # checked by validate()
+            worklist = Worklist(board, artifacts, repository, config.levels, check, config.worklist)
         return cls(
-            config, board, repository, runners, promoters, decisions, artifacts, supervisor, owned, outcomes
+            config,
+            board,
+            repository,
+            runners,
+            promoters,
+            decisions,
+            artifacts,
+            supervisor,
+            owned,
+            outcomes,
+            worklist,
         )
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
@@ -236,6 +261,8 @@ class Project:
         for promoter in self._promoters:
             actions += await asyncio.to_thread(promoter.step)
         actions += await asyncio.to_thread(self._router.step)
+        if self._worklist is not None:
+            actions += await asyncio.to_thread(self._worklist.step)
         actions += await asyncio.to_thread(self._supervisor.step)
         actions += await asyncio.to_thread(self.outcomes.step)
         return actions
