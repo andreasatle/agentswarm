@@ -75,6 +75,13 @@ Two practical findings sit beside these: **context degrades long before the wind
 
 **Evidence: strong for P6, moderate for P7.** P7 is the closest published support for the goldilocks hypothesis: many small agents beat one big one *when each step is small, checked and voted on*. It says nothing yet about tasks whose decomposition must itself be invented.
 
+**The hypothesis in plain words: interpolation and extrapolation (the user, 2026-10-07).** A language model is a strong interpolator: it does well on problems close to what it has seen, and poorly on new combinations. Whether a problem is interpolation depends on who looks at it: what is new to a person may lie well inside a model's data, and the reverse. The goldilocks hypothesis restated: **decomposition turns one extrapolation (a hard, vague task) into a chain of interpolations** (small, clear steps, each inside what a model knows), and checks catch the steps that fall outside. Two things follow. The split itself may be the extrapolation, which is MAKER's limit above: its decomposition was known in advance. And errors compound along a chain, so each step must be checked, not just the end.
+
+- **Models solve compositional tasks by matching patterns they have seen, and fail on new compositions.** On multiplication, logic puzzles and dynamic programming, transformers' accuracy falls sharply as the composition grows beyond what training covered, and errors in early steps compound. (moderate) ([Dziri et al., NeurIPS 2023](https://arxiv.org/abs/2305.18654))
+- **Our own data agrees** (phase-8-goldilocks.md): gemma4-e4b handles well-specified inventory tasks (levels 1-3) and fails every vague, design-needing feature (level 4), whatever its arrangement; whether a capable model's split turns those into steps it can do is what the framework experiment measures.
+
+A working split between the user and Claude follows from the same view: the user proposes directions; Claude says whether they are known work ("this is known as X, and here is what is known") or untested, and either way the experiment decides. Claude's failure mode is fluent text outside what it knows, which can't always be told from insight from the inside; measurement is the check for both.
+
 ## 6. Simplicity and honest baselines (P8)
 
 - **Anthropic's guidance:** use the simplest pattern that passes evaluation, often a fixed workflow or a single well-tooled call; reserve autonomous agents for when the path can't be hard-coded but progress can still be verified. The **evaluator–optimizer** loop helps when evaluation criteria are clear. ([Anthropic, "Building effective agents", 2024](https://www.anthropic.com/engineering/building-effective-agents))
@@ -186,3 +193,4 @@ Add a principle only when the evidence is at least moderate, give it the next ID
 - 2026-10-05: first version (P1–P12).
 - 2026-10-05: routing learned online (bandits) added to section 9, after the user proposed it.
 - 2026-10-05: the gaps are planned: 1, 3 and 10 in Phase 8 (step 14), the rest in [Phase 10](design/phase-10-robustness.md).
+- 2026-10-07: the goldilocks hypothesis restated as interpolation and extrapolation (section 5), after the user proposed it; Dziri et al. added.
