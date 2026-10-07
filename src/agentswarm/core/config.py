@@ -221,6 +221,9 @@ class SupervisorConfig(Strict):
 
 class Budgets(Strict):
     usd_per_day: float | None = None
+    # No new action starts unless this much of the day's budget is left: the budget is checked between
+    # actions, so an action that starts just under the limit can overshoot it by its own cost.
+    reserve_usd: float = Field(default=0.0, ge=0.0)
     max_rounds_per_artifact: int | None = None
 
 

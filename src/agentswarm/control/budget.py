@@ -12,9 +12,10 @@ from agentswarm.core.clock import Clock
 
 
 class Budget:
-    def __init__(self, usd_per_day: float | None, clock: Clock) -> None:
+    def __init__(self, usd_per_day: float | None, clock: Clock, reserve_usd: float = 0.0) -> None:
         self._usd_per_day = usd_per_day
         self._clock = clock
+        self._reserve = reserve_usd  # what one action may cost: none starts with less than this left
 
     def day_start(self) -> datetime:
         now = self._clock.now().astimezone(UTC)
@@ -24,7 +25,7 @@ class Budget:
         return views.spent_since(self.day_start())
 
     def exhausted(self, views: BoardViews) -> bool:
-        return self._usd_per_day is not None and self.spent_today(views) >= self._usd_per_day
+        return self._usd_per_day is not None and self.spent_today(views) + self._reserve >= self._usd_per_day
 
     def describe(self, views: BoardViews) -> str:
         return f"budget exhausted: ${self.spent_today(views):.2f} of ${self._usd_per_day:.2f} spent today"

@@ -33,6 +33,6 @@ teams:
 gates:
   - {from: raw, to: experimental, hard_checks: [spec]}
 worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
-budgets: {usd_per_day: 2.0}  # the first run's remaining $2 of $5: measure examples gained per dollar first
+budgets: {usd_per_day: 10.0, reserve_usd: 1.0}  # an item costs up to about $1: none starts with less left
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow}

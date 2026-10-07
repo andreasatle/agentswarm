@@ -91,6 +91,7 @@ class TestBudget:
         assert budget.exhausted(s.h.board.current())
         assert not Budget(10.0, s.h.clock).exhausted(s.h.board.current())
         assert not Budget(None, s.h.clock).exhausted(s.h.board.current())
+        assert Budget(6.0, s.h.clock, reserve_usd=1.0).exhausted(s.h.board.current())  # $1 left is not enough
         s.h.clock.advance(timedelta(days=1))
         assert not budget.exhausted(s.h.board.current())
 

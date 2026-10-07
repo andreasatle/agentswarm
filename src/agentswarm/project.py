@@ -146,7 +146,7 @@ class Project:
         if services.scheduler is not None:
             sandbox = services.scheduler.throttle(sandbox)
         checks = CheckSet(config.checks, sandbox)
-        budget = Budget(config.budgets.usd_per_day, clock)
+        budget = Budget(config.budgets.usd_per_day, clock, config.budgets.reserve_usd)
 
         decisions = services.decisions
         if decisions is None:
