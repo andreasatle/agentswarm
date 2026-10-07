@@ -25,12 +25,14 @@ teams:
     model: builder
     checks: [spec]
     max_model_calls: 80
+    repairs: 2  # failing checks: keep the work, say what broke, try again (the first run threw away 150 passes)
+    partial: true  # some examples fixed and none broken is progress: the ratchet judges, not the model
     constraints:
       - Use only the Python standard library.
       - Keep the code in the mdconv package, split into modules as it grows.
 gates:
   - {from: raw, to: experimental, hard_checks: [spec]}
 worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
-budgets: {usd_per_day: 5.0}  # the first run: measure examples gained per dollar before choosing a budget
+budgets: {usd_per_day: 2.0}  # the first run's remaining $2 of $5: measure examples gained per dollar first
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow}

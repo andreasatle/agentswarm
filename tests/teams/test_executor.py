@@ -328,3 +328,33 @@ class TestSyncWithTheBase:
         team = ExecutorTeam(FakeWorker([]), [Toolboxes.CHECK], Samples.RAW, sync_from=Samples.EXPERIMENTAL)
         (event,) = await team.act(w.ctx(), w.worktree)
         assert isinstance(event, Escalated) and "conflicts with experimental" in event.reason
+
+
+class TestRepairsAndPartialWork:
+    async def test_failing_checks_are_repaired_on_the_work_so_far(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        worker = FakeWorker(
+            [
+                Steps.write({"greeting.py": "def hello(): ...\n", "kept.py": "x = 1\n"}),  # fails the check
+                Steps.write({"greeting.py": "def farewell(name): ...\n"}),
+            ]
+        )
+        (commit,) = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, repairs=2).act(
+            w.ctx(), w.worktree
+        )
+        assert isinstance(commit, CommitPushed)
+        assert set(w.h.repository.files_at(w.artifact.branch)) == {
+            "greeting.py",
+            "kept.py",
+        }  # nothing restarted
+        told = worker.calls[1][1]
+        assert isinstance(told, ExecutorRequest)
+        assert told.instruction.must_fix[-1].detail.startswith(ExecutorTeam.STILL_FAILING)
+
+    async def test_partial_work_that_passes_is_committed_for_the_gate(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        step = Steps.write({"greeting.py": "def farewell(): ...\n"}, "some of it", complete=False)
+        (commit,) = await ExecutorTeam(FakeWorker([step]), [Toolboxes.CHECK], Samples.RAW, partial=True).act(
+            w.ctx(), w.worktree
+        )
+        assert isinstance(commit, CommitPushed)  # no escalation: the gate judges the progress

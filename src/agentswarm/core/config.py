@@ -196,6 +196,11 @@ class TeamConfig(Strict):
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
     # executors: independent attempts per action; the first that passes its checks is kept
     attempts: int = Field(default=1, ge=1)
+    # executors: when its checks fail, the model keeps its work and is told what failed, this many times
+    repairs: int = Field(default=0, ge=0)
+    # executors: work that passes its checks is committed even when the model calls it incomplete (worklist
+    # items, where a ratchet gate judges progress and partial progress is the point)
+    partial: bool = False
     # planners: split when Jev's p(fits) is at most this, not only when it is clearly low
     split_below: float | None = Field(default=None, gt=0.0, lt=1.0)
     # planners: at max_depth, build a task that still seems too large instead of escalating it

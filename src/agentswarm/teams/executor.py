@@ -251,8 +251,12 @@ You are the executor in a software team. Implement the task in `instruction.goal
         requires_acceptance: bool = False,  # wait for the acceptance team's tests before the first attempt
         sync_from: Level | None = None,  # the level merged into the branch before each action (the base)
         tests: CommandCheck | None = None,  # the model may run single test files with it (`run_tests`)
+        repairs: int = 0,  # when the checks fail, the work is kept and the model is told what failed
+        partial: bool = False,  # passing work is committed even if the model calls it incomplete
     ) -> None:
         self._tests = tests
+        self._repairs = repairs
+        self._partial = partial
         self._sync_from = sync_from
         if attempts < 1:
             raise ValueError("an executor needs at least one attempt")
@@ -344,7 +348,21 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 return failed
             return [*protection, failed, Escalated(artifact=artifact.id, reason=failed.reason)]
         checks = toolbox.check_report()
-        if not (checks.passed and report.complete) and not last:
+        for _ in range(self._repairs if not checks.passed else 0):
+            # Repair, don't restart: the work so far stays, and the model is told exactly what failed.
+            try:
+                report = await worker.run(
+                    self.INSTRUCTIONS, self.request(ctx, worktree, failing=checks), ExecutorReport, toolbox
+                )
+            except WorkerError:
+                break
+            restored = [*restored, *worktree.restore(AcceptanceTester.FOLDER)]
+            checks = toolbox.check_report()
+            if checks.passed:
+                break
+        protection = [AcceptanceRestored(artifact=artifact.id, paths=tuple(restored))] if restored else []
+        complete = report.complete or (self._partial and checks.passed)
+        if not (checks.passed and complete) and not last:
             worktree.discard_changes()
             why = "checks fail" if not checks.passed else f"reports incomplete: {report.summary}"
             return self._failed(ctx, model, why)
@@ -352,7 +370,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         events: list[Event] = [*protection, CommitPushed(artifact=artifact.id, commit=sha, model=model)]
         if not checks.passed:
             events.append(Escalated(artifact=artifact.id, reason=f"checks still fail:\n{checks.summary()}"))
-        elif not report.complete:
+        elif not complete:
             events.append(
                 Escalated(artifact=artifact.id, reason=f"executor reports incomplete: {report.summary}")
             )
@@ -393,13 +411,33 @@ You are the executor in a software team. Implement the task in `instruction.goal
         sha = worktree.commit(f"{ctx.artifact.id}: work in progress (escalated)")
         return [CommitPushed(artifact=ctx.artifact.id, commit=sha), escalated]
 
+    STILL_FAILING = (
+        "Your changes so far are kept in the project, but the checks still fail. Fix what they report, "
+        "without starting over; tests that passed before must pass again."
+    )
     NOTHING_CHANGED = (
         "Your last answer said the task was done, but no file in the project had changed. Make the changes "
         "with write_file, run run_checks, and answer only when they are made."
     )
 
-    def request(self, ctx: ArtifactContext, worktree: Worktree, nudged: bool = False) -> ExecutorRequest:
+    def request(
+        self,
+        ctx: ArtifactContext,
+        worktree: Worktree,
+        nudged: bool = False,
+        failing: CheckReport | None = None,  # a repair: the checks the work so far still fails
+    ) -> ExecutorRequest:
         must_fix = ctx.open_findings
+        if failing is not None:
+            still = Finding(
+                artifact=ctx.artifact.id,
+                level=self.watches,
+                team=self.name,
+                kind=FindingKind.TEST_FAILURE,
+                severity=Severity.MAJOR,
+                detail=f"{self.STILL_FAILING}\n{failing.summary()}",
+            )
+            must_fix = (*must_fix, still)
         if nudged:
             nothing = Finding(
                 artifact=ctx.artifact.id,
