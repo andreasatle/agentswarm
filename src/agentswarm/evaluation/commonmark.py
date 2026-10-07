@@ -37,6 +37,38 @@ class ImportSummary(BaseModel):
 class CommonMarkImport:
     PACKAGE = "mdconv"
     HELD_OUT_EVERY: ClassVar[int] = 5  # example numbers divisible by this are held out
+    # The order a CommonMark parser is usually built in, which the worklist follows (files are numbered by
+    # it): paragraphs and the other blocks first, then inlines; the spec's "preliminaries" (tabs, and how
+    # blocks and inlines take precedence) need most of the rest to work, so they come last. Sections not
+    # listed go after these, in spec order.
+    BUILD_ORDER: ClassVar[tuple[str, ...]] = (
+        "Paragraphs",
+        "Blank lines",
+        "Textual content",
+        "Thematic breaks",
+        "ATX headings",
+        "Setext headings",
+        "Indented code blocks",
+        "Fenced code blocks",
+        "Block quotes",
+        "List items",
+        "Lists",
+        "HTML blocks",
+        "Link reference definitions",
+        "Inlines",
+        "Backslash escapes",
+        "Entity and numeric character references",
+        "Code spans",
+        "Emphasis and strong emphasis",
+        "Links",
+        "Images",
+        "Autolinks",
+        "Raw HTML",
+        "Hard line breaks",
+        "Soft line breaks",
+        "Tabs",
+        "Precedence",
+    )
     STUB = '''"""A CommonMark-compliant Markdown to HTML converter, in pure Python."""
 
 
@@ -71,7 +103,10 @@ def test_example(number: int, markdown: str, html: str) -> None:
 
     def write(self) -> ImportSummary:
         examples = self.examples()
-        sections = list(dict.fromkeys(e.section for e in examples))  # in spec order
+        in_spec = list(dict.fromkeys(e.section for e in examples))
+        sections = [s for s in self.BUILD_ORDER if s in in_spec] + [
+            s for s in in_spec if s not in self.BUILD_ORDER
+        ]
         seed = self._out / "seed"
         hidden = self._out / "held_out"
         (seed / self.PACKAGE).mkdir(parents=True, exist_ok=True)
