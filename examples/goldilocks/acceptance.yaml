@@ -1,0 +1,8 @@
+# The acceptance experiment (docs/design/acceptance-checks.md, step 3): does building against acceptance tests
+# written beforehand by another model improve the real result? Scored by the hidden tests, which neither sees.
+#   uv run agentswarm compare examples/goldilocks/acceptance.yaml --workdir ~/agentswarm-runs/acceptance
+suite: ../inventory/evaluation/suite.yaml
+order: by_task
+setups:
+  haiku-alone: acceptance/haiku-alone.yaml
+  haiku-accept: acceptance/haiku-accept.yaml
