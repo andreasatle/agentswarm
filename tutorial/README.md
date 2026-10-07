@@ -4,16 +4,9 @@ Oct 3, 2026 · Andreas Atle (built with Claude)
 
 ## How to use this tutorial
 
-Read **Part 0** first: it explains what AgentSwarm is for and every piece you need, before any command.
-Then work through the steps in order. Each one adds a single idea to the previous ones and shows you
-where it lives in the code.
+Read **Part 0** first: it explains what AgentSwarm is for and every piece you need, before any command. Then work through the steps in order. Each one adds a single idea to the previous ones and shows you where it lives in the code.
 
-**Every step has a script in this folder**, so nothing needs copying: run it from anywhere, for example
-`tutorial/03_first_run.sh`, or `uv run tutorial/01_board.py` for the Python steps. Each script prints every
-command before it runs it, so you see exactly what it does, and keeps its project under
-`~/agentswarm-runs/tutorial/` (set `AGENTSWARM_RUNS` to put it elsewhere, still under your home folder).
-A script that creates a project starts its own folder afresh each time; later steps reuse earlier ones. [REFERENCE.md](../docs/REFERENCE.md) has every config key, event and command in
-tables; this document explains why things are the way they are.
+**Every step has a script in this folder**, so nothing needs copying: run it from anywhere, for example `tutorial/03_first_run.sh`, or `uv run tutorial/01_board.py` for the Python steps. Each script prints every command before it runs it, so you see exactly what it does, and keeps its project under `~/agentswarm-runs/tutorial/` (set `AGENTSWARM_RUNS` to put it elsewhere, still under your home folder). A script that creates a project starts its own folder afresh each time; later steps reuse earlier ones. [REFERENCE.md](../docs/REFERENCE.md) has every config key, event and command in tables; this document explains why things are the way they are.
 
 | Step | New idea | Script | Needs |
 | --- | --- | --- | --- |
@@ -34,9 +27,7 @@ tables; this document explains why things are the way they are.
 | 14 | What keeps it safe | | |
 | 15 | Does the swarm help? Measuring before optimizing | `tutorial/15_measure.sh [live]` | nothing (live: Ollama, Docker, Jev, Anthropic key) |
 
-Steps 1–3b, 9, 10, the quickstart swarm in step 13 and step 15's offline part run anywhere, offline. Status:
-the build plan and a hardening phase from an independent audit are done. Phase 8 is in progress: measuring
-whether the swarm actually beats simpler setups (step 15). Architecture work is paused until it has an answer.
+Steps 1–3b, 9, 10, the quickstart swarm in step 13 and step 15's offline part run anywhere, offline. Status: the build plan and a hardening phase from an independent audit are done. Phase 8 is in progress: measuring whether the swarm actually beats simpler setups (step 15). Architecture work is paused until it has an answer.
 
 ---
 
@@ -44,20 +35,13 @@ whether the swarm actually beats simpler setups (step 15). Architecture work is 
 
 ### The problem it solves
 
-Earlier attempts (forge) used a planner and a worker that waited on each other, and an LLM critic that
-judged every result. Two things went wrong: roles waiting on each other in a fixed order **deadlocked**,
-and the critic was **expensive and its confidence meaningless** (self-reported, not calibrated).
+Earlier attempts (forge) used a planner and a worker that waited on each other, and an LLM critic that judged every result. Two things went wrong: roles waiting on each other in a fixed order **deadlocked**, and the critic was **expensive and its confidence meaningless** (self-reported, not calibrated).
 
 AgentSwarm is built so neither can happen:
 
-- **Teams never call each other.** Each team watches one *level* of maturity and reacts to the state of
-  the work there. Ordering comes from the levels, so there is nothing to wait on and no cycle.
-- **Three kinds of work are kept apart.** Language models *produce* (code, tests, text). Jev, a small
-  calibrated decision model, *decides* (is this complete, is this in scope, is this worth testing). Plain,
-  tested code *controls* (claims, merges, promotions, budgets).
-- **Every decision is logged and measured.** Each of Jev's answers is stored with its exact input, and
-  later gets an *outcome*: what turned out to be true. That is what lets you trust Jev's probabilities,
-  and tune when to act on them.
+- **Teams never call each other.** Each team watches one *level* of maturity and reacts to the state of the work there. Ordering comes from the levels, so there is nothing to wait on and no cycle.
+- **Three kinds of work are kept apart.** Language models *produce* (code, tests, text). Jev, a small calibrated decision model, *decides* (is this complete, is this in scope, is this worth testing). Plain, tested code *controls* (claims, merges, promotions, budgets).
+- **Every decision is logged and measured.** Each of Jev's answers is stored with its exact input, and later gets an *outcome*: what turned out to be true. That is what lets you trust Jev's probabilities, and tune when to act on them.
 
 ### The picture
 
@@ -84,21 +68,15 @@ AgentSwarm is built so neither can happen:
 | Docker | Runs code a model wrote, isolated | Docker Desktop or Colima, then `docker build -t agentswarm/sandbox-python:3.13 -f docker/sandbox-python.Dockerfile docker` |
 | A Jev API key | The judge | `TYPESAFE_API_KEY=...` in this project's `.env` (git-ignored; the CLI loads it) |
 
-Project roots (`--root`) must be under your home folder: Colima and Docker Desktop only share those with
-containers.
+Project roots (`--root`) must be under your home folder: Colima and Docker Desktop only share those with containers.
 
-**Typed end to end.** Every event, finding, config section, model output and Jev answer is a Pydantic
-class. You write `decision.ruling.verdict`, never `data["ruling"]["verdict"]`; a reply that doesn't fit
-fails where it arrives, naming the field.
+**Typed end to end.** Every event, finding, config section, model output and Jev answer is a Pydantic class. You write `decision.ruling.verdict`, never `data["ruling"]["verdict"]`; a reply that doesn't fit fails where it arrives, naming the field.
 
 ---
 
 ## Step 1 — The board: events in, views out
 
-Everything that happens in a project is an **event** appended to its log, and nothing else changes state.
-What you read (which artifacts are at which level, which findings are open) are **views**, folded from the
-log. Run `uv run tutorial/01_board.py`; this is all of it, one named value per line so you can inspect
-any of them:
+Everything that happens in a project is an **event** appended to its log, and nothing else changes state. What you read (which artifacts are at which level, which findings are open) are **views**, folded from the log. Run `uv run tutorial/01_board.py`; this is all of it, one named value per line so you can inspect any of them:
 
 ```python
 from agentswarm.board.blackboard import Blackboard
@@ -155,20 +133,15 @@ print("replay gives the same views:", same)  # True
 
 Three things to notice:
 
-- **Replay is free.** Throw the views away and fold the log again: you get exactly the same state. A real
-  project keeps its log in `blackboard.sqlite`, so you can replay any project, up to any event.
-- **"Unjudged commit"** is a view, not a flag someone sets: a commit stays unjudged until a gate promotes,
-  rejects or escalates the artifact. Gates look for exactly that.
-- **Version** changes only when the artifact itself changes (created, committed, promoted, rejected,
-  sized, retried). Teams remember the version they last handled, so each team acts **once per change**,
-  never on its own output, and never in a loop. This one rule replaces all coordination between teams.
+- **Replay is free.** Throw the views away and fold the log again: you get exactly the same state. A real project keeps its log in `blackboard.sqlite`, so you can replay any project, up to any event.
+- **"Unjudged commit"** is a view, not a flag someone sets: a commit stays unjudged until a gate promotes, rejects or escalates the artifact. Gates look for exactly that.
+- **Version** changes only when the artifact itself changes (created, committed, promoted, rejected, sized, retried). Teams remember the version they last handled, so each team acts **once per change**, never on its own output, and never in a loop. This one rule replaces all coordination between teams.
 
 Where: `board/eventlog.py`, `board/blackboard.py`, `core/domain.py`.
 
 ## Step 2 — Claims: one team at a time
 
-Before a team works on an artifact, it **claims** it: a lease with an expiry. Run
-`uv run tutorial/02_claims.py`; the core of it:
+Before a team works on an artifact, it **claims** it: a lease with an expiry. Run `uv run tutorial/02_claims.py`; the core of it:
 
 ```python
 # ... the same board and artifact as in step 1, then:
@@ -207,22 +180,15 @@ accepted = published is not None
 print("red team's late result accepted:", accepted)  # False
 ```
 
-A claim is appended **only if the log hasn't moved** since the registry checked that the artifact was free
-(optimistic concurrency; SQLite's `BEGIN IMMEDIATE` underneath). Two teams racing for the same artifact can't
-both win, and a crashed team's work is picked up again when its lease runs out. No locks between teams.
+A claim is appended **only if the log hasn't moved** since the registry checked that the artifact was free (optimistic concurrency; SQLite's `BEGIN IMMEDIATE` underneath). Two teams racing for the same artifact can't both win, and a crashed team's work is picked up again when its lease runs out. No locks between teams.
 
-Each claim has an id, and a team publishes its result through the registry, which checks that nobody
-took the artifact over meanwhile: if the lease ran out and another team claimed it, the late result is
-thrown away instead of overwriting newer work. Across processes there is one rule: only one process may
-have a project open (a lock file in the project root).
+Each claim has an id, and a team publishes its result through the registry, which checks that nobody took the artifact over meanwhile: if the lease ran out and another team claimed it, the late result is thrown away instead of overwriting newer work. Across processes there is one rule: only one process may have a project open (a lock file in the project root).
 
 Where: `board/claims.py`. The race is tested in `tests/board/test_claims.py` by forcing the bad interleaving.
 
 ## Step 3 — Levels are branches; a first run
 
-A project's **levels** are its maturity ladder. The lowest level holds one branch per artifact
-(`raw/a-0001-...`); every level above is one shared branch with the level's name. Work moves up only
-through a **gate**, one level at a time, and that is all the ordering there is.
+A project's **levels** are its maturity ladder. The lowest level holds one branch per artifact (`raw/a-0001-...`); every level above is one shared branch with the level's name. Work moves up only through a **gate**, one level at a time, and that is all the ordering there is.
 
 Run the quickstart project (a fake executor, no model, no Jev, no Docker):
 
@@ -230,34 +196,20 @@ Run the quickstart project (a fake executor, no model, no Jev, no Docker):
 tutorial/03_first_run.sh
 ```
 
-You'll see each artifact's own commit, merged into `experimental` with a merge commit. What happened, in
-order (`run` repeats project *steps* until nothing happens):
+You'll see each artifact's own commit, merged into `experimental` with a merge commit. What happened, in order (`run` repeats project *steps* until nothing happens):
 
-1. The **team runner** for `fake_executor` found two artifacts at `raw` it hadn't handled, claimed each,
-   checked out its branch in its own worktree (`worktrees/a-0001`), let the team act, appended its
-   `CommitPushed`, and released the claim.
-2. The **promoter** for the gate `raw → experimental` saw two unjudged commits. For each: claim, check out
-   *exactly that commit* (detached, so the branch never moves), run the **hard checks** (here: every note
-   has text) in the sandbox.
-3. Passing artifacts went to the **merge queue**: merge onto `experimental`'s tip in a detached checkout,
-   run the checks again **on the merged result**, and only if they pass move the `experimental` branch.
-   So `experimental` always passes its own checks, and never shows an unchecked merge.
-4. The branch moved in three recorded steps: `PromotionStarted`, the move itself (only if the branch hadn't
-   moved meanwhile), then `Promoted` with the merge commit. If the process dies in between, the next run
-   finds the open record and settles it from where the branch actually is. Later teams find an artifact's
-   own change in its merge commit (`merge^1..merge`, what the merge brought into the level), even after
-   other work lands.
+1. The **team runner** for `fake_executor` found two artifacts at `raw` it hadn't handled, claimed each, checked out its branch in its own worktree (`worktrees/a-0001`), let the team act, appended its `CommitPushed`, and released the claim.
+2. The **promoter** for the gate `raw → experimental` saw two unjudged commits. For each: claim, check out *exactly that commit* (detached, so the branch never moves), run the **hard checks** (here: every note has text) in the sandbox.
+3. Passing artifacts went to the **merge queue**: merge onto `experimental`'s tip in a detached checkout, run the checks again **on the merged result**, and only if they pass move the `experimental` branch. So `experimental` always passes its own checks, and never shows an unchecked merge.
+4. The branch moved in three recorded steps: `PromotionStarted`, the move itself (only if the branch hadn't moved meanwhile), then `Promoted` with the merge commit. If the process dies in between, the next run finds the open record and settles it from where the branch actually is. Later teams find an artifact's own change in its merge commit (`merge^1..merge`, what the merge brought into the level), even after other work lands.
 
-Try breaking it: edit the check to always fail and run again with a new root; the artifacts get
-`Rejected` with a blocker finding, and the fake executor tries again.
+Try breaking it: edit the check to always fail and run again with a new root; the artifacts get `Rejected` with a blocker finding, and the fake executor tries again.
 
-Where: `workspace/git.py`, `gating/promotion.py`, `gating/merge_queue.py`, `teams/runner.py`, `project.py`.
-`agentswarm config examples/quickstart/project.yaml` prints the whole configuration.
+Where: `workspace/git.py`, `gating/promotion.py`, `gating/merge_queue.py`, `teams/runner.py`, `project.py`. `agentswarm config examples/quickstart/project.yaml` prints the whole configuration.
 
 ## Step 3b — The same run, from Python
 
-Steps 1 and 2 called the board's basic operations by hand: `append`, `current`, `claim`. A real project
-never does. Each layer bundles the one below it:
+Steps 1 and 2 called the board's basic operations by hand: `append`, `current`, `claim`. A real project never does. Each layer bundles the one below it:
 
 | Layer | You call | It does for you |
 | --- | --- | --- |
@@ -268,8 +220,7 @@ never does. Each layer bundles the one below it:
 | Team runner | (inside a step) | claim, check out a worktree, let the team act, publish its events, release, clean up |
 | Board | `append`, `current`, `claim` | the basic operations of steps 1 and 2 |
 
-Run `uv run tutorial/03b_project_api.py`. After finding the example config and its own folder, it does
-this:
+Run `uv run tutorial/03b_project_api.py`. After finding the example config and its own folder, it does this:
 
 ```python
 def print_history(views: BoardViews, artifact: Artifact) -> None:
@@ -320,11 +271,7 @@ finally:
     project.close()  # releases the project's lock and closes its databases
 ```
 
-Nothing here can be forgotten by accident: `append` returns the state after your events and every read
-catches up by itself; the runner and gates release claims and remove worktrees in `finally` blocks, even
-when a team crashes; `Project.open` checks the configuration before it writes anything. The one thing to
-remember with the Python API is `project.close()`, which releases the project's lock and databases (the
-command line does it for you).
+Nothing here can be forgotten by accident: `append` returns the state after your events and every read catches up by itself; the runner and gates release claims and remove worktrees in `finally` blocks, even when a team crashes; `Project.open` checks the configuration before it writes anything. The one thing to remember with the Python API is `project.close()`, which releases the project's lock and databases (the command line does it for you).
 
 Where: `project.py` (`Project`), `teams/runner.py` (`TeamRunner`).
 
@@ -336,42 +283,21 @@ Now a model does the work. The greeter evaluation project has the executor and o
 tutorial/04_executor.sh
 ```
 
-**The model.** `models: {coder: {model: "ollama:gemma4:e4b"}}`. The string is `<provider>:<model>`, built
-with LangChain's `init_chat_model`, so changing provider is a config change (`openai:...`,
-`anthropic:...`), never a code change. The model must make **real tool calls**: `qwen2.5-coder` on Ollama
-writes them as text and fails here.
+**The model.** `models: {coder: {model: "ollama:gemma4:e4b"}}`. The string is `<provider>:<model>`, built with LangChain's `init_chat_model`, so changing provider is a config change (`openai:...`, `anthropic:...`), never a code change. The model must make **real tool calls**: `qwen2.5-coder` on Ollama writes them as text and fails here.
 
-**The executor's loop** is LangChain's `create_agent` with a toolbox: list, read, write and delete files
-(confined to the worktree: no absolute paths, `..`, `.git` or links pointing out) and run the checks. It
-ends with a structured `ExecutorReport` (a summary and whether it thinks it's done). Small models often end
-with plain text instead; the worker then asks once more for just the structured answer. If the checks
-still fail, or the model says it isn't done, the work is committed and **escalated**, not thrown away.
+**The executor's loop** is LangChain's `create_agent` with a toolbox: list, read, write and delete files (confined to the worktree: no absolute paths, `..`, `.git` or links pointing out) and run the checks. It ends with a structured `ExecutorReport` (a summary and whether it thinks it's done). Small models often end with plain text instead; the worker then asks once more for just the structured answer. If the checks still fail, or the model says it isn't done, the work is committed and **escalated**, not thrown away.
 
-**The sandbox.** Hard checks run code a model wrote, so they run in Docker: a fresh container per run, no
-network, read-only root, dropped capabilities, CPU/memory/process limits, your uid, no keys in the
-environment. What is mounted is a **throwaway copy** of the worktree without its `.git`: whatever the code
-writes is discarded with the copy, so it can never reach git on your machine. Output is capped, and a
-timeout kills the container.
+**The sandbox.** Hard checks run code a model wrote, so they run in Docker: a fresh container per run, no network, read-only root, dropped capabilities, CPU/memory/process limits, your uid, no keys in the environment. What is mounted is a **throwaway copy** of the worktree without its `.git`: whatever the code writes is discarded with the copy, so it can never reach git on your machine. Output is capped, and a timeout kills the container.
 
-A check ends in one of three ways: **passed**, **failed** (it ran and found a problem: for pytest, exit 1)
-or **error** (a timeout, a missing tool, a crash of the runner). Errors still block a gate, but they never
-count as evidence that the code is wrong.
+A check ends in one of three ways: **passed**, **failed** (it ran and found a problem: for pytest, exit 1) or **error** (a timeout, a missing tool, a crash of the runner). Errors still block a gate, but they never count as evidence that the code is wrong.
 
-**Model settings that fail silently.** Ollama runs every model with a 4096-token window unless told
-otherwise, and drops the start of a longer conversation, instructions included; it also ignores
-`max_tokens`. The first Phase 8 runs lost a third of their answers to this. Models now get
-`context_window` (32k by default for Ollama) and `max_tokens` passed under the name each provider reads.
-[MODELS.md](../docs/MODELS.md) explains every setting, and every prompt a model sees is in
-[PROMPTS.md](../docs/PROMPTS.md) (`agentswarm prompts`).
+**Model settings that fail silently.** Ollama runs every model with a 4096-token window unless told otherwise, and drops the start of a longer conversation, instructions included; it also ignores `max_tokens`. The first Phase 8 runs lost a third of their answers to this. Models now get `context_window` (32k by default for Ollama) and `max_tokens` passed under the name each provider reads. [MODELS.md](../docs/MODELS.md) explains every setting, and every prompt a model sees is in [PROMPTS.md](../docs/PROMPTS.md) (`agentswarm prompts`).
 
-Where: `teams/executor.py` (`ExecutorTeam`, `WorktreeToolbox`), `llm/workers.py` (`LangChainWorker`: the
-only place LangChain is imported, with `llm/models.py`), `workspace/sandbox.py`.
+Where: `teams/executor.py` (`ExecutorTeam`, `WorktreeToolbox`), `llm/workers.py` (`LangChainWorker`: the only place LangChain is imported, with `llm/models.py`), `workspace/sandbox.py`.
 
 ## Step 5 — Jev judges the gate, in shadow
 
-Hard checks prove what can be proven mechanically. What remains is judgement: does the change stay in
-scope, do the tests exercise the behaviour, is every part of the task done? That is **Jev's** job, through a
-**judge**:
+Hard checks prove what can be proven mechanically. What remains is judgement: does the change stay in scope, do the tests exercise the behaviour, is every part of the task done? That is **Jev's** job, through a **judge**:
 
 ```python
 class ChangeReadiness(BaseModel):
@@ -381,36 +307,23 @@ class ChangeReadiness(BaseModel):
     complete: ...
 ```
 
-Each question is a **Noul** (Jev returns the probability of yes) phrased so **yes is good**, with
-`Fails(...)` saying what a clear "no" means as a finding. Jev sees a typed state: the north star, the task,
-the findings it was supposed to fix, and the **real diff** (truncated to 60,000 characters).
+Each question is a **Noul** (Jev returns the probability of yes) phrased so **yes is good**, with `Fails(...)` saying what a clear "no" means as a finding. Jev sees a typed state: the north star, the task, the findings it was supposed to fix, and the **real diff** (truncated to 60,000 characters).
 
-The **policy** is plain code: per question, `p ≥ pass` passes, `p ≤ fail` fails, anything between is unsure;
-any failure rejects (one finding per failed question), else any unsure escalates, else promote. Thresholds
-are per question in the gate config.
+The **policy** is plain code: per question, `p ≥ pass` passes, `p ≤ fail` fails, anything between is unsure; any failure rejects (one finding per failed question), else any unsure escalates, else promote. Thresholds are per question in the gate config.
 
-**Shadow mode.** A new decision point starts in shadow (§12.3): Jev is asked and every decision is logged,
-but the system behaves as if there were no judge. Nothing it says can block work until its answers have
-been compared with what turned out to be true. Run the greeter project (software preset, two analyzers,
-Jev in shadow; it needs the key):
+**Shadow mode.** A new decision point starts in shadow (§12.3): Jev is asked and every decision is logged, but the system behaves as if there were no judge. Nothing it says can block work until its answers have been compared with what turned out to be true. Run the greeter project (software preset, two analyzers, Jev in shadow; it needs the key):
 
 ```bash
 tutorial/05_shadow.sh
 ```
 
-Every decision records its exact input, Jev's answers, the ruling, the mode, the Jev version that answered,
-and a **judge version**: a hash of the questions' wording. Changing a word starts a new version. Reports
-group decisions by **cohort** (decision point, judge version and the concrete Jev version) and never mix
-them, because answers to old wording, or from another model, say nothing about this one.
+Every decision records its exact input, Jev's answers, the ruling, the mode, the Jev version that answered, and a **judge version**: a hash of the questions' wording. Changing a word starts a new version. Reports group decisions by **cohort** (decision point, judge version and the concrete Jev version) and never mix them, because answers to old wording, or from another model, say nothing about this one.
 
-Where: `judging/judges.py`, `judging/policy.py`, `judging/judgement.py`, `judging/decisions.py`,
-`jev/` (the client: HTTPS only, base URL fixed in code, the only reader of the key, retries for timeouts
-and busy answers).
+Where: `judging/judges.py`, `judging/policy.py`, `judging/judgement.py`, `judging/decisions.py`, `jev/` (the client: HTTPS only, base URL fixed in code, the only reader of the key, retries for timeouts and busy answers).
 
 ## Step 6 — Ground truth without labelling
 
-To trust Jev's probabilities, you need outcomes: for each answer, what was actually true. Labelling by hand
-doesn't scale, so every question gets an **automatic** source:
+To trust Jev's probabilities, you need outcomes: for each answer, what was actually true. Labelling by hand doesn't scale, so every question gets an **automatic** source:
 
 | Question | Truth from |
 | --- | --- |
@@ -418,22 +331,13 @@ doesn't scale, so every question gets an **automatic** source:
 | `tests_relevant` | **mutation testing**: break the changed code in small ways; real tests notice |
 | `in_scope` | **planted faults**: scripted runs that write the reference solution, cleanly or with an unrelated edit, so the truth is known by construction |
 
-A **task suite** lists tasks with hidden tests and reference solutions. Each reference is itself tested:
-it must pass its hidden tests, and the untouched seed must fail them, or the ground truth would be wrong.
-`evaluate` runs every task in four variants (the real model, the clean reference, reference plus an
-out-of-scope edit, reference with an `assert True` test):
+A **task suite** lists tasks with hidden tests and reference solutions. Each reference is itself tested: it must pass its hidden tests, and the untouched seed must fail them, or the ground truth would be wrong. `evaluate` runs every task in four variants (the real model, the clean reference, reference plus an out-of-scope edit, reference with an `assert True` test):
 
 ```bash
 tutorial/06_ground_truth.sh
 ```
 
-It prints one line per run and then the **calibration report**: per question, ten bins of Jev's
-probability against how often the truth was yes, the expected calibration error, the Brier score, and how
-often the default thresholds would decide and be right. What the first real run showed (56 decisions):
-`tests_relevant` near ideal (ECE 0.07); `complete` right whenever it decided but under-confident;
-`in_scope` the weak question, which led to sharper wording. It also exposed two flaws in *our* ground
-truth (trivial tests left a task's "add tests" part undone; mutation testing never touched `if`
-conditions), both fixed. Measuring the measurement is part of the job.
+It prints one line per run and then the **calibration report**: per question, ten bins of Jev's probability against how often the truth was yes, the expected calibration error, the Brier score, and how often the default thresholds would decide and be right. What the first real run showed (56 decisions): `tests_relevant` near ideal (ECE 0.07); `complete` right whenever it decided but under-confident; `in_scope` the weak question, which led to sharper wording. It also exposed two flaws in *our* ground truth (trivial tests left a task's "add tests" part undone; mutation testing never touched `if` conditions), both fixed. Measuring the measurement is part of the job.
 
 A person checks the automatic sources now and then, without being anchored by Jev's answer:
 
@@ -441,28 +345,16 @@ A person checks the automatic sources now and then, without being anchored by Je
 tutorial/06_label.sh
 ```
 
-Where: `evaluation/` (suite, run, variants in `faults.py`, `mutation.py`), `judging/calibration.py`,
-`judging/labelling.py`. Outcome sources rank human > planted > hidden tests = mutation = team result.
+Where: `evaluation/` (suite, run, variants in `faults.py`, `mutation.py`), `judging/calibration.py`, `judging/labelling.py`. Outcome sources rank human > planted > hidden tests = mutation = team result.
 
 ## Step 7 — Analyzers, findings and the router
 
-Above the lowest level, teams never commit: only the merge queue writes level branches. They are
-**analyzers**: they examine a merged artifact (in a detached checkout of its merge commit) and report
-**findings**. The software preset has two at `experimental`: the **integration tester** (does the change
-work with the code around it?) and the **red team** (does it break on hostile input?).
+Above the lowest level, teams never commit: only the merge queue writes level branches. They are **analyzers**: they examine a merged artifact (in a detached checkout of its merge commit) and report **findings**. The software preset has two at `experimental`: the **integration tester** (does the change work with the code around it?) and the **red team** (does it break on hostile input?).
 
-- **Evidence first.** An analyzer may report only problems backed by a test it wrote and ran that fails.
-  Claims without one are dropped, so weak findings never block anything. A test that couldn't run at all
-  (an error, not a failure) is no evidence either.
-- **Relevance filters.** Before working, each analyzer asks Jev whether the change is worth its effort. In
-  shadow mode it works anyway, and whether it found something becomes the automatic outcome of that
-  decision. In the live run above, Jev said "not worth it" twice (0.08 and 0.15), the analyzers found
-  nothing, and both decisions were scored right.
+- **Evidence first.** An analyzer may report only problems backed by a test it wrote and ran that fails. Claims without one are dropped, so weak findings never block anything. A test that couldn't run at all (an error, not a failure) is no evidence either.
+- **Relevance filters.** Before working, each analyzer asks Jev whether the change is worth its effort. In shadow mode it works anyway, and whether it found something becomes the automatic outcome of that decision. In the live run above, Jev said "not worth it" twice (0.08 and 0.15), the analyzers found nothing, and both decisions were scored right.
 - **Sign-offs.** An analyzer ends with `SignedOff` for the version it examined; a gate above can require it.
-- **The finding router.** Teams only report; plain code acts. Each open major or blocker finding above the
-  lowest level becomes one **fix artifact** at the lowest level (its task carries the finding and the
-  failing test), and the finding is resolved when the fix reaches the finding's level. Minor findings stay
-  on the board for a person and are not routed.
+- **The finding router.** Teams only report; plain code acts. Each open major or blocker finding above the lowest level becomes one **fix artifact** at the lowest level (its task carries the finding and the failing test), and the finding is resolved when the fix reaches the finding's level. Minor findings stay on the board for a person and are not routed.
 
 To see what step 5's analyzers did (sign-offs, findings, fix artifacts):
 
@@ -474,15 +366,9 @@ Where: `teams/analyzer.py`, `teams/relevance.py`, `control/router.py`.
 
 ## Step 8 — Release trains, human gates, escalations
 
-`experimental` is one line of merge commits, one per artifact. A level above moves as a **prefix** of the
-level below: `candidate` fast-forwards to one of those commits, carrying every artifact up to it in one
-batch. The promoter takes the longest ready prefix (signed off by the required teams, no blocking findings,
-unclaimed), runs the hard checks on its last commit, and moves the branch with a compare-and-swap. A
-prefix never conflicts, and the promoted commit is exactly the one that was tested. The price: one artifact
-that isn't ready holds back the ones after it.
+`experimental` is one line of merge commits, one per artifact. A level above moves as a **prefix** of the level below: `candidate` fast-forwards to one of those commits, carrying every artifact up to it in one batch. The promoter takes the longest ready prefix (signed off by the required teams, no blocking findings, unclaimed), runs the hard checks on its last commit, and moves the branch with a compare-and-swap. A prefix never conflicts, and the promoted commit is exactly the one that was tested. The price: one artifact that isn't ready holds back the ones after it.
 
-The preset's `production` gate has `requires_human: true`: instead of promoting, it **escalates**. Every
-escalation goes to a queue a person works through, without models or a Jev key:
+The preset's `production` gate has `requires_human: true`: instead of promoting, it **escalates**. Every escalation goes to a queue a person works through, without models or a Jev key:
 
 ```bash
 tutorial/08_escalations.sh          # what waits for a person
@@ -490,26 +376,16 @@ tutorial/08_escalations.sh a-0001   # accept a-0001 at its gate, then run again
 ```
 
 - `--retry`: teams look again (the executor treats it like a rejection).
-- `--accept`: approve the current state at its gate. It replaces *judgement* (Jev, the human requirement, a
-  failed join), never the hard checks, and it covers one gate only.
+- `--accept`: approve the current state at its gate. It replaces *judgement* (Jev, the human requirement, a failed join), never the hard checks, and it covers one gate only.
 - `--drop`: retire the artifact (its merged code stays; reverting is a separate action).
 
-While an escalation is open the artifact is **parked**: no team works on it, the router makes no fixes for
-it, and a release train stops before it (except for the human gate's own request for approval). A dropped
-artifact is left alone the same way, but its already-merged code still rides the train. Run
-`agentswarm run` again after resolving; the next step acts on it. `agentswarm status` works even while a
-project runs: it only reads the board.
+While an escalation is open the artifact is **parked**: no team works on it, the router makes no fixes for it, and a release train stops before it (except for the human gate's own request for approval). A dropped artifact is left alone the same way, but its already-merged code still rides the train. Run `agentswarm run` again after resolving; the next step acts on it. `agentswarm status` works even while a project runs: it only reads the board.
 
 Where: `gating/train.py`, `control/escalations.py`.
 
 ## Step 9 — Decomposition and joins
 
-Some tasks are too big for one branch. The **decomposer** asks Jev "can this be done in one branch by one
-team, without further design decisions?". If clearly not, a model splits it into child tasks, and Jev checks
-that each child is clearly smaller (so a split can't just restate the task). The parent becomes an
-**umbrella**; children get ids like `a-0003.1`, unique without asking anyone. When all children have reached
-the next level, a **join gate** runs that level's hard checks and asks Jev whether the parts add up to the
-whole; passing moves the umbrella up.
+Some tasks are too big for one branch. The **decomposer** asks Jev "can this be done in one branch by one team, without further design decisions?". If clearly not, a model splits it into child tasks, and Jev checks that each child is clearly smaller (so a split can't just restate the task). The parent becomes an **umbrella**; children get ids like `a-0003.1`, unique without asking anyone. When all children have reached the next level, a **join gate** runs that level's hard checks and asks Jev whether the parts add up to the whole; passing moves the umbrella up.
 
 In shadow mode nothing is split (the question is only logged), so decomposition needs its points active:
 
@@ -519,8 +395,7 @@ teams:
 jev: {mode: shadow, active: ["size:*", "split:*", "join:*"]}
 ```
 
-The whole flow (a goal split in two, children by train, umbrella by join, all the way to `candidate`) runs
-offline, with scripted models and judges, in the tests this script runs:
+The whole flow (a goal split in two, children by train, umbrella by join, all the way to `candidate`) runs offline, with scripted models and judges, in the tests this script runs:
 
 ```bash
 tutorial/09_decomposition.sh
@@ -536,9 +411,7 @@ A plain-code loop that runs every project step and escalates, once per state:
 - **3 rejections in a row** (`supervisor.max_rejections`);
 - **more commits than** `budgets.max_rounds_per_artifact`.
 
-It also watches for **drift**: after every 5 merged changes it asks Jev whether the recent work advances the
-north star. With `drift` active, a clear "no" **pauses** the teams that start new work (analyzers and
-gates carry on) until a person runs `agentswarm resume`.
+It also watches for **drift**: after every 5 merged changes it asks Jev whether the recent work advances the north star. With `drift` active, a clear "no" **pauses** the teams that start new work (analyzers and gates carry on) until a person runs `agentswarm resume`.
 
 Its rules run offline in:
 
@@ -552,44 +425,28 @@ Where: `control/supervisor.py`.
 
 Shadow mode collects evidence; the point is eventually to let Jev act where it has earned it.
 
-1. **Per decision point.** `jev.active: ["gate:raw->experimental"]` makes that one point act while
-   everything else stays in shadow, so you promote points one at a time, as their data allows.
-2. **Thresholds from data.** `tune` finds, per question, the lowest pass and highest fail threshold that are
-   right at least 95% of the time, with Wilson lower bounds, and prints YAML for the gate. The step's
-   script does it on step 6's decisions, then the audit below:
+1. **Per decision point.** `jev.active: ["gate:raw->experimental"]` makes that one point act while everything else stays in shadow, so you promote points one at a time, as their data allows.
+2. **Thresholds from data.** `tune` finds, per question, the lowest pass and highest fail threshold that are right at least 95% of the time, with Wilson lower bounds, and prints YAML for the gate. The step's script does it on step 6's decisions, then the audit below:
 
    ```bash
    tutorial/11_jev_acts.sh   # tune, then the harder suite with the gate active, then the audit
    ```
 
-3. **Audit.** Run a suite with the gate active and measure how often it was wrong (`agentswarm evaluate
-   … --active "gate:*"`, then `agentswarm audit`).
-   The bounds: false promotions ≤ 5%, false rejections ≤ 10%, escalations ≤ 30%, each judged by its 95%
-   upper confidence limit, so a tiny sample is never "within bounds".
-4. **When Jev is down.** Retries for timeouts and busy answers; optionally `jev.fallback: <model>`, a
-   language model answering yes/no/unsure. Its decisions are marked `llm:` and never used for calibration.
-5. **Cheap first.** `model_tiers: [small, large]` on the executor: each rejection moves it up a tier, and
-   every commit records which model made it.
+3. **Audit.** Run a suite with the gate active and measure how often it was wrong (`agentswarm evaluate … --active "gate:*"`, then `agentswarm audit`). The bounds: false promotions ≤ 5%, false rejections ≤ 10%, escalations ≤ 30%, each judged by its 95% upper confidence limit, so a tiny sample is never "within bounds".
+4. **When Jev is down.** Retries for timeouts and busy answers; optionally `jev.fallback: <model>`, a language model answering yes/no/unsure. Its decisions are marked `llm:` and never used for calibration.
+5. **Cheap first.** `model_tiers: [small, large]` on the executor: each rejection moves it up a tier, and every commit records which model made it.
 
-*Results:* tuned on the first two suites, then audited with the gate active, the gate made one wrong
-promotion in 41 and no wrong rejection in 158. On 16 held-out tasks it had never been tuned on
-(`examples/greeter/evaluation/heldout/`) it made no wrong ruling at all. False rejections and escalations
-are within their bounds even by the cautious upper limit. False promotions aren't *proven* to be at or
-below 5% yet: that takes about 73 known promotions without an error, and each task yields about one. Every
-suite you add moves that number.
+*Results:* tuned on the first two suites, then audited with the gate active, the gate made one wrong promotion in 41 and no wrong rejection in 158. On 16 held-out tasks it had never been tuned on (`examples/greeter/evaluation/heldout/`) it made no wrong ruling at all. False rejections and escalations are within their bounds even by the cautious upper limit. False promotions aren't *proven* to be at or below 5% yet: that takes about 73 known promotions without an error, and each task yields about one. Every suite you add moves that number.
 
-Two habits the reports enforce: `tune` writes thresholds exactly and comments a block out when any question
-isn't ready, and `audit` prints one block per *cohort* (judge wording and model), never pooling them.
+Two habits the reports enforce: `tune` writes thresholds exactly and comments a block out when any question isn't ready, and `audit` prints one block per *cohort* (judge wording and model), never pooling them.
 
-Where: `judging/judgement.py` (`ModeTable`), `judging/tuning.py`, `judging/audit.py`,
-`judging/deciders.py`.
+Where: `judging/judgement.py` (`ModeTable`), `judging/tuning.py`, `judging/audit.py`, `judging/deciders.py`.
 
 ---
 
 ## Step 12 — A second domain: documents
 
-Nothing in steps 1–11 is about code except the teams' instructions and the evidence they accept. The
-`document` preset swaps those and keeps everything else:
+Nothing in steps 1–11 is about code except the teams' instructions and the evidence they accept. The `document` preset swaps those and keeps everything else:
 
 | Software | Documents |
 | --- | --- |
@@ -603,57 +460,41 @@ Nothing in steps 1–11 is about code except the teams' instructions and the evi
 tutorial/12_documents.sh
 ```
 
-A reviewer's problem only counts if it quotes at least 12 characters that really are in the file it names,
-so a model can't invent a complaint. The run stops at the human publishing gate:
+A reviewer's problem only counts if it quotes at least 12 characters that really are in the file it names, so a model can't invent a complaint. The run stops at the human publishing gate:
 
 ```bash
 tutorial/12_publish.sh
 ```
 
-The script approves it as a person would, runs the project again, and it is promoted to `published`. In the live run, the reviewers found a UK/US
-spelling mismatch and a piece of jargon; both were minor, so they stayed on the board for a person rather
-than becoming fix tasks.
+The script approves it as a person would, runs the project again, and it is promoted to `published`. In the live run, the reviewers found a UK/US spelling mismatch and a piece of jargon; both were minor, so they stayed on the board for a person rather than becoming fix tasks.
 
 Where: `teams/documents.py`, `core/presets/document.yaml`, `examples/handbook/`.
 
 ## Step 13 — Several projects, money and limits
 
-**Spend is an event.** Every model run reports its tokens (counted per call, so a run that fails halfway
-still records what it used), priced from `models.<name>.usd_per_million`, and lands on the board as `Spent`.
-Reports start with it: `spent: $1.23 (4 unpriced model runs)`.
+**Spend is an event.** Every model run reports its tokens (counted per call, so a run that fails halfway still records what it used), priced from `models.<name>.usd_per_million`, and lands on the board as `Spent`. Reports start with it: `spent: $1.23 (4 unpriced model runs)`.
 
-**Budgets.** `budgets.usd_per_day: 5` stops a project's teams from starting new actions once today's (UTC)
-spend reaches $5; the supervisor escalates once, and work resumes the next day. Gates keep judging: Jev is
-cheap, and the money budgets are about is in team actions.
+**Budgets.** `budgets.usd_per_day: 5` stops a project's teams from starting new actions once today's (UTC) spend reaches $5; the supervisor escalates once, and work resumes the next day. Gates keep judging: Jev is cheap, and the money budgets are about is in team actions.
 
-**A swarm.** One process, several projects, one scheduler that caps concurrent model calls, Jev requests per
-minute and sandbox runs:
+**A swarm.** One process, several projects, one scheduler that caps concurrent model calls, Jev requests per minute and sandbox runs:
 
 ```bash
 tutorial/13_swarm.sh          # two quickstart projects
 tutorial/13_swarm.sh live     # the greeter and the handbook together
 ```
 
-Each project keeps its own board, decision log, repository and budget. If one project fails, it is reported
-and the others finish; the command exits 1. `examples/swarm-live.yaml` runs the greeter and the handbook
-together with real models.
+Each project keeps its own board, decision log, repository and budget. If one project fails, it is reported and the others finish; the command exits 1. `examples/swarm-live.yaml` runs the greeter and the handbook together with real models.
 
 Where: `board/spend.py`, `control/budget.py`, `control/scheduler.py`, `swarm.py`.
 
 ## Step 14 — What keeps it safe
 
-An independent audit ([CODEX_AUDIT.md](../CODEX_AUDIT.md)) looked for the places where happy-path tests
-don't reach, and Phase 7 closed them:
+An independent audit ([CODEX_AUDIT.md](../CODEX_AUDIT.md)) looked for the places where happy-path tests don't reach, and Phase 7 closed them:
 
-- **Code a model wrote can't reach the host.** Commands run on a throwaway copy of the checkout without
-  `.git`; host git runs with hooks off and without your keys; every file the framework or a tool reads or
-  writes stays inside the project, links included.
-- **A crash can't lose a promotion.** A level branch moves in three recorded steps, and the next step repairs
-  a move that was interrupted.
-- **One owner.** A second process can't open a running project (`status` still works: it only reads the
-  board). A worker whose claim was taken over has its result thrown away.
-- **Evidence means evidence.** A test that couldn't run is never proof of a bug, a hidden-test outage is
-  never ground truth, and parked or dropped work is left alone by every controller.
+- **Code a model wrote can't reach the host.** Commands run on a throwaway copy of the checkout without `.git`; host git runs with hooks off and without your keys; every file the framework or a tool reads or writes stays inside the project, links included.
+- **A crash can't lose a promotion.** A level branch moves in three recorded steps, and the next step repairs a move that was interrupted.
+- **One owner.** A second process can't open a running project (`status` still works: it only reads the board). A worker whose claim was taken over has its result thrown away.
+- **Evidence means evidence.** A test that couldn't run is never proof of a bug, a hidden-test outage is never ground truth, and parked or dropped work is left alone by every controller.
 
 Where: [design/phase-7-hardening.md](../docs/design/phase-7-hardening.md), and section 15 of the reference.
 
@@ -664,19 +505,9 @@ tutorial/15_measure.sh          # offline: the prompts, and the experiment's gro
 tutorial/15_measure.sh live     # the experiment on two tasks
 ```
 
-Everything so far shows that AgentSwarm *runs*. The question it was built for is different: **do
-decomposition, specialized teams and independent checks beat simpler setups, and where?** The research
-behind this is collected in [RESEARCH.md](../docs/RESEARCH.md). Its strongest finding sets the bar: one
-model making several independent attempts, with tests picking the winner, beats most elaborate setups at
-the same cost. A swarm has to beat *that*.
+Everything so far shows that AgentSwarm *runs*. The question it was built for is different: **do decomposition, specialized teams and independent checks beat simpler setups, and where?** The research behind this is collected in [RESEARCH.md](../docs/RESEARCH.md). Its strongest finding sets the bar: one model making several independent attempts, with tests picking the winner, beats most elaborate setups at the same cost. A swarm has to beat *that*.
 
-**The tasks.** Toy tasks can't show it: one model call solves them. The inventory suite
-(`examples/inventory/`) is a small tool with several modules, and 25 tasks in five levels: one function;
-several interacting functions; a multi-file change; a vague feature that needs design (categories, undo,
-CSV import); and features across modules where integration and edge cases decide (orders that reserve
-stock, FIFO valuation, kits). Each has hidden tests and a reference solution, and a test checks that every
-reference passes and the untouched seed fails. Writing the references caught mistakes in the hidden tests,
-and the models later caught a bug in a reference: ground truth needs checking too.
+**The tasks.** Toy tasks can't show it: one model call solves them. The inventory suite (`examples/inventory/`) is a small tool with several modules, and 25 tasks in five levels: one function; several interacting functions; a multi-file change; a vague feature that needs design (categories, undo, CSV import); and features across modules where integration and edge cases decide (orders that reserve stock, FIFO valuation, kits). Each has hidden tests and a reference solution, and a test checks that every reference passes and the untouched seed fails. Writing the references caught mistakes in the hidden tests, and the models later caught a bug in a reference: ground truth needs checking too.
 
 **The experiment** (`examples/goldilocks/complexity.yaml`) compares four setups with fixed models:
 
@@ -687,19 +518,11 @@ and the models later caught a bug in a reference: ground truth needs checking to
 | gemma4-e4b, up to 3 attempts (`attempts: 3`), checks pick | what extra compute alone buys |
 | AgentSwarm on gemma4-e4b: the same plus a decomposer and three narrow red teams | the hypothesis |
 
-The swarm is the 3-attempt setup *plus* its own parts, so any difference comes from those parts. Getting
-it there was instructive. Jev's untuned thresholds first kept the decomposer from splitting at all; once
-it split, it split three levels deep into 57 tasks that stalled behind one slow model: the over-decomposition
-the research warns about. The setup now splits once at most.
+The swarm is the 3-attempt setup *plus* its own parts, so any difference comes from those parts. Getting it there was instructive. Jev's untuned thresholds first kept the decomposer from splitting at all; once it split, it split three levels deep into 57 tasks that stalled behind one slow model: the over-decomposition the research warns about. The setup now splits once at most.
 
-**Measuring single calls.** Whole-project runs mix the model with everything around it. `agentswarm probe`
-asks each model the same one-shot prompts (write this code; find the bug in this change), scores them with
-plain code, and counts invalid JSON, cut-off and missing answers separately. `agentswarm rate` has Jev rate
-every task's difficulty. Routing between models is built (`agentswarm routing`), but stays unused until the
-experiment shows there is something worth routing.
+**Measuring single calls.** Whole-project runs mix the model with everything around it. `agentswarm probe` asks each model the same one-shot prompts (write this code; find the bug in this change), scores them with plain code, and counts invalid JSON, cut-off and missing answers separately. `agentswarm rate` has Jev rate every task's difficulty. Routing between models is built (`agentswarm routing`), but stays unused until the experiment shows there is something worth routing.
 
-Where: [design/phase-8-goldilocks.md](../docs/design/phase-8-goldilocks.md), `evaluation/` (`compare.py`,
-`probe.py`, `difficulty.py`, `imports.py`), [MODELS.md](../docs/MODELS.md).
+Where: [design/phase-8-goldilocks.md](../docs/design/phase-8-goldilocks.md), `evaluation/` (`compare.py`, `probe.py`, `difficulty.py`, `imports.py`), [MODELS.md](../docs/MODELS.md).
 
 ---
 
@@ -713,23 +536,18 @@ Where: [design/phase-8-goldilocks.md](../docs/design/phase-8-goldilocks.md), `ev
 | router, supervisor, escalation queue | which judge sits at which gate; which points are active |
 | teams as classes (executor, analyzers, decomposer) | constraints, budgets, supervisor limits, presets |
 
-The document domain (step 12) is the proof: only the right-hand column changed, plus three small reviewer
-classes and one judge.
+The document domain (step 12) is the proof: only the right-hand column changed, plus three small reviewer classes and one judge.
 
 ## What's still ahead
 
-- **Phase 8's answer:** the complexity experiment on all 25 tasks, reported honestly, including where the
-  swarm loses. What happens next depends on it.
-- **Phase 9, conventions that hold** (layout, lint and type checks as hard checks), **Phase 10, robustness
-  for high-level goals** (attempts selected by checks, protected tests, a clarifier, verified decompositions)
-  and **Phase 11, project types as data**: planned, paused until Phase 8 answers.
+- **Phase 8's answer:** the complexity experiment on all 25 tasks, reported honestly, including where the swarm loses. What happens next depends on it.
+- **Phase 9, conventions that hold** (layout, lint and type checks as hard checks), **Phase 10, robustness for high-level goals** (attempts selected by checks, protected tests, a clarifier, verified decompositions) and **Phase 11, project types as data**: planned, paused until Phase 8 answers.
 - **Proving the gate's false-promotion rate:** more evaluation tasks, until about 73 known promotions.
 - The backlog's deferred items ([BACKLOG.md](../docs/BACKLOG.md)).
 
 ## Where to read more
 
 - [REFERENCE.md](../docs/REFERENCE.md): every config key, event, team, judge, report and command.
-- [design/](../docs/design/): one document per phase, each ending with *every decision made during
-  implementation* and why, including the bugs the tests caught.
+- [design/](../docs/design/): one document per phase, each ending with *every decision made during implementation* and why, including the bugs the tests caught.
 - [BACKLOG.md](../docs/BACKLOG.md): what was deliberately postponed, why, and when it's due.
 - [FRAMEWORK_PROPOSAL.md](../FRAMEWORK_PROPOSAL.md): the original design.

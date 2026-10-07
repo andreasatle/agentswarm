@@ -273,10 +273,10 @@ class PromptCatalogue:
         return f"""\
 # Prompt catalogue
 
-Generated from the code by `agentswarm prompts`; do not edit by hand. Regenerate with
+Generated from the code by `agentswarm prompts`; do not edit by hand. Regenerate with \
 `{self.REGENERATE}` (a test fails when this file is out of date).
 
-Every model call in AgentSwarm, and every question asked of Jev, as the model sees it. Calls that share
+Every model call in AgentSwarm, and every question asked of Jev, as the model sees it. Calls that share \
 a payload, tools and answer are shown as one family; only their instructions differ.
 
 ## How every model call is made
@@ -289,23 +289,23 @@ A worker (`llm/workers.py`) makes each call the same way:
 {self._indent(system_example, "   ")}
    ```
 
-2. **User message:** exactly one typed payload (a Pydantic model), serialized as JSON between `<data>` and
-   `</data>`. Never free text. Each family below shows a sample.
-3. **Tools** (for calls that have them): methods whose signature and docstring are all the model sees of
-   them. A tool returns errors as text, so the model can correct itself.
-4. **Answer:** the model must answer with the output model, through the provider's structured output (or a
-   tool call where that is missing). The model sees the JSON schema Pydantic derives: field names, types and
-   the class docstring, **not** the `#` comments in the source shown below.
-5. **When no valid answer comes:** if the agent ends without one (local models often finish in plain
-   text), the worker asks for the answer alone, up to {LangChainWorker.FINAL_ANSWER_TRIES} times:
+2. **User message:** exactly one typed payload (a Pydantic model), serialized as JSON between `<data>` and \
+`</data>`. Never free text. Each family below shows a sample.
+3. **Tools** (for calls that have them): methods whose signature and docstring are all the model sees of \
+them. A tool returns errors as text, so the model can correct itself.
+4. **Answer:** the model must answer with the output model, through the provider's structured output (or a \
+tool call where that is missing). The model sees the JSON schema Pydantic derives: field names, types and \
+the class docstring, **not** the `#` comments in the source shown below.
+5. **When no valid answer comes:** if the agent ends without one (local models often finish in plain \
+text), the worker asks for the answer alone, up to {LangChainWorker.FINAL_ANSWER_TRIES} times:
 
    ```text
    {LangChainWorker.FINAL_ANSWER}
    ```
 
-   If that fails too, or the provider fails, the call raises `WorkerError` and the team escalates (a
-   reviewer's failure is a notice that doesn't park the artifact). A run stops after the team's
-   `max_model_calls` model calls (40 unless the team configuration says otherwise)."""
+   If that fails too, or the provider fails, the call raises `WorkerError` and the team escalates (a \
+reviewer's failure is a notice that doesn't park the artifact). A run stops after the team's \
+`max_model_calls` model calls (40 unless the team configuration says otherwise)."""
 
     def _index(self) -> str:
         rows = ["| Family | Team names (`use:`) | Answer |", "| --- | --- | --- |"]
@@ -346,8 +346,8 @@ A worker (`llm/workers.py`) makes each call the same way:
         return f"""\
 ## Jev questions
 
-Jev answers typed questions about a typed state; it returns a probability per question, never text. Every
-judge asks yes/no questions phrased so that **yes is good**. A judge's version is a hash of its wording:
+Jev answers typed questions about a typed state; it returns a probability per question, never text. Every \
+judge asks yes/no questions phrased so that **yes is good**. A judge's version is a hash of its wording: \
 new wording starts new calibration data, so a reworded question has to earn its thresholds again.
 
 Every judge is shown the same state:
@@ -377,9 +377,9 @@ The questions are sent built from the judge's fields. For `ChangeReadiness`:
         for q in judge.questions:
             entry = f"- **{q.field}**: {q.ask.instructions}"
             if q.ask.yes or q.ask.no:
-                entry += f"\n  Yes means: {q.ask.yes or '-'}. No means: {q.ask.no or '-'}."
+                entry += f" Yes means: {q.ask.yes or '-'}. No means: {q.ask.no or '-'}."
             if q.fails is not None:
-                entry += f'\n  A clear no becomes a finding of kind `{q.fails.kind}`: "{q.fails.message}".'
+                entry += f' A clear no becomes a finding of kind `{q.fails.kind}`: "{q.fails.message}".'
             lines.append(entry)
         return "\n\n".join(lines[:2]) + "\n\n" + "\n".join(lines[2:])
 

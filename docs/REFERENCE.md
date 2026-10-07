@@ -1,10 +1,6 @@
 # AgentSwarm Reference
 
-Everything in one place: concepts, files, configuration, events, teams, gates, judges, the decision log,
-evaluation and the command line. For a guided walk through the system, read the [tutorial](../tutorial/)
-first. The design and every decision behind it are in [FRAMEWORK_PROPOSAL.md](../FRAMEWORK_PROPOSAL.md)
-and [docs/design/](design/); deferred work is in [BACKLOG.md](BACKLOG.md). Section numbers (§) refer to
-the proposal.
+Everything in one place: concepts, files, configuration, events, teams, gates, judges, the decision log, evaluation and the command line. For a guided walk through the system, read the [tutorial](../tutorial/) first. The design and every decision behind it are in [FRAMEWORK_PROPOSAL.md](../FRAMEWORK_PROPOSAL.md) and [docs/design/](design/); deferred work is in [BACKLOG.md](BACKLOG.md). Section numbers (§) refer to the proposal.
 
 ## Status
 
@@ -92,13 +88,11 @@ Under the `--root` directory (it must be mountable by Docker, i.e. under `$HOME`
 | `.agentswarm.lock` | Held by the one process that has the project open (its pid inside). |
 | `identity.json` | The project name and levels this root was created with; another config is refused. |
 
-Branches: one per level above the lowest (`experimental`, `candidate`, ...), plus `raw/<id>-<slug>` per
-artifact. Analyzers' scratch tests live in `_analysis/` inside a detached checkout and are never committed.
+Branches: one per level above the lowest (`experimental`, `candidate`, ...), plus `raw/<id>-<slug>` per artifact. Analyzers' scratch tests live in `_analysis/` inside a detached checkout and are never committed.
 
 ## 4. Configuration
 
-One YAML file per project, validated into `ProjectConfig` when loaded. Unknown keys are errors.
-`agentswarm config FILE` prints the effective configuration (with the domain preset applied).
+One YAML file per project, validated into `ProjectConfig` when loaded. Unknown keys are errors. `agentswarm config FILE` prints the effective configuration (with the domain preset applied).
 
 ### Top level
 
@@ -118,10 +112,7 @@ One YAML file per project, validated into `ProjectConfig` when loaded. Unknown k
 | `supervisor` | see below | | |
 | `jev` | see below | | |
 
-Validation rules: teams watch known levels; gates connect adjacent levels and name defined checks; teams
-name defined models and checks; `requires:` names teams watching the gate's lower level; the gate out of
-the lowest level can't require sign-offs; a judge sits only on the gate out of the lowest level (trains promote on sign-offs; backlog);
-`jev.fallback` names a defined model; a team sets `model` or `model_tiers`, not both.
+Validation rules: teams watch known levels; gates connect adjacent levels and name defined checks; teams name defined models and checks; `requires:` names teams watching the gate's lower level; the gate out of the lowest level can't require sign-offs; a judge sits only on the gate out of the lowest level (trains promote on sign-offs; backlog); `jev.fallback` names a defined model; a team sets `model` or `model_tiers`, not both.
 
 ### `models.<name>`
 
@@ -196,22 +187,15 @@ the lowest level can't require sign-offs; a judge sits only on the gate out of t
 
 ### Presets
 
-`domain: software` loads `src/agentswarm/core/presets/software.yaml`: levels raw → experimental →
-candidate → production; a `unit_tests` check (pytest); the executor, integration tester and red team (all
-on `models.coder`, which the project must define); a judged raw gate; a release train to candidate needing
-both analyzers' sign-offs; a human production gate.
+`domain: software` loads `src/agentswarm/core/presets/software.yaml`: levels raw → experimental → candidate → production; a `unit_tests` check (pytest); the executor, integration tester and red team (all on `models.coder`, which the project must define); a judged raw gate; a release train to candidate needing both analyzers' sign-offs; a human production gate.
 
-`domain: document` loads `core/presets/document.yaml`: levels draft → reviewed → final → published; a
-`check_doc` check (the project's seed provides `tools/check_doc.py`); an outliner and a writer at draft, a
-consistency and a fact checker at reviewed, an audience reviewer at final (all on `models.main`); a gate
-judged by `SectionReadiness`; sign-off trains; a human publishing gate.
+`domain: document` loads `core/presets/document.yaml`: levels draft → reviewed → final → published; a `check_doc` check (the project's seed provides `tools/check_doc.py`); an outliner and a writer at draft, a consistency and a fact checker at reviewed, an audience reviewer at final (all on `models.main`); a gate judged by `SectionReadiness`; sign-off trains; a human publishing gate.
 
 A project's own top-level keys replace the preset's whole (listing `teams` replaces all preset teams).
 
 ## 5. Events
 
-Every state change is one of these, appended to the log. "Change" marks events that change the
-artifact's version (`BoardViews.version`), which is what teams key on to act once per change.
+Every state change is one of these, appended to the log. "Change" marks events that change the artifact's version (`BoardViews.version`), which is what teams key on to act once per change.
 
 | Event | Fields | Effect on the views | Change |
 | --- | --- | --- | --- |
@@ -232,18 +216,11 @@ artifact's version (`BoardViews.version`), which is what teams key on to act onc
 | `Escalated` | artifact (or none: project-wide), reason, approval_for | Open escalation; commit judged. `approval_for` marks a human gate's own request. | |
 | `EscalationResolved` | artifact, resolution (`retry`/`accept`/`drop`), note | Clears the escalation; accept re-queues the last commit, approved; drop retires the artifact. | retry only |
 
-Finding kinds: `test_failure`, `build_failure`, `out_of_scope`, `incomplete`, `security`, `inconsistent`,
-`too_large`, `edge_case`, `unsupported`, `unclear`. Severities: `info`, `minor`, `major`, `blocker` (major and blocker are
-"blocking": they hold trains and get routed).
+Finding kinds: `test_failure`, `build_failure`, `out_of_scope`, `incomplete`, `security`, `inconsistent`, `too_large`, `edge_case`, `unsupported`, `unclear`. Severities: `info`, `minor`, `major`, `blocker` (major and blocker are "blocking": they hold trains and get routed).
 
 ## 6. Views (`BoardViews`)
 
-`artifact(id)`, `artifacts()`, `artifacts_at(level)` (live ones), `open_findings(id)`, `claim_on(id, now)`,
-`active_claims(now)`, `history(id)`, `last_commit(id)`, `unjudged_commit(id)`, `version(id)`,
-`merge_commit(id)`, `signed_off(id, team)`, `signed_off_by(id)`, `is_umbrella(id)`, `children(id)`,
-`depth(id)`, `fix_for(finding)`, `last_activity(id)`, `open_escalation(id)`, `open_escalations()`,
-`accepted(id)`, `dropped(id)`, `active(id)`, `paused`, `spent()`, `spent_since(t)`, `project_escalations()`,
-`moving()`. Folding the same log always gives equal views (`Blackboard.rebuild`).
+`artifact(id)`, `artifacts()`, `artifacts_at(level)` (live ones), `open_findings(id)`, `claim_on(id, now)`, `active_claims(now)`, `history(id)`, `last_commit(id)`, `unjudged_commit(id)`, `version(id)`, `merge_commit(id)`, `signed_off(id, team)`, `signed_off_by(id)`, `is_umbrella(id)`, `children(id)`, `depth(id)`, `fix_for(finding)`, `last_activity(id)`, `open_escalation(id)`, `open_escalations()`, `accepted(id)`, `dropped(id)`, `active(id)`, `paused`, `spent()`, `spent_since(t)`, `project_escalations()`, `moving()`. Folding the same log always gives equal views (`Blackboard.rebuild`).
 
 ## 7. Teams
 
@@ -262,12 +239,7 @@ Every team's instructions, payload, tools and answer are in [PROMPTS.md](PROMPTS
 | `fact_checker` | above lowest | Claims that are wrong or unsupported. | Reviewing analyzer; kind `unsupported`. |
 | `audience_reviewer` | above lowest | What the intended reader would find unclear. | Reviewing analyzer; kind `unclear`. |
 
-Analyzers examine a merged artifact in a detached checkout of its merge commit; the change shown is what
-the merge brought into the level (`merge^1..merge`). They ask their relevance judge first (if configured),
-and keep only problems with evidence: for code, a test they wrote that *fails* (a test that can't run is no
-evidence); for prose, a verbatim quote of at least 12 characters that really is in the named file. They end
-with a sign-off. Pausable teams (executor, decomposer) wait while the project is paused; analyzers
-don't.
+Analyzers examine a merged artifact in a detached checkout of its merge commit; the change shown is what the merge brought into the level (`merge^1..merge`). They ask their relevance judge first (if configured), and keep only problems with evidence: for code, a test they wrote that *fails* (a test that can't run is no evidence); for prose, a verbatim quote of at least 12 characters that really is in the named file. They end with a sign-off. Pausable teams (executor, decomposer) wait while the project is paused; analyzers don't.
 
 ## 8. Gates and promotion
 
@@ -277,13 +249,9 @@ don't.
 | `TrainPromoter` | gates above | Longest ready prefix of the lower level's first-parent line (signed off, no blocking findings, unclaimed, no open escalation except the gate's own approval request; dropped artifacts pass); hard checks on its last commit (the first failing commit gets a blocker); fast-forward. Human gates escalate once and promote up to the last accepted artifact. |
 | `JoinPromoter` | umbrellas | When every child reached the next level: that level's hard checks on its tip, then `JoinCheck`; else escalate once. |
 
-A person's `accept` replaces judgement (Jev, `requires_human`, a failed join) for one gate, never the hard
-checks.
+A person's `accept` replaces judgement (Jev, `requires_human`, a failed join) for one gate, never the hard checks.
 
-Every level branch moves through `LevelPublisher`: record `PromotionStarted`, move the branch by
-compare-and-swap, record the promotions with `PromotionSettled`. At the start of every project step,
-`recover()` settles a move a crash interrupted: recorded as promoted if the branch reached its target,
-otherwise as not having happened (the commit is judged again).
+Every level branch moves through `LevelPublisher`: record `PromotionStarted`, move the branch by compare-and-swap, record the promotions with `PromotionSettled`. At the start of every project step, `recover()` settles a move a crash interrupted: recorded as promoted if the branch reached its target, otherwise as not having happened (the commit is judged again).
 
 ## 9. Judges and decision points
 
@@ -299,21 +267,13 @@ otherwise as not having happened (the commit is judged again).
 | `JoinCheck` | `accomplished` | `join:<level>-><next>` |
 | `DriftCheck` | `on_course` | `drift` |
 
-**Policy (§11.2):** per question, `p ≥ pass` passes, `p ≤ fail` fails, otherwise unsure; any fail rejects
-(one finding per failed question with `Fails`), else any unsure escalates, else promote.
-**Modes:** each point is shadow (logged, the system acts as if there were no judge) or active, resolved by
-`jev.active` patterns. **Versions and cohorts:** a judge's version is a hash of its questions' wording;
-decisions record it and the concrete model, and reports keep each cohort (point, version, model) apart.
+**Policy (§11.2):** per question, `p ≥ pass` passes, `p ≤ fail` fails, otherwise unsure; any fail rejects (one finding per failed question with `Fails`), else any unsure escalates, else promote. **Modes:** each point is shadow (logged, the system acts as if there were no judge) or active, resolved by `jev.active` patterns. **Versions and cohorts:** a judge's version is a hash of its questions' wording; decisions record it and the concrete model, and reports keep each cohort (point, version, model) apart.
 
-**Deciders:** `JevDecider` (with retries for timeouts and 429/5xx), `LLMDecider` (fallback; yes/no/unsure →
-0.95/0.05/0.5, marked `llm:<model>`, excluded from calibration), `FallbackDecider`, `FakeDecider`
-(answers per spec, for tests).
+**Deciders:** `JevDecider` (with retries for timeouts and 429/5xx), `LLMDecider` (fallback; yes/no/unsure → 0.95/0.05/0.5, marked `llm:<model>`, excluded from calibration), `FallbackDecider`, `FakeDecider` (answers per spec, for tests).
 
 ## 10. Decision log and outcomes
 
-A `Decision` holds: id, point, artifact, commit, base (where the change forked, at judging time), mode,
-judge, judge_version, state (what the judge saw: north star, task, open findings, diff truncated to 60,000
-characters, proposal), answers, ruling, model, time.
+A `Decision` holds: id, point, artifact, commit, base (where the change forked, at judging time), mode, judge, judge_version, state (what the judge saw: north star, task, open findings, diff truncated to 60,000 characters, proposal), answers, ruling, model, time.
 
 | Outcome source | Strength | Ground truth for |
 | --- | --- | --- |
@@ -331,33 +291,19 @@ Every outcome is kept; readers use the strongest, then the latest.
 | Tuning | `tune` | Lowest pass / highest fail threshold reaching a target precision (Wilson bounds). YAML per gate and model, written exactly; pasteable only when every question of the judge is tuned and ready, otherwise commented out with the reasons. "Ready" is in-sample: confirm on held-out tasks. |
 | Gate audit | `audit` | Active gate rulings per cohort: false promotions (≤ 5%), false rejections (≤ 10%), escalations (≤ 30%), judged by the 95% Wilson upper bound. It audits the judge's rulings, not the promotions that followed. |
 
-`label` offers only decisions asked with the judge's current wording, so a person answers the question that
-was judged.
+`label` offers only decisions asked with the judge's current wording, so a person answers the question that was judged.
 
 ## 11. Controllers
 
-- **FindingRouter:** open major/blocker findings above the lowest level become one fix artifact each
-  (`fixes` = the finding, parent = the artifact); a finding is resolved when its fix reaches its level.
-- **Supervisor:** escalates stalls (time since an artifact's last event), repeated rejections and rounds
-  over budget, once per state; asks `DriftCheck` after every N merged changes and pauses on a clear "no"
-  when `drift` is active.
-  It also escalates once a day, project-wide, when the daily budget is spent.
+- **FindingRouter:** open major/blocker findings above the lowest level become one fix artifact each (`fixes` = the finding, parent = the artifact); a finding is resolved when its fix reaches its level.
+- **Supervisor:** escalates stalls (time since an artifact's last event), repeated rejections and rounds over budget, once per state; asks `DriftCheck` after every N merged changes and pauses on a clear "no" when `drift` is active. It also escalates once a day, project-wide, when the daily budget is spent.
 - **FindingRouter, joins and team runners skip inactive artifacts** (parked or dropped).
 - **Escalations:** `agentswarm escalations / resolve / resume`; needs only the board and decision log.
-- **Scheduler** (one per process; in a swarm, shared): at most `max_model_calls` team actions at once
-  (default 4, served in arrival order), `jev_per_minute` Jev requests (1,200), `max_sandboxes` sandbox runs
-  (4).
+- **Scheduler** (one per process; in a swarm, shared): at most `max_model_calls` team actions at once (default 4, served in arrival order), `jev_per_minute` Jev requests (1,200), `max_sandboxes` sandbox runs (4).
 
 ## 12. Evaluation
 
-A suite (`examples/greeter/evaluation/suite.yaml`, `hard/suite.yaml`, and `heldout/suite.yaml`, 16 tasks the
-thresholds were never tuned on) names a project config, a judge and a test command
-(`test_failure_exit_codes`, default `[1, 2]`: for hidden tests a collection error means the code under test
-can't be imported, i.e. incomplete), and lists tasks with hidden tests and reference solutions. Before any
-run, the evaluator checks that the first gate's judge asks what it scores and that scripted variants face an
-executor-only project; only that gate's decisions get truths. Hidden tests that can't run record no
-outcome. `EvaluationRun` runs every task in
-every variant in a fresh project, Jev in shadow (or `--active`), with one shared decision log:
+A suite (`examples/greeter/evaluation/suite.yaml`, `hard/suite.yaml`, and `heldout/suite.yaml`, 16 tasks the thresholds were never tuned on) names a project config, a judge and a test command (`test_failure_exit_codes`, default `[1, 2]`: for hidden tests a collection error means the code under test can't be imported, i.e. incomplete), and lists tasks with hidden tests and reference solutions. Before any run, the evaluator checks that the first gate's judge asks what it scores and that scripted variants face an executor-only project; only that gate's decisions get truths. Hidden tests that can't run record no outcome. `EvaluationRun` runs every task in every variant in a fresh project, Jev in shadow (or `--active`), with one shared decision log:
 
 | Variant | Writes | Known truths |
 | --- | --- | --- |
@@ -366,9 +312,7 @@ every variant in a fresh project, Jev in shadow (or `--active`), with one shared
 | `out-of-scope` | the same + an unrelated file and function | not in scope |
 | `trivial-tests` | reference + `assert True` test | tests not relevant, not complete |
 
-Mutation operators (on changed lines of changed non-test files, at most 12 per file): comparison and
-arithmetic swaps, flipped booleans, changed strings and integers, `return x → return None`, negated `if`
-conditions. `tests_relevant` is true when the change added tests and they kill at least half the mutants.
+Mutation operators (on changed lines of changed non-test files, at most 12 per file): comparison and arithmetic swaps, flipped booleans, changed strings and integers, `return x → return None`, negated `if` conditions. `tests_relevant` is true when the change added tests and they kill at least half the mutants.
 
 ## 13. Command line
 
@@ -400,37 +344,28 @@ projects:                       # paths relative to this file; names and roots m
   - {config: handbook/project.yaml, root: ~/agentswarm-runs/swarm-live/handbook}
 ```
 
-The CLI loads `.env` from the working directory (never overriding the shell): `TYPESAFE_API_KEY` for Jev,
-and any provider keys LangChain reads.
+The CLI loads `.env` from the working directory (never overriding the shell): `TYPESAFE_API_KEY` for Jev, and any provider keys LangChain reads.
 
 ## 14. Environment and tests
 
 - Python 3.13, `uv`. Provider extras: `uv sync --extra ollama` (or `openai`, `anthropic`, `--all-extras`).
 - Docker with the sandbox image (section 4). With Colima, project roots must be under `$HOME`.
 - `uv run pytest` (≈ 420 tests, offline, about 2½ minutes); `uv run ruff check .`; `uv run pyright` (strict).
-- Opt-in live tests: `-m docker` (needs a daemon), `-m live` with `AGENTSWARM_LIVE_MODEL=ollama:gemma4:e4b`,
-  `-m jev` with `AGENTSWARM_JEV_MODEL=jev-latest` and the key in `.env`.
+- Opt-in live tests: `-m docker` (needs a daemon), `-m live` with `AGENTSWARM_LIVE_MODEL=ollama:gemma4:e4b`, `-m jev` with `AGENTSWARM_JEV_MODEL=jev-latest` and the key in `.env`.
 
 ## 15. Safety boundaries
 
-- **Sandbox:** commands run on a throwaway copy of the checkout without `.git`, in Docker without network,
-  with a read-only root, dropped capabilities and limits; output is capped (start and end kept).
-- **Host git:** hooks and the filesystem monitor off, a minimal environment (no provider keys), and each
-  worktree pinned to the git directory recorded when it was created.
-- **Host files:** every read and write of project files goes through `ConfinedFiles`: relative paths only,
-  no `.git`, no links leading outside, bounded reads.
-- **Ownership:** one process per project root (`RootLock`); claims carry ids; a worker whose claim was
-  superseded has its result discarded (`ClaimRegistry.publish`).
-- **Startup:** teams and judges are checked before anything is written; a failed open closes what it
-  opened; a root keeps its project name and levels (`RootIdentity`).
+- **Sandbox:** commands run on a throwaway copy of the checkout without `.git`, in Docker without network, with a read-only root, dropped capabilities and limits; output is capped (start and end kept).
+- **Host git:** hooks and the filesystem monitor off, a minimal environment (no provider keys), and each worktree pinned to the git directory recorded when it was created.
+- **Host files:** every read and write of project files goes through `ConfinedFiles`: relative paths only, no `.git`, no links leading outside, bounded reads.
+- **Ownership:** one process per project root (`RootLock`); claims carry ids; a worker whose claim was superseded has its result discarded (`ClaimRegistry.publish`).
+- **Startup:** teams and judges are checked before anything is written; a failed open closes what it opened; a root keeps its project name and levels (`RootIdentity`).
 
 ## 16. Extending
 
-- **A team:** a class with `name`, `watches`, `pausable`, `relevant(ctx)` and `async act(ctx, worktree) ->
-  list[Event]` (never write the board yourself); register a factory in `TeamCatalog`.
+- **A team:** a class with `name`, `watches`, `pausable`, `relevant(ctx)` and `async act(ctx, worktree) -> list[Event]` (never write the board yourself); register a factory in `TeamCatalog`.
 - **An analyzer:** subclass `Analyzer`, set `INSTRUCTIONS` and `KIND`.
-- **A judge:** a Pydantic model whose fields are `Annotated[NoulAnswer, Ask("..."), Fails(kind, "...")]`;
-  register it in `JudgeCatalog`. Gate judges need `Fails` on every question.
+- **A judge:** a Pydantic model whose fields are `Annotated[NoulAnswer, Ask("..."), Fails(kind, "...")]`; register it in `JudgeCatalog`. Gate judges need `Fails` on every question.
 - **A check:** any command, in `checks:`.
 - **A domain:** a preset YAML in `core/presets/<domain>.yaml`, like `software` and `document`.
 - **A model provider:** nothing to code; install its LangChain package and name it in `models:`.

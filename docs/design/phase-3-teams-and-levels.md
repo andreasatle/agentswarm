@@ -1,56 +1,37 @@
 # Phase 3: More teams and levels
 
-Status: **complete.** All five questions decided as recommended (the user chose to let the
-implementation proceed on the recommendations). Proposal sections: §9 (git), §10 (teams), §11.4 (join checks),
-§12.1 (relevance filters), §14.1 (supervisor).
+Status: **complete.** All five questions decided as recommended (the user chose to let the implementation proceed on the recommendations). Proposal sections: §9 (git), §10 (teams), §11.4 (join checks), §12.1 (relevance filters), §14.1 (supervisor).
 
-**Exit criterion (§19):** a multi-artifact goal reaches `candidate`; drift and stall escalations are
-triggered in tests. Added here: relevance decisions are logged with automatic outcomes, and an
-escalated artifact can be resolved by a human.
+**Exit criterion (§19):** a multi-artifact goal reaches `candidate`; drift and stall escalations are triggered in tests. Added here: relevance decisions are logged with automatic outcomes, and an escalated artifact can be resolved by a human.
 
 Phase 3 is the largest phase, so it comes in two parts with their own checkpoints:
 
-- **3a, teams and the candidate level:** clean-ups, findings that can be resolved, analyzer teams with
-  Jev relevance filters, fix routing, and promotion above `experimental`.
-- **3b, decomposition and supervision:** splitting large goals, join checks, the supervisor, and the
-  human escalation queue.
+- **3a, teams and the candidate level:** clean-ups, findings that can be resolved, analyzer teams with Jev relevance filters, fix routing, and promotion above `experimental`.
+- **3b, decomposition and supervision:** splitting large goals, join checks, the supervisor, and the human escalation queue.
 
 ## Where we start
 
-- One team (the executor) at the lowest level; one gate (`raw → experimental`) with a Jev judge in shadow
-  mode; 56 calibrated decisions.
-- Levels are per project already (no level name is hard-coded), but two leftovers are software-flavoured:
-  the judge is named `RawToExperimental`, and every project spells out its whole ladder.
+- One team (the executor) at the lowest level; one gate (`raw → experimental`) with a Jev judge in shadow mode; 56 calibrated decisions.
+- Levels are per project already (no level name is hard-coded), but two leftovers are software-flavoured: the judge is named `RawToExperimental`, and every project spells out its whole ladder.
 - Findings have no identity, so nothing can say "this finding is fixed".
-- Promotion only exists into the second level; above it, level branches mix many artifacts, and
-  "promote artifact X to candidate" is undefined (backlog).
+- Promotion only exists into the second level; above it, level branches mix many artifacts, and "promote artifact X to candidate" is undefined (backlog).
 - Escalated artifacts stay parked forever (backlog).
 
 ## 3a. Teams and the candidate level
 
 ### Clean-ups from the level discussion
 
-- **Judge named for what it asks.** `RawToExperimental` becomes `ChangeReadiness` ("is this change in
-  scope, tested, and complete?"). It can sit at any project's first gate, including a document
-  project's `draft → reviewed`. `JudgeCatalog` keeps `RawToExperimental` as an alias, so the Phase 2
-  decision logs still load.
-- **Domain presets.** `domain: software` supplies default `levels`, `checks`, `teams` and `gates` from a
-  preset file in the package (`core/presets/software.yaml`); the project's own keys replace the
-  preset's, key by key (a project that lists `gates` replaces all preset gates, no deep merging, so
-  the result is easy to predict). `agentswarm config CONFIG` prints the effective configuration.
-  The document preset arrives in Phase 5.
+- **Judge named for what it asks.** `RawToExperimental` becomes `ChangeReadiness` ("is this change in scope, tested, and complete?"). It can sit at any project's first gate, including a document project's `draft → reviewed`. `JudgeCatalog` keeps `RawToExperimental` as an alias, so the Phase 2 decision logs still load.
+- **Domain presets.** `domain: software` supplies default `levels`, `checks`, `teams` and `gates` from a preset file in the package (`core/presets/software.yaml`); the project's own keys replace the preset's, key by key (a project that lists `gates` replaces all preset gates, no deep merging, so the result is easy to predict). `agentswarm config CONFIG` prints the effective configuration. The document preset arrives in Phase 5.
 
 ### Findings that can be resolved
 
 - `Finding` gets an `id` (`f-0001`, sequential per project, like artifact ids).
-- New event `FindingResolved(finding, resolved_by)`. The views close a finding when it is resolved.
-  Promotions and rejections at the lowest level keep their Phase 2 behaviour (they replace or close the
-  gate's own findings).
+- New event `FindingResolved(finding, resolved_by)`. The views close a finding when it is resolved. Promotions and rejections at the lowest level keep their Phase 2 behaviour (they replace or close the gate's own findings).
 
 ### Promotion above the base level: a release train
 
-The decision that unblocks the candidate level. Levels above the base move as **prefixes** of the level
-below:
+The decision that unblocks the candidate level. Levels above the base move as **prefixes** of the level below:
 
 ```
 experimental:  ──M1──M2──M3──M4──M5──►   (first-parent line: one merge commit per artifact, from the queue)
@@ -58,77 +39,41 @@ candidate:     ──M1──M2──M3              (candidate is always some c
                           └─ "promote to M5" = fast-forward candidate to M5, moving a-4 and a-5 together
 ```
 
-- The merge queue already makes `experimental` a linear sequence of merge commits, one per artifact.
-  Promoting to `candidate` means fast-forwarding `candidate` to one of those commits. Every artifact
-  between the old and new tip moves up together, with one decision.
-- **Why not per artifact?** An artifact's branch forked from `experimental` with all the work before it;
-  merging it into `candidate` alone would silently drag that work along, or conflict. A prefix never
-  conflicts, and the promoted commit is exactly the one that was tested.
-- **The gate above the base:** hard checks run on the target commit itself (integration tests); then a
-  deterministic policy: every artifact in the batch has the required **sign-offs** (below) and no open
-  `MAJOR`/`BLOCKER` findings. The promoter picks the longest ready prefix. One artifact that is not ready
-  holds back the ones after it (head-of-line blocking), which is the usual trade-off of release trains;
-  the supervisor escalates it if it stays stuck.
-- A Jev judge at this gate (§11.3 `CandidateToProduction`: sensitive-change routing, drift as a Score)
-  needs Score policies, so it stays in Phase 4. The gate config already allows adding one later.
+- The merge queue already makes `experimental` a linear sequence of merge commits, one per artifact. Promoting to `candidate` means fast-forwarding `candidate` to one of those commits. Every artifact between the old and new tip moves up together, with one decision.
+- **Why not per artifact?** An artifact's branch forked from `experimental` with all the work before it; merging it into `candidate` alone would silently drag that work along, or conflict. A prefix never conflicts, and the promoted commit is exactly the one that was tested.
+- **The gate above the base:** hard checks run on the target commit itself (integration tests); then a deterministic policy: every artifact in the batch has the required **sign-offs** (below) and no open `MAJOR`/`BLOCKER` findings. The promoter picks the longest ready prefix. One artifact that is not ready holds back the ones after it (head-of-line blocking), which is the usual trade-off of release trains; the supervisor escalates it if it stays stuck.
+- A Jev judge at this gate (§11.3 `CandidateToProduction`: sensitive-change routing, drift as a Score) needs Score policies, so it stays in Phase 4. The gate config already allows adding one later.
 
 ### Analyzer teams and sign-offs
 
-- Teams above the lowest level never commit: only the merge queue writes level branches. They are
-  **analyzers**: they inspect an artifact's change on the level branch and produce findings.
-- New event `SignedOff(artifact, team)`: an analyzer has examined the artifact's current version (with
-  or without findings). A gate lists the sign-offs it requires: `requires: [integration_tester,
-  red_team]`.
-- **Integration tester** (watches `experimental`): a model writes integration tests for the change in a
-  throwaway checkout of the level commit and runs them in the sandbox. Failures become findings with the
-  test code in their detail. (Keeping passing tests in the repository would need a commit; noted in the
-  backlog, not done here.)
-- **Red team** (watches `experimental`): a model tries to break the change (edge cases, misuse, bad
-  input) the same way: write a failing test, run it, report what failed.
-- Both use the existing `Worker` and toolbox, with a read-only variant of the toolbox plus a "run this
-  test file" tool.
+- Teams above the lowest level never commit: only the merge queue writes level branches. They are **analyzers**: they inspect an artifact's change on the level branch and produce findings.
+- New event `SignedOff(artifact, team)`: an analyzer has examined the artifact's current version (with or without findings). A gate lists the sign-offs it requires: `requires: [integration_tester, red_team]`.
+- **Integration tester** (watches `experimental`): a model writes integration tests for the change in a throwaway checkout of the level commit and runs them in the sandbox. Failures become findings with the test code in their detail. (Keeping passing tests in the repository would need a commit; noted in the backlog, not done here.)
+- **Red team** (watches `experimental`): a model tries to break the change (edge cases, misuse, bad input) the same way: write a failing test, run it, report what failed.
+- Both use the existing `Worker` and toolbox, with a read-only variant of the toolbox plus a "run this test file" tool.
 
 ### Jev relevance filters (the backlog item)
 
-- Each analyzer asks Jev one Noul question before claiming: integration tester: "Does this change alter
-  behaviour that other parts of the code depend on?"; red team: "Does this change handle input, state or
-  resources that could be misused or fail at the edges?".
-- Logged as decisions at points like `relevance:red_team`, in the same decision log, shadow or active per
-  project `jev.mode`. Shadow: the team acts anyway. Active: a clear "no" signs off without work; unsure
-  acts.
-- **Outcome, automatically (§15.2):** if the team acted, the truth is whether it produced a finding. In
-  shadow mode every judgement gets an outcome, which is exactly why shadow mode is valuable here.
+- Each analyzer asks Jev one Noul question before claiming: integration tester: "Does this change alter behaviour that other parts of the code depend on?"; red team: "Does this change handle input, state or resources that could be misused or fail at the edges?".
+- Logged as decisions at points like `relevance:red_team`, in the same decision log, shadow or active per project `jev.mode`. Shadow: the team acts anyway. Active: a clear "no" signs off without work; unsure acts.
+- **Outcome, automatically (§15.2):** if the team acted, the truth is whether it produced a finding. In shadow mode every judgement gets an outcome, which is exactly why shadow mode is valuable here.
 
 ### Fix routing (proposal question 5)
 
-- Teams only emit findings; they never create artifacts. A deterministic **`FindingRouter`** turns each
-  open blocking finding on an artifact above the lowest level into a fix artifact at the lowest level
-  (task: "Fix in <artifact>: <finding>", `parent` = the artifact). When the fix artifact reaches the
-  finding's level, the router appends `FindingResolved`.
+- Teams only emit findings; they never create artifacts. A deterministic **`FindingRouter`** turns each open blocking finding on an artifact above the lowest level into a fix artifact at the lowest level (task: "Fix in <artifact>: <finding>", `parent` = the artifact). When the fix artifact reaches the finding's level, the router appends `FindingResolved`.
 - At the lowest level nothing changes: the executor addresses findings on its own artifact directly.
 
 ### The unit tester (proposal question 6)
 
-Recommendation: **no separate unit tester team in Phase 3.** The executor already writes tests, and the
-gate's `tests_relevant` question is the best-calibrated one we have (ECE 0.07, right whenever it
-decided). A second team at the lowest level would double the model work and race the executor for the
-same branch. Revisit if `tests_relevant` rejections pile up in practice (backlog).
+Recommendation: **no separate unit tester team in Phase 3.** The executor already writes tests, and the gate's `tests_relevant` question is the best-calibrated one we have (ECE 0.07, right whenever it decided). A second team at the lowest level would double the model work and race the executor for the same branch. Revisit if `tests_relevant` rejections pile up in practice (backlog).
 
 ## 3b. Decomposition and supervision
 
 ### Decomposition (proposal question 7)
 
-- A **decomposition team** watches the lowest level. Before the executor claims a new artifact, Jev is
-  asked "Can this task be done in one branch by one team, without further design decisions?" (§10.4).
-  Ordering without coupling: the executor's relevance requires that the artifact has been sized (a
-  `Sized` event, or the decomposition team's sign-off), so teams still depend on state, not on each
-  other.
-- If clearly too large: a model splits the task into child artifacts (structured output: a list of
-  child tasks), checked by a second Noul ("Is each child clearly smaller than the parent?"). The parent
-  becomes an **umbrella** that does no work itself. Depth limit (config, default 3); beyond it, escalate.
-- **Join check (§11.4):** when every child of a parent has reached a level, a join gate evaluates the
-  parent there: hard checks on the level tip, and a Jev Noul "Together, do the children accomplish the
-  parent task?". Passing promotes the umbrella to that level.
+- A **decomposition team** watches the lowest level. Before the executor claims a new artifact, Jev is asked "Can this task be done in one branch by one team, without further design decisions?" (§10.4). Ordering without coupling: the executor's relevance requires that the artifact has been sized (a `Sized` event, or the decomposition team's sign-off), so teams still depend on state, not on each other.
+- If clearly too large: a model splits the task into child artifacts (structured output: a list of child tasks), checked by a second Noul ("Is each child clearly smaller than the parent?"). The parent becomes an **umbrella** that does no work itself. Depth limit (config, default 3); beyond it, escalate.
+- **Join check (§11.4):** when every child of a parent has reached a level, a join gate evaluates the parent there: hard checks on the level tip, and a Jev Noul "Together, do the children accomplish the parent task?". Passing promotes the umbrella to that level.
 
 ### Supervisor (§14.1)
 
@@ -136,150 +81,75 @@ A deterministic loop per project, run every step like the promoters:
 
 - **Stalls:** an artifact with no new event for N steps, or rejected K times in a row, is escalated.
 - **Round budget:** `budgets.max_rounds_per_artifact` (already in config) escalates instead of retrying.
-- **Drift:** every N decisions, a Jev Noul about the recent tasks and diffs: "Does this recent work
-  advance the north star?". A clear no appends `Paused`: no new artifacts are created until a human
-  resumes. (The proposal's Score version waits for Score policies in Phase 4.)
-- **Escalation queue:** `agentswarm escalations ROOT` lists open escalations with their context and the
-  decisions that led there; `agentswarm resolve ROOT ARTIFACT --retry | --accept | --drop` appends
-  `EscalationResolved`. Retry clears the escalation so teams pick the artifact up again; accept lets a
-  human promote it past the gate; drop retires the artifact.
+- **Drift:** every N decisions, a Jev Noul about the recent tasks and diffs: "Does this recent work advance the north star?". A clear no appends `Paused`: no new artifacts are created until a human resumes. (The proposal's Score version waits for Score policies in Phase 4.)
+- **Escalation queue:** `agentswarm escalations ROOT` lists open escalations with their context and the decisions that led there; `agentswarm resolve ROOT ARTIFACT --retry | --accept | --drop` appends `EscalationResolved`. Retry clears the escalation so teams pick the artifact up again; accept lets a human promote it past the gate; drop retires the artifact.
 
 ## Decisions made during implementation
 
-**Step 1 (judge name, presets).** `ChangeReadiness` replaces `RawToExperimental` everywhere, with the old
-name kept as a catalog alias for older decision logs. Presets are applied by a `ProjectConfig`
-"before" validator, so every way of building a config gets them (YAML, dicts, tests), not only
-`load`. The software preset sets levels, a `unit_tests` check, the executor (which expects the project
-to define `models.coder`; a preset never picks a provider) and the first gate with `ChangeReadiness`.
-Gates above `experimental` join the preset in step 6, once release-train promotion exists. Verified
-that the preset YAML ships in the built wheel.
+**Step 1 (judge name, presets).** `ChangeReadiness` replaces `RawToExperimental` everywhere, with the old name kept as a catalog alias for older decision logs. Presets are applied by a `ProjectConfig` "before" validator, so every way of building a config gets them (YAML, dicts, tests), not only `load`. The software preset sets levels, a `unit_tests` check, the executor (which expects the project to define `models.coder`; a preset never picks a provider) and the first gate with `ChangeReadiness`. Gates above `experimental` join the preset in step 6, once release-train promotion exists. Verified that the preset YAML ships in the built wheel.
 
 **Step 2 (findings and sign-offs).**
-- Finding ids are random (`f-` + 12 hex), assigned when a finding is created, so teams never coordinate
-  to number them (G1). Sequential ids like artifacts' would need the board's head at creation time.
+- Finding ids are random (`f-` + 12 hex), assigned when a finding is created, so teams never coordinate to number them (G1). Sequential ids like artifacts' would need the board's head at creation time.
 - `Finding.resolved_by` is gone: findings are immutable and resolution is the `FindingResolved` event.
-- A promotion now closes only the findings recorded at the level it leaves (Phase 2's rule was "all",
-  which is the same thing while findings only existed at the lowest level).
-- `BoardViews.version` now counts only changes to the artifact itself (created, commit, promoted,
-  rejected, escalated). Sign-offs and analyzer findings don't count: otherwise one analyzer signing off
-  would make every other analyzer re-examine an unchanged artifact. `SignedOff` records the version it
-  saw, and `signed_off(artifact, team)` is true only for the current version.
+- A promotion now closes only the findings recorded at the level it leaves (Phase 2's rule was "all", which is the same thing while findings only existed at the lowest level).
+- `BoardViews.version` now counts only changes to the artifact itself (created, commit, promoted, rejected, escalated). Sign-offs and analyzer findings don't count: otherwise one analyzer signing off would make every other analyzer re-examine an unchanged artifact. `SignedOff` records the version it saw, and `signed_off(artifact, team)` is true only for the current version.
 
 **Step 3 (analyzer base, relevance filters).**
-- **Merge commits are recorded.** Once an artifact is merged, `level...branch` is empty (the level
-  contains the branch). `Promoted.commit` records the merge commit; the artifact's change is then
-  `merge^1...merge^2`, and analyzers examine a detached checkout of the merge commit. Views keep the
-  first one (`merge_commit`); `ArtifactContext` gains `version`, `signed_off_by` and `merge_commit`.
-- `GateJudgement` became `judging/judgement.py:Judgement` (method `ask`), shared by gates and relevance
-  filters. `Fails(...)` is optional on judge questions; a gate refuses a judge whose questions lack it.
-- Two relevance judges, `IntegrationRelevance` and `AdversarialRelevance`, one question (`relevant`)
-  each. The relevance check runs inside `act()`, not `relevant()`: a clear "no" in active mode must still
-  sign off, which only `act()` can do. An unreachable decider means the team works (a filter may save
-  effort, never block it). Outcome source `team_result`: the change was relevant if the work found
-  something.
-- **Evidence filter:** a reported problem must name a test the analyzer ran through `run_test` that
-  failed; others are dropped (and logged). The finding's detail includes the failing test's source.
+- **Merge commits are recorded.** Once an artifact is merged, `level...branch` is empty (the level contains the branch). `Promoted.commit` records the merge commit; the artifact's change is then `merge^1...merge^2`, and analyzers examine a detached checkout of the merge commit. Views keep the first one (`merge_commit`); `ArtifactContext` gains `version`, `signed_off_by` and `merge_commit`.
+- `GateJudgement` became `judging/judgement.py:Judgement` (method `ask`), shared by gates and relevance filters. `Fails(...)` is optional on judge questions; a gate refuses a judge whose questions lack it.
+- Two relevance judges, `IntegrationRelevance` and `AdversarialRelevance`, one question (`relevant`) each. The relevance check runs inside `act()`, not `relevant()`: a clear "no" in active mode must still sign off, which only `act()` can do. An unreachable decider means the team works (a filter may save effort, never block it). Outcome source `team_result`: the change was relevant if the work found something.
+- **Evidence filter:** a reported problem must name a test the analyzer ran through `run_test` that failed; others are dropped (and logged). The finding's detail includes the failing test's source.
 - Analyzer test files live in `_analysis/` of a detached, throwaway checkout: never committed.
 
 **Step 4 (integration tester, red team).**
-- Both are `Analyzer` subclasses that differ only in instructions and finding kind: `TEST_FAILURE` for
-  the integration tester, a new `EDGE_CASE` for the red team.
-- A team's name is its `use` (so a gate can require `red_team`'s sign-off); each team may appear once per
-  project, which the config now enforces.
-- Teams name their relevance judge in config (`relevance: AdversarialRelevance`). A `Judgements` factory
-  (judge catalog + decider + decision log + mode + clock) builds every judgement, for gates and teams
-  alike; `Project.open` creates the decider before the teams, and only if some gate or team needs one.
+- Both are `Analyzer` subclasses that differ only in instructions and finding kind: `TEST_FAILURE` for the integration tester, a new `EDGE_CASE` for the red team.
+- A team's name is its `use` (so a gate can require `red_team`'s sign-off); each team may appear once per project, which the config now enforces.
+- Teams name their relevance judge in config (`relevance: AdversarialRelevance`). A `Judgements` factory (judge catalog + decider + decision log + mode + clock) builds every judgement, for gates and teams alike; `Project.open` creates the decider before the teams, and only if some gate or team needs one.
 - Analyzers run individual test files with their first configured check (`checks:`), which must exist.
 
 **Step 5 (finding router).**
-- `control/router.py:FindingRouter` runs every project step, after the teams and gates. It routes open
-  `MAJOR`/`BLOCKER` findings on artifacts above the lowest level (minor ones stay informational), once
-  each, and resolves a finding when its fix reaches the finding's level.
-- `Artifact.fixes` names the finding a fix artifact fixes (and the views index it), so the router never
-  routes twice and decomposition children (step 7) can be told apart from fixes.
-- `board/artifacts.py:ArtifactFactory` creates artifacts for people, the router and (soon) the
-  decomposition team; `Project.slug` moved there.
-- The fix task carries the original task and the full finding (including the failing test), because the
-  executor of a fix artifact sees only its own task.
+- `control/router.py:FindingRouter` runs every project step, after the teams and gates. It routes open `MAJOR`/`BLOCKER` findings on artifacts above the lowest level (minor ones stay informational), once each, and resolves a finding when its fix reaches the finding's level.
+- `Artifact.fixes` names the finding a fix artifact fixes (and the views index it), so the router never routes twice and decomposition children (step 7) can be told apart from fixes.
+- `board/artifacts.py:ArtifactFactory` creates artifacts for people, the router and (soon) the decomposition team; `Project.slug` moved there.
+- The fix task carries the original task and the full finding (including the failing test), because the executor of a fix artifact sees only its own task.
 
 **Step 6 (release train).**
-- `gating/train.py:TrainPromoter` serves every gate above the lowest level; `Promoter` keeps the lowest.
-  Both satisfy a small `PromotionLoop` protocol the project steps.
-- Ready = at the lower level, signed off by every `requires:` team for its current version, no open
-  `MAJOR`/`BLOCKER` finding, unclaimed. The promoter claims the whole batch before promoting, so no
-  analyzer can add a finding to an artifact mid-promotion.
-- Hard checks run on the batch's last commit; on failure the promoter finds the first failing commit,
-  promotes what precedes it, and gives that artifact a `BLOCKER` finding (which the router turns into a
-  fix). Results are cached per commit. The upper branch moves with a compare-and-swap `update-ref`.
+- `gating/train.py:TrainPromoter` serves every gate above the lowest level; `Promoter` keeps the lowest. Both satisfy a small `PromotionLoop` protocol the project steps.
+- Ready = at the lower level, signed off by every `requires:` team for its current version, no open `MAJOR`/`BLOCKER` finding, unclaimed. The promoter claims the whole batch before promoting, so no analyzer can add a finding to an artifact mid-promotion.
+- Hard checks run on the batch's last commit; on failure the promoter finds the first failing commit, promotes what precedes it, and gives that artifact a `BLOCKER` finding (which the router turns into a fix). Results are cached per commit. The upper branch moves with a compare-and-swap `update-ref`.
 - `requires_human` gates escalate once per target commit; approval comes with step 9.
-- **Bug found by the tests:** an escalation counted as a change to the artifact, which voided the
-  sign-offs it was raised about. Escalations no longer change the version (the step-9 "retry" will).
-- Config rules: `requires:` names must be teams watching the gate's lower level; the lowest gate can't
-  require sign-offs (it judges single changes); a judge above the lowest level is refused until Phase 4.
-- The software preset now has the full ladder: integration tester and red team (with relevance
-  filters) at `experimental`, a `candidate` gate requiring both sign-offs, a human `production` gate.
+- **Bug found by the tests:** an escalation counted as a change to the artifact, which voided the sign-offs it was raised about. Escalations no longer change the version (the step-9 "retry" will).
+- Config rules: `requires:` names must be teams watching the gate's lower level; the lowest gate can't require sign-offs (it judges single changes); a judge above the lowest level is refused until Phase 4.
+- The software preset now has the full ladder: integration tester and red team (with relevance filters) at `experimental`, a `candidate` gate requiring both sign-offs, a human `production` gate.
 
 **Step 7 (decomposition, join gate).**
-- Children get hierarchical ids (`a-0003.1`), so the decomposer returns `ArtifactCreated` events like any
-  team instead of writing the board; no id coordination is needed.
-- New event `Sized(fits, children)`; it counts as a change to the artifact, so an executor that saw an
-  unsized artifact looks again once it is sized. Executors wait for sizing only in projects that have a
-  decomposer (the catalog tells them), never for fix artifacts, and never work on umbrellas.
-- Three judges: `SizeCheck` (§10.4), `SplitCheck` (the progress guard, which sees the proposed child
-  tasks through a new `JudgeState.proposal` field) and `JoinCheck` (§11.4). Unsure sizing lets the
-  executor try (the gate catches oversized changes); an unclear split or the depth limit escalates.
-- `gating/join.py:JoinPromoter` promotes an umbrella one level once all its children have reached it:
-  that level's gate hard checks on the tip, then `JoinCheck` over the concatenated diffs of the merged
-  parts (nested umbrellas contribute theirs). Failing or unsure escalates once per join.
+- Children get hierarchical ids (`a-0003.1`), so the decomposer returns `ArtifactCreated` events like any team instead of writing the board; no id coordination is needed.
+- New event `Sized(fits, children)`; it counts as a change to the artifact, so an executor that saw an unsized artifact looks again once it is sized. Executors wait for sizing only in projects that have a decomposer (the catalog tells them), never for fix artifacts, and never work on umbrellas.
+- Three judges: `SizeCheck` (§10.4), `SplitCheck` (the progress guard, which sees the proposed child tasks through a new `JudgeState.proposal` field) and `JoinCheck` (§11.4). Unsure sizing lets the executor try (the gate catches oversized changes); an unclear split or the depth limit escalates.
+- `gating/join.py:JoinPromoter` promotes an umbrella one level once all its children have reached it: that level's gate hard checks on the tip, then `JoinCheck` over the concatenated diffs of the merged parts (nested umbrellas contribute theirs). Failing or unsure escalates once per join.
 - Shadow mode logs size, split and join decisions but never splits and always joins.
 - `FakeDecider` keeps answers per spec, so one decider can serve every judge in a run.
-- **The exit criterion's first half holds in tests:** a goal split into two children reaches
-  `candidate`, children by train, umbrella by join.
+- **The exit criterion's first half holds in tests:** a goal split into two children reaches `candidate`, children by train, umbrella by join.
 
 **Step 8 (supervisor).**
-- `control/supervisor.py:Supervisor` runs every project step after the router. Stalls are measured in
-  time since an artifact's last event (`supervisor.stall_after_minutes`), not in idle steps, because
-  `run_until_idle` stops stepping when nothing happens. Rejections are counted back to the last
-  promotion; rounds are commits, against `budgets.max_rounds_per_artifact`.
-- Each cause escalates once per state: an escalation stands until the artifact changes (commit,
-  promotion, rejection). Top-level artifacts and umbrellas never stall (an umbrella waits on its parts,
-  which are supervised themselves).
-- Drift: after every `supervisor.drift_every` merged changes, `DriftCheck` over the recent tasks and their
-  diffs. The decision concerns the project, so `Judgement.ask_state` takes a ready-made `JudgeState`.
-  Active mode: a clear "no" appends the project-wide `Paused` event; shadow mode only logs.
-- Pausing: `Team.pausable` (executor and decomposer yes, analyzers no). A paused runner skips its turn
-  without marking anything handled, so work resumes after `Resumed`.
+- `control/supervisor.py:Supervisor` runs every project step after the router. Stalls are measured in time since an artifact's last event (`supervisor.stall_after_minutes`), not in idle steps, because `run_until_idle` stops stepping when nothing happens. Rejections are counted back to the last promotion; rounds are commits, against `budgets.max_rounds_per_artifact`.
+- Each cause escalates once per state: an escalation stands until the artifact changes (commit, promotion, rejection). Top-level artifacts and umbrellas never stall (an umbrella waits on its parts, which are supervised themselves).
+- Drift: after every `supervisor.drift_every` merged changes, `DriftCheck` over the recent tasks and their diffs. The decision concerns the project, so `Judgement.ask_state` takes a ready-made `JudgeState`. Active mode: a clear "no" appends the project-wide `Paused` event; shadow mode only logs.
+- Pausing: `Team.pausable` (executor and decomposer yes, analyzers no). A paused runner skips its turn without marking anything handled, so work resumes after `Resumed`.
 - Spend budgets (`budgets.usd_per_day`) need cost tracking, which belongs to the Phase 6 scheduler.
 - **The exit criterion holds in tests:** stall and drift escalations are triggered and checked.
 
 **Step 9 (escalation queue).**
-- `EscalationResolved(resolution: retry | accept | drop)`. **Retry** is a change to the artifact (teams
-  look again; the executor treats it like a rejection; the supervisor's counters restart). **Accept**
-  approves the current state at its gate: it replaces judgement (Jev's ruling, `requires_human`, a failed
-  join) but never the hard checks, and it lasts until the next commit or promotion, so it covers exactly
-  one gate. **Drop** retires the artifact: views leave it out of every level, and the train passes over
-  it (its merged code stays; an explicit revert goes to the backlog).
-- **Bug found by the tests:** a resolution counted as a change, so accepting voided the sign-offs the
-  train needed. Only a retry changes the version now.
-- `control/escalations.py:Escalations` lists open escalations with the decisions about each artifact,
-  resolves them and resumes paused projects. It needs only the board and the decision log, so
-  `agentswarm escalations / resolve / resume` work without models or a Jev key.
-- Gates escalate once while an escalation is open (`open_escalation`), instead of matching reason
-  strings.
+- `EscalationResolved(resolution: retry | accept | drop)`. **Retry** is a change to the artifact (teams look again; the executor treats it like a rejection; the supervisor's counters restart). **Accept** approves the current state at its gate: it replaces judgement (Jev's ruling, `requires_human`, a failed join) but never the hard checks, and it lasts until the next commit or promotion, so it covers exactly one gate. **Drop** retires the artifact: views leave it out of every level, and the train passes over it (its merged code stays; an explicit revert goes to the backlog).
+- **Bug found by the tests:** a resolution counted as a change, so accepting voided the sign-offs the train needed. Only a retry changes the version now.
+- `control/escalations.py:Escalations` lists open escalations with the decisions about each artifact, resolves them and resumes paused projects. It needs only the board and the decision log, so `agentswarm escalations / resolve / resume` work without models or a Jev key.
+- Gates escalate once while an escalation is open (`open_escalation`), instead of matching reason strings.
 
 ## Result
 
-- **Exit criterion, in tests:** a goal split into two children reaches `candidate` (children by train,
-  umbrella by join); stall and drift escalations are triggered and checked; an escalated artifact is
-  listed, accepted and carried on through the CLI. 292 tests.
-- **Live run** (`examples/greeter/project.yaml` on the software preset, `gemma4:e4b`, `jev-latest` in
-  shadow mode, Docker sandbox), task "add farewell and shout, with tests": the executor's change was
-  correct; Jev passed the gate (in_scope 0.97, tests_relevant 0.94, complete 0.97); both relevance
-  filters judged the change not worth the effort (0.08, 0.15), the analyzers worked anyway (shadow) and
-  found nothing, so both relevance decisions got correct `team_result` outcomes; the train moved it to
-  `candidate`; the `production` gate escalated for a person, as configured.
-- Not exercised live: decomposition (shadow mode never splits) and the router (no findings). Both are
-  covered by tests with fakes; live decomposition comes with Phase 4, when decision points can be active.
+- **Exit criterion, in tests:** a goal split into two children reaches `candidate` (children by train, umbrella by join); stall and drift escalations are triggered and checked; an escalated artifact is listed, accepted and carried on through the CLI. 292 tests.
+- **Live run** (`examples/greeter/project.yaml` on the software preset, `gemma4:e4b`, `jev-latest` in shadow mode, Docker sandbox), task "add farewell and shout, with tests": the executor's change was correct; Jev passed the gate (in_scope 0.97, tests_relevant 0.94, complete 0.97); both relevance filters judged the change not worth the effort (0.08, 0.15), the analyzers worked anyway (shadow) and found nothing, so both relevance decisions got correct `team_result` outcomes; the train moved it to `candidate`; the `production` gate escalated for a person, as configured.
+- Not exercised live: decomposition (shadow mode never splits) and the router (no findings). Both are covered by tests with fakes; live decomposition comes with Phase 4, when decision points can be active.
 
 ## Steps (one commit each)
 
@@ -307,11 +177,8 @@ that the preset YAML ships in the built wheel.
 
 ## Questions (decided as recommended)
 
-1. **Release train above the base level** (prefix fast-forward, batch decisions, head-of-line
-   blocking), rather than per-artifact promotion. Agree?
+1. **Release train above the base level** (prefix fast-forward, batch decisions, head-of-line blocking), rather than per-artifact promotion. Agree?
 2. **Teams emit findings only;** a deterministic router creates fix artifacts (proposal question 5).
 3. **No unit tester team in Phase 3;** the executor writes tests and the judge checks them (question 6).
-4. **A dedicated decomposition team** gated by a Jev size question, with umbrella parents and join checks
-   (question 7).
-5. **Presets replace key by key** (no deep merge). Simple to predict, a little more to type when only one
-   team changes. Agree?
+4. **A dedicated decomposition team** gated by a Jev size question, with umbrella parents and join checks (question 7).
+5. **Presets replace key by key** (no deep merge). Simple to predict, a little more to type when only one team changes. Agree?
