@@ -35,7 +35,8 @@ class SpendLedger:
     def record(self, by: str, model: str, usage: Usage, price: Price | None) -> None:
         if usage.input_tokens == 0 and usage.output_tokens == 0:
             return
-        usd = price.usd_of(usage) if price is not None else 0.0
+        billed = usage.fully_billed  # then usd is what the provider charged (Price.usd_of)
+        usd = usage.billed_usd if billed else (price.usd_of(usage) if price is not None else 0.0)
         if self._shared is not None:
             self._shared.record(self._project, self._accounts.get(model, model), usd)
         self._board.append(
@@ -46,7 +47,8 @@ class SpendLedger:
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
                     usd=usd,
-                    priced=price is not None,
+                    priced=price is not None or billed,
+                    billed=billed,
                     cache_read_tokens=usage.cache_read_tokens,
                     cache_write_tokens=usage.cache_write_tokens,
                     model_calls=usage.model_calls,

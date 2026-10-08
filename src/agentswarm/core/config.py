@@ -98,6 +98,10 @@ class Price(Strict):
         return (input_tokens * self.input + output_tokens * self.output) / 1_000_000
 
     def usd_of(self, usage: Usage) -> float:
+        """What the calls cost: what the provider charged when it reported that for each call, else the
+        estimate from these prices (a router such as OpenRouter may choose a host that charges more)."""
+        if usage.fully_billed:
+            return usage.billed_usd
         read = self.cache_read if self.cache_read is not None else self.input
         write = self.cache_write if self.cache_write is not None else self.input
         plain = usage.input_tokens - usage.cache_read_tokens - usage.cache_write_tokens

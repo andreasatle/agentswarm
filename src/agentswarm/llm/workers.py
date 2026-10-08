@@ -236,7 +236,13 @@ class Tokens(BaseCallbackHandler):
             details.get("ephemeral_1h_input_tokens", 0) or 0
         )
         given = message.usage_metadata.get("input_tokens", 0)
+        # Some providers report what they charged (OpenRouter: the host it chose, at that host's price).
+        raw = message.response_metadata.get("token_usage")
+        cost = raw.get("cost") if isinstance(raw, dict) else None
+        billed = float(cost) if isinstance(cost, int | float) else None
         return Usage(
+            billed_usd=billed or 0.0,
+            billed_calls=1 if billed is not None else 0,
             input_tokens=given,
             model_calls=1,
             largest_input=given,

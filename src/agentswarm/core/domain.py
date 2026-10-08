@@ -264,6 +264,13 @@ class Usage(Frozen):
     cache_write_tokens: int = 0
     model_calls: int = 0  # how many calls these tokens came from
     largest_input: int = 0  # the input of the largest single call: how far a conversation grew
+    billed_usd: float = 0.0  # what the provider says it charged, for the calls where it says (OpenRouter)
+    billed_calls: int = 0
+
+    @property
+    def fully_billed(self) -> bool:
+        """The provider reported what it charged for every one of these calls."""
+        return self.billed_calls > 0 and self.billed_calls == self.model_calls
 
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(
@@ -273,6 +280,8 @@ class Usage(Frozen):
             cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
             model_calls=self.model_calls + other.model_calls,
             largest_input=max(self.largest_input, other.largest_input),
+            billed_usd=self.billed_usd + other.billed_usd,
+            billed_calls=self.billed_calls + other.billed_calls,
         )
 
 
@@ -290,6 +299,7 @@ class Spent(Frozen):
     cache_write_tokens: int = 0
     model_calls: int = 0  # 0 on boards from before it was recorded
     largest_input: int = 0  # the input tokens of the largest single call
+    billed: bool = False  # usd is what the provider reported charging, not a price-list estimate
 
     @property
     def subject(self) -> None:

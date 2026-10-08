@@ -105,3 +105,26 @@ class Summary(BaseModel):
 
 class Request(BaseModel):
     task: str
+
+
+class TestBilledCost:
+    def test_what_the_provider_charged_replaces_the_price_list_estimate(self) -> None:
+        message = AIMessage(
+            content="ok",
+            usage_metadata={"input_tokens": 11, "output_tokens": 3, "total_tokens": 14},
+            response_metadata={"token_usage": {"prompt_tokens": 11, "cost": 8.35e-06}},
+        )
+        usage = Tokens.of(message)
+        assert (usage.billed_usd, usage.billed_calls) == (8.35e-06, 1)
+        ledger = Ledger()
+        ledger.ledger.record("executor", "m", usage, Price(input=0.30, output=1.00))
+        (spent,) = ledger.spent()
+        assert spent.billed and spent.usd == 8.35e-06  # not the $0.0000063 the listed price says
+
+    def test_without_a_reported_cost_the_estimate_stays(self) -> None:
+        ledger = Ledger()
+        ledger.ledger.record(
+            "executor", "m", Usage(input_tokens=1_000_000, model_calls=1), Price(input=1, output=1)
+        )
+        (spent,) = ledger.spent()
+        assert not spent.billed and spent.usd == 1.0
