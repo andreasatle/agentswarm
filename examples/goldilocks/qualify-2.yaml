@@ -1,0 +1,25 @@
+# The qualification run for the OpenRouter candidates (Qwen3-Coder, DeepSeek V4 Pro, GLM-5.3, Haiku 5.5): the same
+# sample as qualify.yaml, so the router starts from measured rates for them too.
+# 17 tasks per difficulty band from every rated suite; per task a produce probe, a clean critique, one planted bug
+# and an accept probe: about 200 probes per model. Every result teaches the shared ledger.
+#   uv run agentswarm probe examples/goldilocks/qualify-2.yaml --workdir ~/agentswarm-runs/qualify-2
+# Models run one at a time, so each loads once; a rerun resumes where it stopped.
+suites:
+  - ../greeter/evaluation/suite.yaml
+  - ../greeter/evaluation/hard/suite.yaml
+  - ../greeter/evaluation/heldout/suite.yaml
+  - ../greeter/evaluation/complex/suite.yaml
+  - ../inventory/evaluation/suite.yaml
+  - ~/agentswarm-data/suites/humanevalplus/suite.yaml
+  - ~/agentswarm-data/suites/mbppplus/suite.yaml
+sample: {ratings: ~/agentswarm-data/ratings.jsonl, easy: 17, medium: 17, hard: 17, seed: 0}
+kinds: [produce, critique, accept]
+bugs_per_task: 1
+constraints: [Use only the Python standard library.]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+ledger: ~/agentswarm-data/routing.sqlite
+models:
+  qwen-coder: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:qwen/qwen3-coder', usd_per_million: {cache_read: 0.1, input: 0.3, output: 1.0}}
+  deepseek-v4-pro-0813: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
+  glm-5.3: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:z-ai/glm-5.3', usd_per_million: {cache_read: 0.048, input: 0.1, output: 4.2}}
+  claude-haiku-5.5: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
