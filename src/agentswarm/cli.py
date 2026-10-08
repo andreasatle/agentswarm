@@ -5,6 +5,7 @@ import asyncio
 import sys
 from collections import Counter
 from collections.abc import Callable, Sequence
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -69,6 +70,7 @@ from agentswarm.judging.decisions import SqliteDecisions
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
+from agentswarm.llm.catalog import OpenRouterCatalog
 from agentswarm.llm.workers import WorkerProvider
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
@@ -178,6 +180,7 @@ class Cli:
         import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
         import-commonmark SPEC --out DIR           the CommonMark spec as a seed project and held-out tests
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
+        openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         rate SUITE... --out FILE                   Jev rates every task's difficulty, resumable
         prompts                                    every model call and Jev question, as the model sees it
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
@@ -243,6 +246,8 @@ class Cli:
                 return self.import_commonmark(args)
             case "score":
                 return self.score(args)
+            case "openrouter-models":
+                return self.openrouter_models(args)
             case "rate":
                 return self.rate(args)
             case "prompts":
@@ -362,6 +367,13 @@ class Cli:
         groups = [("acceptance tests (seen by the agents)", "tests/acceptance/")]
         groups += [(f"held out ({e.name})", f"{Scoreboard.EXTRA}/{e.name}/") for e in extra]
         self._show(board.score(config.levels.base, extra).render(groups))
+        return 0
+
+    def openrouter_models(self, args: argparse.Namespace) -> int:
+        """`models:` entries for OpenRouter models, priced from its live list (no key needed to read it)."""
+        catalog = OpenRouterCatalog()
+        entries = catalog.entries(args.ids)
+        self._show(OpenRouterCatalog.render(entries, date.today(), catalog.tiered(args.ids)))
         return 0
 
     def rate(self, args: argparse.Namespace) -> int:
@@ -529,6 +541,9 @@ class Cli:
         score.add_argument(
             "--extra", action="append", default=[], help="a folder of extra tests, e.g. held out"
         )
+
+        openrouter = commands.add_parser("openrouter-models", help="model entries with OpenRouter's prices")
+        openrouter.add_argument("ids", nargs="+", help="OpenRouter model ids, e.g. qwen/qwen3-coder")
 
         rate = commands.add_parser("rate", help="Jev rates every task's difficulty (resumable)")
         rate.add_argument("suites", nargs="+", help="suite files")
