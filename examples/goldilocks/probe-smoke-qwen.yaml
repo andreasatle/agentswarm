@@ -1,0 +1,18 @@
+# Qwen through OpenRouter, a smoke check before any project relies on it: three tasks, 12 probes per model, scored
+# like every other model's (does a call through OpenRouter come back as a valid typed answer, and is it right?).
+#   uv run agentswarm probe examples/goldilocks/probe-smoke-qwen.yaml --workdir ~/agentswarm-runs/probe-smoke-qwen
+# The key comes from .env (OPENROUTER_API_KEY), named by `api_key_env`; prices from openrouter.ai, 2026-10-08.
+suites:
+  - ../greeter/evaluation/suite.yaml
+  - ../greeter/evaluation/hard/suite.yaml
+  - ../greeter/evaluation/heldout/suite.yaml
+  - ../greeter/evaluation/complex/suite.yaml
+kinds: [produce, critique]
+tasks: [farewell, greeting-book, greetbook]
+bugs_per_task: 2
+constraints: [Use only the Python standard library.]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  qwen-coder-30b: {model: "openai:qwen/qwen3-coder-30b-a3b-instruct", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.07, output: 0.28}}
+  qwen-coder-next: {model: "openai:qwen/qwen3-coder-next", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.12, output: 0.80, cache_read: 0.07}}
+  qwen-coder-480b: {model: "openai:qwen/qwen3-coder", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.30, output: 1.00, cache_read: 0.10}}
