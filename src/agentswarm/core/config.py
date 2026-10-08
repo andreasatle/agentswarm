@@ -201,6 +201,9 @@ class RoutingConfig(Strict):
 
     ledger: Path | None = None  # the shared record of outcomes; none: only log what Jev says
     target: float = Field(default=0.8, gt=0.0, le=1.0)  # start on the cheapest tier drawn at least this good
+    # An outcome counts half once this many later calls of its kind are recorded (discounted Thompson
+    # sampling, by activity rather than time, so a pause forgets nothing); None: all count fully
+    half_life_calls: float | None = Field(default=200.0, gt=0)
 
 
 class TeamConfig(Strict):

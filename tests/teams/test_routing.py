@@ -110,6 +110,21 @@ class TestRoutingLedger:
         assert Bands.of(1.0) == 2 and Bands.of(0.34) == 1
 
 
+class TestDiscountedBeliefs:
+    def test_outcomes_count_less_as_later_calls_come_in_and_a_pause_changes_nothing(self) -> None:
+        old = RoutedCall(kind=CallKind.PRODUCE, band=0, model_id=SMALL, success=False, source="t", at=AT)
+        later = [
+            RoutedCall(kind=CallKind.PRODUCE, band=2, model_id=LARGE, success=True, source="t", at=AT)
+            for _ in range(10)
+        ]
+        review = RoutedCall(kind=CallKind.CRITIQUE, band=0, model_id=LARGE, success=True, source="t", at=AT)
+        beliefs = Beliefs([old, *later, review], Prior(), half_life_calls=10)
+        belief = beliefs.of(CallKind.PRODUCE, 0, SMALL)
+        assert (belief.failures, belief.seen) == (0.5, 1)  # ten later builds; the review is another kind
+        faded = Beliefs([old, *later * 10], Prior(), half_life_calls=10).of(CallKind.PRODUCE, 0, SMALL)
+        assert faded.failures < 0.001 and faded.rate == pytest.approx(Prior().rates[0], abs=0.01)
+
+
 class TestRouter:
     def test_starts_easy_tasks_on_the_small_model_and_hard_ones_on_the_large(self, tmp_path: Path) -> None:
         easy = Routing(tmp_path / "easy", simple=0.9, mode=JevMode.ACTIVE, ledger=Outcomes.ledger())

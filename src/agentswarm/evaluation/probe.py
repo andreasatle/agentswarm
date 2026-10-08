@@ -29,8 +29,9 @@ from typing import ClassVar, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentswarm.control.limits import SharedSpend
 from agentswarm.core.clock import Clock, SystemClock
-from agentswarm.core.config import ModelConfig, Price, ProjectConfig, SandboxConfig
+from agentswarm.core.config import ModelConfig, Price, ProjectConfig, SandboxConfig, SpendLimits
 from agentswarm.core.domain import Usage
 from agentswarm.evaluation.difficulty import DifficultyRatings
 from agentswarm.evaluation.review import BugPlanter, PlantedBug
@@ -42,6 +43,7 @@ from agentswarm.llm.workers import (
     CutOff,
     InvalidAnswer,
     LangChainWorkers,
+    ProviderUnavailable,
     Worker,
     WorkerError,
     WorkerProvider,
@@ -639,8 +641,11 @@ class ProbeRun:
         sandbox: Sandbox | None = None,  # None: the experiment's sandbox
         stopwatch: Callable[[], float] = time.monotonic,
         clock: Clock | None = None,
+        limits: SpendLimits | None = None,  # machine-wide spending limits; their ledger counts probes too
     ) -> None:
         self._clock = clock or SystemClock()
+        self._shared = SharedSpend(limits, self._clock) if limits is not None else None
+        self.stopped: list[str] = []  # why a model's probes stopped early (a limit, a provider failure)
         self._ledger = RoutingLedger(experiment.ledger) if experiment.ledger is not None else None
         self._experiment = experiment
         self._workdir = workdir
@@ -663,10 +668,21 @@ class ProbeRun:
         for model in self._experiment.models:
             tally = UsageTally()
             worker = self._workers.worker(model, self.MAX_MODEL_CALLS, tally)
+            config = self._experiment.models[model]
             for probe in probes:
                 if (model, probe.id) in done:
                     continue
-                result = await self.run_one(model, probe, worker, tally, bench)
+                over = self._shared.over({config.account}) if self._shared is not None else None
+                if over is not None:
+                    self.stopped.append(f"{model}: {over}")
+                    break
+                try:
+                    result = await self.run_one(model, probe, worker, tally, bench)
+                except ProviderUnavailable as error:  # not the model's answer: left undone, for a rerun
+                    self.stopped.append(f"{model}: the provider is unavailable: {error}")
+                    break
+                if self._shared is not None and config.usd_per_million is not None:
+                    self._shared.record("probes", config.account, config.usd_per_million.usd_of(result.usage))
                 self._files.append(result)
                 self._teach(result)
                 results.append(result)
@@ -688,6 +704,8 @@ class ProbeRun:
         answered: str | None = None
         try:
             answer = await worker.run(handler.INSTRUCTIONS, request, handler.ANSWER)
+        except ProviderUnavailable:
+            raise
         except WorkerError as error:
             seconds = self._stopwatch() - start
             scored = Scored(outcome=self.failure(error), detail=str(error)[: TestBench.OUTPUT_LIMIT])

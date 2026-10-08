@@ -16,7 +16,14 @@ from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.escalations import Escalations
 from agentswarm.control.limits import SharedSpend
 from agentswarm.core.clock import SystemClock
-from agentswarm.core.config import JevConfig, ModelOverride, ProjectConfig, SandboxConfig, SpendLimits
+from agentswarm.core.config import (
+    JevConfig,
+    ModelOverride,
+    ProjectConfig,
+    RoutingConfig,
+    SandboxConfig,
+    SpendLimits,
+)
 from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
@@ -324,9 +331,11 @@ class Cli:
         """Every probe to every model, one prompt and one answer each, scored by plain code (Phase 8)."""
         experiment = ProbeExperiment.load(Path(args.experiment))
         workdir = Path(args.workdir).expanduser()
-        run = ProbeRun(experiment, workdir, self._probe_workers)
+        run = ProbeRun(experiment, workdir, self._probe_workers, limits=SpendLimits.load())
         report = await run.run(lambda result: self._show(ProbeReport.line(result)))
         self._show("\n" + report.render())
+        for reason in run.stopped:
+            self._show(f"stopped early: {reason} (a rerun resumes)")
         self._show(
             f"\nEvery answer: {workdir / ProbeFiles.RESULTS}; the table: {workdir / ProbeFiles.SUMMARY}"
         )
@@ -412,7 +421,8 @@ class Cli:
             raise SystemExit(f"no routing ledger at {path}")
         ledger = RoutingLedger(path)
         try:
-            self._show(Beliefs(ledger.calls(), Prior()).render())
+            half_life = RoutingConfig().half_life_calls  # the default discount, as routers use it
+            self._show(Beliefs(ledger.calls(), Prior(), half_life).render())
         finally:
             ledger.close()
         return 0

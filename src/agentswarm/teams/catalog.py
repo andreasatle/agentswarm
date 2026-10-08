@@ -97,6 +97,7 @@ class TeamResources:
             routing.target,
             self._judgements.clock,
             source=f"project:{self.project}",
+            half_life_calls=routing.half_life_calls,
         )
         self.routers[TeamName(team.use)] = router
         return router

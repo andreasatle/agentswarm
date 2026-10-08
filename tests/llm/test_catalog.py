@@ -23,6 +23,12 @@ LISTING = {
             },
             "supported_parameters": ["tools"],
         },
+        {
+            "id": "z/thinker",
+            "pricing": {"prompt": "0.000001", "completion": "0.000002"},
+            "supported_parameters": ["tools", "reasoning"],
+            "top_provider": {"max_completion_tokens": 32000},
+        },
     ]
 }
 
@@ -52,3 +58,10 @@ class TestOpenRouterCatalog:
         assert tiered == {"tiered": [200000]}
         text = OpenRouterCatalog.render(catalog.entries(["y/tiered"]), date(2026, 10, 8), tiered)
         assert "# tiered: a higher price applies from 200,000 prompt tokens" in text
+
+    def test_reasoning_models_get_room_to_think_within_their_hosts_limit(self) -> None:
+        catalog = OpenRouterCatalog(lambda: LISTING)
+        assert catalog.entries(["qwen/qwen3-coder"])["qwen3-coder"].max_tokens == OpenRouterCatalog.MAX_TOKENS
+        assert (
+            catalog.entries(["z/thinker"])["thinker"].max_tokens == 32000
+        )  # 65,536 wanted, the host allows less

@@ -129,9 +129,10 @@ class Prior(Frozen):
 class Belief(Frozen):
     """What is known about one model on one kind of call in one band."""
 
-    successes: int
-    failures: int
+    successes: float  # weighted: with a half-life, older outcomes count less
+    failures: float
     prior: tuple[float, float]  # imagined successes and failures
+    seen: int = 0  # outcomes recorded, unweighted
 
     @property
     def rate(self) -> float:
@@ -149,18 +150,42 @@ class Belief(Frozen):
 
 
 class Beliefs:
-    """Every model's belief per (kind, band), folded from the ledger like a view."""
+    """Every model's belief per (kind, band), folded from the ledger like a view.
 
-    def __init__(self, calls: Sequence[RoutedCall], prior: Prior) -> None:
+    With a half-life, an outcome counts 0.5 ** (later / half-life), where `later` is how many calls of the
+    same kind were recorded after it: discounted Thompson sampling, the standard remedy when what is learned
+    changes (models, prompts and the framework itself evolve). Recent outcomes dominate, like an exponential
+    moving average; a model left unused drifts back to the prior as others are used, so it gets tried again;
+    and since age is counted in calls, not days, a pause in the work forgets nothing (the user's choice).
+    """
+
+    def __init__(
+        self, calls: Sequence[RoutedCall], prior: Prior, half_life_calls: float | None = None
+    ) -> None:
         self._prior = prior
-        self._counts: dict[tuple[CallKind, int, str], list[int]] = {}
-        for call in calls:
-            counts = self._counts.setdefault((call.kind, call.band, call.model_id), [0, 0])
-            counts[0 if call.success else 1] += 1
+        self._counts: dict[tuple[CallKind, int, str], list[float]] = {}
+        self._seen: dict[tuple[CallKind, int, str], int] = {}
+        later: dict[CallKind, int] = {}
+        for call in reversed(calls):  # the ledger lists calls in the order they were recorded
+            key = (call.kind, call.band, call.model_id)
+            counts = self._counts.setdefault(key, [0.0, 0.0])
+            counts[0 if call.success else 1] += self.weight(later.get(call.kind, 0), half_life_calls)
+            self._seen[key] = self._seen.get(key, 0) + 1
+            later[call.kind] = later.get(call.kind, 0) + 1
+
+    @staticmethod
+    def weight(later: int, half_life_calls: float | None) -> float:
+        return 1.0 if half_life_calls is None else 0.5 ** (later / half_life_calls)
 
     def of(self, kind: CallKind, band: int, model_id: str) -> Belief:
-        successes, failures = self._counts.get((kind, band, model_id), [0, 0])
-        return Belief(successes=successes, failures=failures, prior=self._prior.counts(band))
+        key = (kind, band, model_id)
+        successes, failures = self._counts.get(key, [0.0, 0.0])
+        return Belief(
+            successes=successes,
+            failures=failures,
+            prior=self._prior.counts(band),
+            seen=self._seen.get(key, 0),
+        )
 
     def render(self) -> str:
         """The table: per kind and model, successes/runs and the believed rate in each band."""
@@ -172,7 +197,8 @@ class Beliefs:
             for band in range(Bands.COUNT):
                 belief = self.of(kind, band, model)
                 runs = belief.successes + belief.failures
-                cells.append(f"{belief.successes:>3}/{runs:<3} {belief.rate:>5.0%}" if runs else f"{'-':>14}")
+                shown = f"{f'{belief.successes:.3g}':>5}/{f'{runs:.3g}':<5} {belief.rate:>4.0%}"  # weighted
+                cells.append(shown if belief.seen else f"{'-':>16}")
             lines.append(f"{kind:<9} {model:<32} " + "  ".join(cells))
         return "\n".join(lines)
 
@@ -211,7 +237,9 @@ class Router:
         prior: Prior | None = None,
         source: str = "project",
         rng: random.Random | None = None,
+        half_life_calls: float | None = None,  # older outcomes count less (discounted Thompson sampling)
     ) -> None:
+        self._half_life_calls = half_life_calls
         self._clock = clock
         self._judgement = judgement
         self._kind = kind
@@ -257,7 +285,7 @@ class Router:
     def tier_for(self, difficulty: float) -> int:
         """The cheapest tier whose drawn success rate meets the target; else the strongest."""
         assert self._ledger is not None
-        beliefs = Beliefs(self._ledger.calls(self._kind), self._prior)
+        beliefs = Beliefs(self._ledger.calls(self._kind), self._prior, self._half_life_calls)
         band = Bands.of(difficulty)
         for index, model_id in enumerate(self._model_ids):
             if beliefs.of(self._kind, band, model_id).draw(self._rng) >= self._target:

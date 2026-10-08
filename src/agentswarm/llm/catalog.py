@@ -28,6 +28,16 @@ class ListedModel(BaseModel):
     context_length: int | None = None
     pricing: dict[str, object] = {}  # mostly prices as strings; "overrides" holds tiers for long prompts
     supported_parameters: tuple[str, ...] | None = None
+    top_provider: dict[str, object] = {}
+
+    @property
+    def reasons(self) -> bool:
+        return "reasoning" in (self.supported_parameters or ())
+
+    @property
+    def max_output(self) -> int | None:
+        value = self.top_provider.get("max_completion_tokens")
+        return value if isinstance(value, int) else None
 
     def per_million(self, key: str) -> float:
         value = self.pricing.get(key)
@@ -57,6 +67,9 @@ class OpenRouterCatalog:
     BASE_URL: ClassVar[str] = "https://openrouter.ai/api/v1"
     KEY: ClassVar[str] = "OPENROUTER_API_KEY"
     MAX_TOKENS: ClassVar[int] = 16384
+    # Reasoning models spend output tokens thinking before they answer: at 16,384 their replies were cut off
+    # (CommonMark restructuring, 2026-10-08). Capped by what the model's top host allows.
+    REASONING_MAX_TOKENS: ClassVar[int] = 65536
 
     def __init__(self, fetch: Callable[[], Any] | None = None) -> None:
         self._fetch = fetch or self.download
@@ -100,10 +113,15 @@ class OpenRouterCatalog:
                 model=f"openai:{model_id}",
                 base_url=self.BASE_URL,
                 api_key_env=self.KEY,
-                max_tokens=self.MAX_TOKENS,
+                max_tokens=self.max_tokens(m),
                 usd_per_million=price,
             )
         return entries
+
+    @classmethod
+    def max_tokens(cls, model: ListedModel) -> int:
+        wanted = cls.REASONING_MAX_TOKENS if model.reasons else cls.MAX_TOKENS
+        return min(wanted, model.max_output) if model.max_output else wanted
 
     @staticmethod
     def render(entries: Mapping[str, ModelConfig], today: date, tiered: Mapping[str, list[int]] = {}) -> str:
