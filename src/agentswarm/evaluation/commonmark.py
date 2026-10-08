@@ -90,9 +90,35 @@ def test_example(number: int, markdown: str, html: str) -> None:
     assert to_html(markdown) == html
 '''
 
-    def __init__(self, spec: Path, out: Path) -> None:
+    FENCE: ClassVar[str] = "`" * 32  # how spec.txt delimits its examples
+    DOC: ClassVar[str] = "docs/spec.md"
+
+    def __init__(self, spec: Path, out: Path, prose: Path | None = None) -> None:
         self._spec = spec
         self._out = out
+        self._prose = prose  # spec.txt: the spec's text, given to the agents without its examples
+
+    @classmethod
+    def without_examples(cls, text: str) -> str:
+        """The spec's text with every example replaced by a marker, so the held-out ones stay unseen.
+
+        The examples the agents may see are their tests already; the rest are what tells real progress from
+        fitting, so no copy of any example goes into the project.
+        """
+        lines: list[str] = []
+        number = 0
+        inside = False
+        for line in text.splitlines():
+            if not inside and line.startswith(f"{cls.FENCE} example"):
+                inside, number = True, number + 1
+                lines.append(
+                    f"(Example {number}: not shown here; the visible examples are tests/acceptance/)"
+                )
+            elif inside and line.startswith(cls.FENCE):
+                inside = False
+            elif not inside:
+                lines.append(line)
+        return "\n".join(lines) + "\n"
 
     def examples(self) -> list[SpecExample]:
         return TypeAdapter(list[SpecExample]).validate_python(json.loads(self._spec.read_text()))
@@ -113,6 +139,9 @@ def test_example(number: int, markdown: str, html: str) -> None:
         (seed / "tests" / "acceptance").mkdir(parents=True, exist_ok=True)
         hidden.mkdir(parents=True, exist_ok=True)
         (seed / self.PACKAGE / "__init__.py").write_text(self.STUB)
+        if self._prose is not None:
+            (seed / "docs").mkdir(exist_ok=True)
+            (seed / self.DOC).write_text(self.without_examples(self._prose.read_text()))
         visible = held = 0
         for index, section in enumerate(sections, 1):
             name = f"{index:02d}_{self.slug(section)}"

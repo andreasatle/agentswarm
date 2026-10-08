@@ -346,7 +346,8 @@ class Cli:
 
     def import_commonmark(self, args: argparse.Namespace) -> int:
         """The CommonMark spec's examples as a seed project, every fifth held out (ROADMAP.md, stage 1)."""
-        summary = CommonMarkImport(Path(args.spec).expanduser(), Path(args.out).expanduser()).write()
+        prose = Path(args.text).expanduser() if args.text else None
+        summary = CommonMarkImport(Path(args.spec).expanduser(), Path(args.out).expanduser(), prose).write()
         self._show(
             f"{summary.sections} sections: {summary.visible} examples in {summary.seed}, "
             f"{summary.held_out} held out in {summary.held_out_tests}"
@@ -550,6 +551,9 @@ class Cli:
         commonmark = commands.add_parser("import-commonmark", help="the CommonMark spec as a seed project")
         commonmark.add_argument("spec", help="the spec's examples (spec.json from spec.commonmark.org)")
         commonmark.add_argument("--out", required=True, help="where the seed and the held-out tests go")
+        commonmark.add_argument(
+            "--text", help="spec.txt: the spec's text, put in the seed without its examples"
+        )
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")

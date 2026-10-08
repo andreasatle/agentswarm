@@ -67,3 +67,12 @@ class TestScoreboard:
         )
         assert score.total("tests/acceptance/") == (1, 4)  # the stub passes the blank-line example only
         assert score.total(f"{Scoreboard.EXTRA}/") == (0, 1)
+
+
+class TestSpecText:
+    def test_the_text_keeps_the_prose_and_drops_every_example(self) -> None:
+        fence = CommonMarkImport.FENCE
+        text = f"# Tabs\n\nSome prose.\n\n{fence} example\n\tfoo\n.\n<pre>foo</pre>\n{fence}\n\nMore prose.\n"
+        prose = CommonMarkImport.without_examples(text)
+        assert "Some prose." in prose and "More prose." in prose and "(Example 1:" in prose
+        assert "foo" not in prose and fence not in prose
