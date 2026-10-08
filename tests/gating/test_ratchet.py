@@ -4,6 +4,7 @@ from pathlib import Path
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.config import CheckConfig, WorklistConfig
+from agentswarm.core.domain import Escalated, Paused
 from agentswarm.gating.checks import CheckStatus, RatchetCheck
 from agentswarm.gating.ratchet import Outcomes, Progress
 from agentswarm.workspace.sandbox import LocalSandbox
@@ -103,3 +104,5 @@ class TestWorklist:
         assert Worklist.file_of(item.task) == "tests/acceptance/test_spec.py"
         assert "2 of its 3 tests fail now" in item.task and "test_both" in item.task
         assert worklist.step() == 0  # one in progress at a time
+        s.h.board.append([Escalated(artifact=item.id, reason="stuck"), Paused(reason="provider unavailable")])
+        assert worklist.step() == 0  # nothing new while the project is paused

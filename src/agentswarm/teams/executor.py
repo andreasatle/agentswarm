@@ -19,6 +19,7 @@ from agentswarm.core.domain import (
     FindingKind,
     Instruction,
     Level,
+    Paused,
     Promoted,
     Rejected,
     Resolution,
@@ -27,7 +28,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.gating.checks import CheckResult, CommandCheck, HardCheck
-from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.llm.workers import ProviderUnavailable, Worker, WorkerError
 from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.routing import RoutedTiers, Router, Tier
 from agentswarm.teams.runner import Relevance
@@ -329,6 +330,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
         request = self.request(ctx, worktree, nudged)
         try:
             report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
+        except ProviderUnavailable as error:
+            # Not the model's failure and not the task's: new work waits until a person resumes the project.
+            worktree.discard_changes()
+            return [Paused(reason=f"the model provider is unavailable ({model or 'model'}): {error}")]
         except WorkerError as error:
             if not last:
                 worktree.discard_changes()

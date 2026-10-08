@@ -10,10 +10,11 @@ from agentswarm.core.domain import (
     Finding,
     FindingAdded,
     FindingKind,
+    Paused,
     Rejected,
     Severity,
 )
-from agentswarm.llm.workers import FakeWorker, LangChainWorker, Toolbox, WorkerError
+from agentswarm.llm.workers import FakeWorker, LangChainWorker, ProviderUnavailable, Toolbox, WorkerError
 from agentswarm.teams.executor import (
     ExecutorReport,
     ExecutorRequest,
@@ -358,3 +359,30 @@ class TestRepairsAndPartialWork:
             w.ctx(), w.worktree
         )
         assert isinstance(commit, CommitPushed)  # no escalation: the gate judges the progress
+
+
+class TestProviderFailures:
+    def test_refusals_server_errors_and_lost_connections_are_the_providers(self) -> None:
+        class Refused(Exception):
+            def __init__(self, status_code: int) -> None:
+                self.status_code = status_code
+
+        class APIConnectionError(Exception):
+            pass
+
+        assert ProviderUnavailable.describes(Refused(402)) and ProviderUnavailable.describes(Refused(503))
+        assert ProviderUnavailable.describes(APIConnectionError())
+        assert not ProviderUnavailable.describes(Refused(400)) and not ProviderUnavailable.describes(
+            ValueError()
+        )
+
+    async def test_a_provider_failure_pauses_the_project_instead_of_failing_the_work(
+        self, tmp_path: Path
+    ) -> None:
+        w = Workspace(tmp_path)
+
+        def broke(toolbox: Toolbox | None) -> ExecutorReport:
+            raise ProviderUnavailable("APIStatusError: Error code: 402 - out of credits")
+
+        (event,) = await ExecutorTeam(FakeWorker([broke]), [], Samples.RAW).act(w.ctx(), w.worktree)
+        assert isinstance(event, Paused) and "402" in event.reason  # no AttemptFailed, no escalation

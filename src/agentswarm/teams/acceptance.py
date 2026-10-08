@@ -21,11 +21,12 @@ from agentswarm.core.domain import (
     CommitPushed,
     Event,
     Level,
+    Paused,
     Sized,
     TeamName,
 )
 from agentswarm.gating.checks import CheckStatus, CommandCheck
-from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.llm.workers import ProviderUnavailable, Worker, WorkerError
 from agentswarm.teams.routing import RoutedTiers
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.git import Worktree
@@ -168,6 +169,8 @@ single answer. The data holds the task and every file of the project as it is no
         for number in range(self.TRIES):
             try:
                 answer = await self.worker(start + number).run(self.INSTRUCTIONS, request, AcceptAnswer)
+            except ProviderUnavailable as error:
+                return [*routed, Paused(reason=f"the model provider is unavailable: {error}")]
             except WorkerError as error:
                 why = f"no valid answer: {error}"
                 continue

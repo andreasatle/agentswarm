@@ -33,6 +33,24 @@ class WorkerError(Exception):
     """The worker produced no valid result: limits reached, invalid output or a provider failure."""
 
 
+class ProviderUnavailable(WorkerError):
+    """The provider refused or failed the request (no credit, a rate limit, an outage): not the model's doing.
+
+    Retrying at once fails again, so callers pause instead of counting it against the model or the task.
+    """
+
+    REFUSED: ClassVar[frozenset[int]] = frozenset({401, 402, 403, 408, 429})  # keys, credit, limits, timeouts
+
+    @classmethod
+    def describes(cls, error: Exception) -> bool:
+        """An HTTP refusal or server error from any provider's SDK, or a connection that failed."""
+        status = getattr(error, "status_code", None)
+        if isinstance(status, int):
+            return status in cls.REFUSED or status >= 500
+        name = type(error).__name__
+        return "Connection" in name or "Timeout" in name
+
+
 class InvalidAnswer(WorkerError):
     """The model replied, but never with a valid answer: JSON that fits the required schema."""
 
@@ -116,6 +134,8 @@ class LangChainWorker:
         except StructuredOutputError as error:  # an answer that doesn't fit the schema, after retries
             raise InvalidAnswer(f"{type(error).__name__}: {error}") from error
         except Exception as error:  # provider failures surface as many types
+            if ProviderUnavailable.describes(error):
+                raise ProviderUnavailable(f"{type(error).__name__}: {error}") from error
             raise WorkerError(f"{type(error).__name__}: {error}") from error
         finally:
             self._report(tokens.usage)  # the calls that completed, even when a later one failed

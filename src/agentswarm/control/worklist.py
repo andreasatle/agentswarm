@@ -40,6 +40,8 @@ class Worklist:
     def step(self) -> int:
         """Add items while fewer than `max_open` are in progress. Returns how many it added."""
         views = self._board.current()
+        if views.paused:
+            return 0  # no new items while the project waits (e.g. for a provider)
         mine = [a for a in views.artifacts() if a.created_by == self.NAME]
         in_progress = [a for a in mine if a.level == self._ladder.lowest and views.active(a.id)]
         if len(in_progress) >= self._config.max_open:
