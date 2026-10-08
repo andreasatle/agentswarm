@@ -1,0 +1,38 @@
+# CommonMark with routing on: each worklist item's builder is chosen by Thompson sampling from the shared ledger
+# (probes and every earlier outcome, discounted by activity), cheapest tier first, and every item's outcome
+# (merged or not, by the ratchet gate) teaches it. Seed: the 43% converter with the spec's text, or the
+# restructured converter once a restructuring has merged.
+#   uv run agentswarm run examples/commonmark/routed.yaml --root ~/agentswarm-runs/routed --max-rounds 60
+project: commonmark
+domain: software
+north_star: >-
+  A CommonMark-compliant Markdown to HTML converter in pure Python: the package mdconv, whose to_html(markdown)
+  returns exactly the HTML the CommonMark spec's examples show. Done when every example passes.
+seed: ~/agentswarm-data/commonmark/seed-43-spec  # the 43% converter, plus the spec's text in docs/spec.md
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:  # cheapest first: the router starts on the cheapest whose measured success meets the target
+  haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
+  qwen: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:qwen/qwen3-coder', usd_per_million: {cache_read: 0.1, input: 0.3, output: 1.0}}
+  deepseek: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental}
+teams:
+  - use: executor
+    watches: raw
+    model_tiers: [haiku55, qwen, deepseek]
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200}
+    checks: [spec]
+    max_model_calls: 40  # loops are caught by the toolbox now; 80 mostly bought repeats
+    repairs: 2  # failing checks: keep the work, say what broke, try again (the first run threw away 150 passes)
+    partial: true  # some examples fixed and none broken is progress: the ratchet judges, not the model
+    constraints:
+      - Use only the Python standard library.
+      - Keep the code in the mdconv package, split into modules as it grows.
+      - The CommonMark spec is in docs/spec.md (its examples are your tests). Its appendix "A parsing strategy" says how a parser handles container blocks such as lists and block quotes; search and read the parts you need.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec]}
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
+budgets: {usd_per_day: 10.0, reserve_usd: 1.0}  # an item costs up to about $1: none starts with less left
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["route:*"]}  # Jev profiles each item; the router acts on it
