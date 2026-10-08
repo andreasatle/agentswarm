@@ -36,6 +36,10 @@ Pushing back means questioning, never overriding. The user always has the last w
 
 An implementation wish *can* be a goal when the reason is a goal: "use LangGraph, because I'm learning it" is a learning goal. Claude then uses it where it fits, and says plainly where it doesn't, and why.
 
+## The user's ideas: Claude triages them
+
+The user thinks aloud and shares ideas freely; they are input, not requests (the user, 2026-10-08). Claude's job is to take all of them and select the ones to realize: build now when the evidence says it helps the current priority, park in [docs/BACKLOG.md](docs/BACKLOG.md) with a trigger when it may help later, or drop it with the reason. Every idea and its decision is listed in the backlog's triage table, and parked ideas are rechecked at the start of each stage.
+
 ## Preferred tools, and where they fit
 
 - **Pydantic:** wanted, and the right fit. Every piece of data in the system is a Pydantic model (typed end to end, validated at every boundary, including every model call's input and output).

@@ -27,3 +27,23 @@ Done and removed in the 2026-10-04 cleanup (each in its phase's design doc): rel
 - **Post-mortems that make the next run cheaper (the user's idea, 2026-10-08).** (1) A waste report from a finished project's board, free: spend on items that were thrown away or escalated, repairs that didn't help, loops and capped runs, per model and kind of section; it turns a run into settings (step caps, tries, starting models). (2) Replay: every merged step is a solved task with its starting commit and its checks, so a finished project becomes a benchmark; cheaper models replay its steps offline and their outcomes go to the routing ledger at the step's real difficulty (as SWE-bench mines merged pull requests, and SWE-Gym and SWE-smith build task suites from repository histories). Due: the waste report when a stage-1 project finishes or stalls for good; replay once routing is in real use and there are many merged steps.
 - **More compute than 24 GB of local memory (the user, 2026-10-06).** First choice, least effort: pay-per-token APIs for open models (OpenRouter, Together, Fireworks and similar): no GPUs, no downloads, many models, mostly OpenAI-compatible, so a model is one config line. Rented GPUs only for models no API serves, or for fine-tuning; then persistent storage (for example RunPod network volumes) so weights aren't downloaded again and no particular machine has to be rented. The user has a vast.ai account, but found re-downloading models and being tied to one machine awkward. Due: when a local model is too slow or too small for an experiment. Check current prices and model lists then.
 - From the audit, deferred past Phase 7: F08 conflict refresh before retry, timeouts on git commands (the rest of F14), fencing for several owners of one project, event schema versioning, indexed board queries, CI.
+
+## The user's ideas, triaged
+
+Kept current by Claude (COLLABORATION.md): every idea the user raised, and what was decided.
+
+| Idea | Decision | Why |
+| --- | --- | --- |
+| Reject "too good" solutions to avoid overspending | Dropped | Throwing away correct work costs more; overspending is handled where the model is chosen (routing, cheapest first) |
+| Step down to a cheaper model now and then | Covered | Thompson sampling explores cheaper uncertain models by itself |
+| Discount old outcomes, like an EMA | Built | Discounted Thompson sampling, counted in calls (a pause forgets nothing) |
+| Models choose tasks when capacity is fixed | Parked | Capacity-aware assignment; due when local runs show idle or swap time |
+| A bigger local machine (150-200 GB) | Parked | Probe the open models it would run through an API first, then decide |
+| Qwen's size ladder as the model axis | Adopted | Stage 4's competitiveness study (ROADMAP.md) |
+| All OpenRouter models, chosen automatically | Planned | The model funnel (routing-per-role.md), right after the CommonMark plateau |
+| Control outside the model call (tool requests as typed output) | Built, measured, not the default | The stateless builder lost to the tool loop on progress per dollar (+3 against +17); kept for later variants |
+| Jev to filter what goes into a prompt | Parked | Localization or history compaction; due when prompt size or cost limits a run |
+| Post-mortems that make the next run cheaper | Parked | Waste report when a project finishes or stalls; replay once routing is in real use |
+| Check acceptance tests themselves (with Jev) | Planned | routing-per-role.md, step 6: a Jev check in shadow, measured on the accept probes |
+| Minimise cost subject to a good enough product | Adopted | The objective (COLLABORATION.md goal 4) |
+| Decomposition: interpolation instead of extrapolation | Adopted | The hypothesis's plain statement (RESEARCH.md section 5) |
