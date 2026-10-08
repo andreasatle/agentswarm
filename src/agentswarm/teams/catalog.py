@@ -27,6 +27,7 @@ from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
 from agentswarm.teams.relevance import RelevanceFilter
 from agentswarm.teams.routing import RoutedTiers, Router, RoutingLedger
 from agentswarm.teams.runner import Team
+from agentswarm.teams.stateless import StatelessBuilder
 
 
 class TeamResources:
@@ -164,6 +165,25 @@ class TeamCatalog:
                 tests=resources.test_runner_for(team) if team.checks else None,
                 repairs=team.repairs,
                 partial=team.partial,
+            ),
+        )
+        catalog.register(
+            "stateless_builder",
+            lambda team, resources: StatelessBuilder(
+                resources.tiers_for(team),
+                resources.checks_for(team),
+                team.watches,
+                team.constraints,
+                name=TeamName(team.use),
+                requires_sizing=resources.plans(),
+                router=resources.router_for(team, CallKind.PRODUCE),
+                attempts=team.attempts,
+                requires_acceptance=resources.has_team("acceptance_tester"),
+                sync_from=resources.ladder.base,
+                tests=resources.test_runner_for(team) if team.checks else None,
+                repairs=team.repairs,
+                partial=team.partial,
+                rounds=team.rounds,
             ),
         )
         catalog.register("acceptance_tester", cls._acceptance_tester)

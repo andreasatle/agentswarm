@@ -198,6 +198,8 @@ class TeamConfig(Strict):
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
     # executors: independent attempts per action; the first that passes its checks is kept
     attempts: int = Field(default=1, ge=1)
+    # stateless builders: model answers per attempt at most (plain code runs the loop between them)
+    rounds: int = Field(default=20, ge=1)
     # executors: when its checks fail, the model keeps its work and is told what failed, this many times
     repairs: int = Field(default=0, ge=0)
     # executors: work that passes its checks is committed even when the model calls it incomplete (worklist

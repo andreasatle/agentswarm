@@ -1,0 +1,37 @@
+# The CommonMark project from the 40% converter, built by the stateless builder (teams/stateless.py) instead of
+# the tool-loop executor: everything else as in qwen-from-40.yaml, so a comparison differs only in the builder.
+#   AGENTSWARM_MODEL=examples/models/qwen-coder.yaml uv run agentswarm run examples/commonmark/stateless-from-40.yaml \
+#       --root ~/agentswarm-runs/stateless-qwen-coder --max-rounds 10
+project: commonmark
+domain: software
+north_star: >-
+  A CommonMark-compliant Markdown to HTML converter in pure Python: the package mdconv, whose to_html(markdown)
+  returns exactly the HTML the CommonMark spec's examples show. Done when every example passes.
+seed: ~/agentswarm-data/commonmark/seed-40  # the 40% converter (209/522 visible examples)
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # Qwen3-Coder (480B, 35B active) through OpenRouter, from 2026-10-08 (the user: lower cost, and no tie to one
+  # provider). Haiku built the first 40%; its line is kept for comparison runs.
+  builder: {model: "openai:qwen/qwen3-coder", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.30, output: 1.00, cache_read: 0.10}}
+  haiku: {model: "anthropic:claude-haiku-4-5", max_tokens: 16384, usd_per_million: {input: 1.0, output: 5.0, cache_read: 0.1, cache_write: 1.25}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental}
+teams:
+  - use: stateless_builder  # plain code runs the loop; one typed answer per round
+    rounds: 20
+    watches: raw
+    model: builder
+    checks: [spec]
+    max_model_calls: 40  # loops are caught by the toolbox now; 80 mostly bought repeats
+    repairs: 2  # failing checks: keep the work, say what broke, try again (the first run threw away 150 passes)
+    partial: true  # some examples fixed and none broken is progress: the ratchet judges, not the model
+    constraints:
+      - Use only the Python standard library.
+      - Keep the code in the mdconv package, split into modules as it grows.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec]}
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
+budgets: {usd_per_day: 10.0, reserve_usd: 1.0}  # an item costs up to about $1: none starts with less left
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow}

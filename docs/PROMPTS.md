@@ -32,6 +32,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | Family | Team names (`use:`) | Answer |
 | --- | --- | --- |
 | [Producers: executor and writer](#producers-executor-and-writer) | `executor`, `writer` | `ExecutorReport` |
+| [Stateless builder: plain code runs the loop, one typed answer per round](#stateless-builder-plain-code-runs-the-loop-one-typed-answer-per-round) | `stateless_builder` | `BuildStep` |
 | [Planners: decomposer and outliner](#planners-decomposer-and-outliner) | `decomposer`, `outliner` | `Split` |
 | [Probing analyzers: evidence is a failing test](#probing-analyzers-evidence-is-a-failing-test) | `integration_tester`, `red_team`, `edge_value_tester`, `text_tester`, `error_tester`, `contract_tester` | `AnalysisReport` |
 | [Reviewing analyzers: evidence is a verbatim quote](#reviewing-analyzers-evidence-is-a-verbatim-quote) | `consistency_checker`, `fact_checker`, `audience_reviewer` | `ReviewReport` |
@@ -201,6 +202,289 @@ class ExecutorReport(Frozen):
 `ExecutorTeam`: An executor backed by a model that edits the worktree with tools and runs the checks itself.
 
 After the model finishes, the executor runs the checks once more, deterministically. Work that passes is committed and announced for the gate. Work that still fails, or that the model calls incomplete, is committed but escalated, so it is kept for a human and the gate doesn't judge it.
+
+## Stateless builder: plain code runs the loop, one typed answer per round
+
+### `stateless_builder`
+
+`agentswarm.teams.stateless.StatelessBuilder`: An executor whose loop is plain code: one typed model answer per round, at most `rounds` rounds.
+
+```text
+You build one task in a project, in rounds. Each round you see the current state: the task, the findings to
+fix, the project's files, what your edits and requests of the last round gave, the latest check results, and
+your own notes. You remember nothing else between rounds, so write in `notes` what you need next round.
+
+- Each answer may edit files, and ask to read parts of files, search for a regular expression, or run
+  test files. Edits are made now; the results of your requests come in the next round.
+- Edit by replacing exact text that occurs once (include a few surrounding lines); an empty `old` creates
+  the file or replaces all of it. Change only what the task needs.
+- Fix every finding in `instruction.must_fix`, and follow every rule in `instruction.constraints`.
+- Tests under tests/acceptance/ were written by someone else: make them pass. You can't change them.
+- When the checks pass, or you can do no more, set `done`, say whether the task is `complete`, and give a
+  one-line `summary`.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "north_star": "A small greeting library",
+  "instruction": {
+    "goal": "Add farewell(name) that returns 'Goodbye, <name>!' and raises ValueError for an empty name.",
+    "must_fix": [
+      {
+        "id": "f-0123456789ab",
+        "artifact": "a-0001",
+        "level": "raw",
+        "team": "gate",
+        "kind": "incomplete",
+        "severity": "major",
+        "detail": "The tests do not exercise the behaviour the task describes"
+      }
+    ],
+    "constraints": [
+      "Use only the standard library."
+    ]
+  },
+  "files": [
+    "greeter.py",
+    "tests/test_greeter.py"
+  ],
+  "round": 2,
+  "rounds_left": 18,
+  "notes": "farewell is missing from greeter.py; add it after hello, then run the tests.",
+  "outcomes": [
+    {
+      "request": "read greeter.py 1-300",
+      "result": "    1| def hello(name: str) -> str:\n    2| ..."
+    }
+  ],
+  "checks": "unit_tests: FAILED\n1 failed: test_farewell"
+}
+</data>
+```
+
+### Payload types
+
+```python
+class BuildState(Frozen):
+    """Everything the model sees in one round: it remembers nothing else."""
+
+    north_star: str
+    instruction: Instruction
+    files: tuple[str, ...]
+    round: int
+    rounds_left: int
+    notes: str  # the model's own notes from the last round
+    outcomes: tuple[Outcome, ...]  # the last round's edits and requests, and what they gave
+    checks: str  # the project's checks on the current state of the work
+
+
+class Instruction(Frozen):
+    """What a producer is asked to do: the task, and the findings it must fix (proposal §13.2)."""
+
+    goal: str  # the artifact's task
+    must_fix: tuple[Finding, ...]  # open findings, e.g. from the last rejection
+    constraints: tuple[str, ...]  # from the project configuration
+
+
+class Finding(Frozen):
+    """Typed feedback. A rejected gate always produces at least one. Resolved by a FindingResolved event."""
+
+    id: FindingId = Field(default_factory=FindingIds.new)
+    artifact: ArtifactId
+    level: Level
+    team: TeamName
+    kind: FindingKind
+    severity: Severity
+    detail: str  # where and why; see proposal §11.6 for where it comes from
+
+
+class Outcome(Frozen):
+    """What one request or edit from the last round gave."""
+
+    request: str  # e.g. "read mdconv/__init__.py 1-300", "edit mdconv/__init__.py"
+    result: str
+```
+
+### Answer
+
+```python
+class BuildStep(Frozen):
+    """One round's answer: edits to make now, and what to look at in the next round."""
+
+    notes: str = Field(
+        description="what you have learned and plan to do next; it is all you will remember next round"
+    )
+    edits: tuple[Edit, ...] = Field(default=(), description="made now, in order, before the requests below")
+    reads: tuple[FileRead, ...] = Field(default=(), description="parts of files to see next round")
+    searches: tuple[str, ...] = Field(default=(), description="regular expressions to find in the files")
+    run_tests: tuple[str, ...] = Field(
+        default=(), description="test files or folders to run, with failures shown"
+    )
+    done: bool = Field(default=False, description="stop: the task is done, or you can do no more")
+    complete: bool = Field(default=False, description="with done: whether every part of the task is done")
+    summary: str = Field(default="", description="with done: one line, what was changed")
+
+
+class Edit(Frozen):
+    path: str = Field(description="relative to the project root")
+    old: str = Field(
+        description="the exact text to replace, which must occur once in the file (include a few lines "
+        "around it); empty to create the file, or replace all of it, with `new`"
+    )
+    new: str = Field(description="the text that replaces it")
+
+
+class FileRead(Frozen):
+    path: str
+    start: int = Field(default=1, description="first line, 1-based")
+    end: int | None = Field(default=None, description="last line, inclusive; none for up to 300 lines")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "Edit": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "relative to the project root",
+          "title": "Path",
+          "type": "string"
+        },
+        "old": {
+          "description": "the exact text to replace, which must occur once in the file (include a few lines around it); empty to create the file, or replace all of it, with `new`",
+          "title": "Old",
+          "type": "string"
+        },
+        "new": {
+          "description": "the text that replaces it",
+          "title": "New",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "old",
+        "new"
+      ],
+      "title": "Edit",
+      "type": "object"
+    },
+    "FileRead": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "start": {
+          "default": 1,
+          "description": "first line, 1-based",
+          "title": "Start",
+          "type": "integer"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "last line, inclusive; none for up to 300 lines",
+          "title": "End"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "FileRead",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One round's answer: edits to make now, and what to look at in the next round.",
+  "properties": {
+    "notes": {
+      "description": "what you have learned and plan to do next; it is all you will remember next round",
+      "title": "Notes",
+      "type": "string"
+    },
+    "edits": {
+      "default": [],
+      "description": "made now, in order, before the requests below",
+      "items": {
+        "$ref": "#/$defs/Edit"
+      },
+      "title": "Edits",
+      "type": "array"
+    },
+    "reads": {
+      "default": [],
+      "description": "parts of files to see next round",
+      "items": {
+        "$ref": "#/$defs/FileRead"
+      },
+      "title": "Reads",
+      "type": "array"
+    },
+    "searches": {
+      "default": [],
+      "description": "regular expressions to find in the files",
+      "items": {
+        "type": "string"
+      },
+      "title": "Searches",
+      "type": "array"
+    },
+    "run_tests": {
+      "default": [],
+      "description": "test files or folders to run, with failures shown",
+      "items": {
+        "type": "string"
+      },
+      "title": "Run Tests",
+      "type": "array"
+    },
+    "done": {
+      "default": false,
+      "description": "stop: the task is done, or you can do no more",
+      "title": "Done",
+      "type": "boolean"
+    },
+    "complete": {
+      "default": false,
+      "description": "with done: whether every part of the task is done",
+      "title": "Complete",
+      "type": "boolean"
+    },
+    "summary": {
+      "default": "",
+      "description": "with done: one line, what was changed",
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "notes"
+  ],
+  "title": "BuildStep",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`StatelessBuilder`: An executor whose loop is plain code: one typed model answer per round, at most `rounds` rounds.
 
 ## Planners: decomposer and outliner
 

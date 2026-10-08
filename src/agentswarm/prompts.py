@@ -61,6 +61,7 @@ from agentswarm.teams.analyzer import (
 from agentswarm.teams.decomposer import Decomposer, Split, SplitRequest
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, ExecutorTeam, WorktreeToolbox
+from agentswarm.teams.stateless import BuildState, BuildStep, Outcome, StatelessBuilder
 
 type ToolboxClass = type[WorktreeToolbox] | type[AnalysisToolbox] | type[ReadingToolbox]
 
@@ -122,6 +123,23 @@ class SampleData:
             instruction=instruction,
             files=("greeter.py", "tests/test_greeter.py"),
             diff_summary=" greeter.py | 5 +++++\n 1 file changed, 5 insertions(+)",
+        )
+
+    @classmethod
+    def build_state(cls) -> BuildState:
+        request = cls.executor()
+        read = Outcome(
+            request="read greeter.py 1-300", result="    1| def hello(name: str) -> str:\n    2| ..."
+        )
+        return BuildState(
+            north_star=request.north_star,
+            instruction=request.instruction,
+            files=request.files,
+            round=2,
+            rounds_left=18,
+            notes="farewell is missing from greeter.py; add it after hello, then run the tests.",
+            outcomes=(read,),
+            checks="unit_tests: FAILED\n1 failed: test_farewell",
         )
 
     @classmethod
@@ -206,6 +224,14 @@ class PromptCatalogue:
                 executor,
                 ExecutorReport,
                 WorktreeToolbox,
+            ),
+            CallFamily(
+                "Stateless builder: plain code runs the loop, one typed answer per round",
+                (Caller("stateless_builder", StatelessBuilder, StatelessBuilder.STEP_INSTRUCTIONS),),
+                StatelessBuilder,
+                SampleData.build_state(),
+                BuildStep,
+                None,
             ),
             CallFamily(
                 "Planners: decomposer and outliner",

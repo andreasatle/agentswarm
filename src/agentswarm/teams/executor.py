@@ -459,7 +459,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         toolbox = toolbox or WorktreeToolbox(worktree, self._checks, self._tests)
         request = self.request(ctx, worktree, nudged)
         try:
-            report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
+            report = await self.work(worker, request, toolbox)
         except ProviderUnavailable as error:
             # Not the model's failure and not the task's: new work waits until a person resumes the project.
             worktree.discard_changes()
@@ -486,9 +486,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         for _ in range(self._repairs if not checks.passed else 0):
             # Repair, don't restart: the work so far stays, and the model is told exactly what failed.
             try:
-                report = await worker.run(
-                    self.INSTRUCTIONS, self.request(ctx, worktree, failing=checks), ExecutorReport, toolbox
-                )
+                report = await self.work(worker, self.request(ctx, worktree, failing=checks), toolbox)
             except WorkerError:
                 break
             restored = [*restored, *worktree.restore(AcceptanceTester.FOLDER)]
@@ -510,6 +508,15 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 Escalated(artifact=artifact.id, reason=f"executor reports incomplete: {report.summary}")
             )
         return events
+
+    async def work(
+        self, worker: Worker, request: ExecutorRequest, toolbox: WorktreeToolbox
+    ) -> ExecutorReport:
+        """The model's part of an attempt: here an agent that uses the tools itself, in a loop.
+
+        May raise WorkerError. Subclasses can do it differently (`stateless.StatelessBuilder`).
+        """
+        return await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
 
     def _failed(
         self, ctx: ArtifactContext, model: str | None, reason: str, changed_nothing: bool = False
