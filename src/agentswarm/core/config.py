@@ -133,6 +133,9 @@ class CheckConfig(Strict):
     # A ratchet (gating/ratchet.py, pytest only): instead of "everything passes", the work must make at least
     # one more of this level's failing tests pass and break none that passed there.
     ratchet: Level | None = None
+    # With a ratchet: whether the work must make a failing test pass. False for refactoring, which may change
+    # no behaviour: then breaking nothing is enough.
+    progress: bool = True
 
 
 class Threshold(Strict):

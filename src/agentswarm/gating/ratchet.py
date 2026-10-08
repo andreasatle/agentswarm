@@ -61,7 +61,11 @@ class Progress(BaseModel):
     def moves_forward(self) -> bool:
         return bool(self.fixed) and not self.broken
 
-    def summary(self, level: Level, base: str, shown: int = 20) -> str:
+    def acceptable(self, progress: bool) -> bool:
+        """Moves forward; or, when progress isn't asked (a refactor), breaks nothing."""
+        return self.moves_forward if progress else not self.broken
+
+    def summary(self, level: Level, base: str, shown: int = 20, progress: bool = True) -> str:
         theirs = self.base.passed | self.base.failed
         lines = [
             f"ratchet against {level} ({base[:10]}): {len(self.now.passed & theirs)}"
@@ -70,7 +74,7 @@ class Progress(BaseModel):
         ]
         if self.broken:
             lines.append("BROKEN (passed before, not now): " + ", ".join(sorted(self.broken)[:shown]))
-        if not self.fixed:
+        if not self.fixed and progress:
             lines.append("NO PROGRESS: none of the level's failing tests passes yet")
         still = sorted(self.base.failed - self.now.passed)
         if still:

@@ -164,8 +164,10 @@ class RatchetCheck:
         if now is None:
             return CheckResult(name=self._name, status=CheckStatus.ERROR, output="the tests didn't finish")
         progress = Progress(base=before, now=now)
-        status = CheckStatus.PASSED if progress.moves_forward else CheckStatus.FAILED
-        return CheckResult(name=self._name, status=status, output=progress.summary(self._level, base))
+        wanted = self._config.progress
+        status = CheckStatus.PASSED if progress.acceptable(wanted) else CheckStatus.FAILED
+        output = progress.summary(self._level, base, progress=wanted)
+        return CheckResult(name=self._name, status=status, output=output)
 
     def outcomes(self, cwd: Path) -> Outcomes | None:
         """The suite's outcomes in `cwd`; None when it timed out or couldn't start."""

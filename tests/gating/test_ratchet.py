@@ -69,6 +69,7 @@ class TestOutcomes:
         assert broke.broken == {"a"} and not broke.moves_forward  # a test that vanished counts as broken
         only_new = Progress(base=base, now=Outcomes(passed=frozenset({"a", "new"}), failed=frozenset({"b"})))
         assert not only_new.moves_forward  # tests the producer added aren't progress
+        assert only_new.acceptable(progress=False) and not broke.acceptable(progress=False)  # a refactor
 
 
 class TestRatchetCheck:
