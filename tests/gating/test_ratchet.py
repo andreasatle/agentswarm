@@ -106,3 +106,17 @@ class TestWorklist:
         assert worklist.step() == 0  # one in progress at a time
         s.h.board.append([Escalated(artifact=item.id, reason="stuck"), Paused(reason="provider unavailable")])
         assert worklist.step() == 0  # nothing new while the project is paused
+
+    def test_only_the_named_test_files_become_items(self, tmp_path: Path) -> None:
+        s = Suite(tmp_path)
+        config = WorklistConfig(check="spec", only=("tests/acceptance/test_other*.py",))
+        worklist = Worklist(
+            s.h.board,
+            ArtifactFactory(s.h.board, Harness.LADDER),
+            s.h.repository,
+            Harness.LADDER,
+            s.check,
+            config,
+        )
+        s.h.board.append([Samples.commit(s.artifact.id)])
+        assert worklist.step() == 0  # test_spec.py fails, but isn't one of them

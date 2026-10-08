@@ -1,0 +1,9 @@
+# z-ai/glm-5.3 through OpenRouter (OPENROUTER_API_KEY in .env); listed prices 2026-10-08, billed cost recorded.
+model: openai:z-ai/glm-5.3
+max_tokens: 16384
+base_url: https://openrouter.ai/api/v1
+api_key_env: OPENROUTER_API_KEY
+usd_per_million:
+  input: 0.085
+  output: 4.2
+  cache_read: 0.048

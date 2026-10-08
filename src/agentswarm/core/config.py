@@ -324,6 +324,7 @@ class WorklistConfig(Strict):
     max_open: int = Field(default=1, ge=1)  # items being worked on at once
     attempts_per_file: int = Field(default=3, ge=1)  # items per test file before it is left to a person
     shown: int = Field(default=10, ge=0)  # failing test ids named in an item's task
+    only: tuple[str, ...] = ()  # glob patterns: only these test files become items (e.g. one hard section)
 
 
 class ProjectConfig(Strict):

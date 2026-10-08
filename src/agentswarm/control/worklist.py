@@ -8,6 +8,7 @@ and stops when nothing fails or every remaining file has used its items. The rat
 merged item moves the suite forward without breaking anything.
 """
 
+import fnmatch
 from collections import Counter
 
 from agentswarm.board.artifacts import ArtifactFactory
@@ -59,6 +60,8 @@ class Worklist:
             if len(in_progress) + added >= self._config.max_open:
                 break
             if path in busy or used[path] >= self._config.attempts_per_file:
+                continue
+            if self._config.only and not any(fnmatch.fnmatch(path, p) for p in self._config.only):
                 continue
             ids = sorted(n.split("::", 1)[1] for n in outcomes.failed if n.startswith(f"{path}::"))
             self._artifacts.create(self.task(path, failing[path], total[path], ids), self.NAME)
