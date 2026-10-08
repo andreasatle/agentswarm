@@ -57,7 +57,8 @@ You are the planner. The task in the data is too large for one change by one tea
 - Each child task must be self-contained: whoever does it sees only that text.
 - Each child must be clearly smaller than the parent and doable in one branch without further design
   decisions.
-- Children should touch different parts of the code where possible, so they don't conflict.
+- The children are done one after another, in the order you give, each on top of what the earlier ones
+  merged: order them so each step builds on the last and leaves everything working.
 - Don't add work the parent task didn't ask for."""
 
     def __init__(

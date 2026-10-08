@@ -58,12 +58,17 @@ class Progress(BaseModel):
         return self.base.passed - self.now.passed
 
     @property
+    def added_failing(self) -> frozenset[str]:
+        """Tests the work added that fail: a producer's own tests must pass too."""
+        return self.now.failed - (self.base.passed | self.base.failed)
+
+    @property
     def moves_forward(self) -> bool:
-        return bool(self.fixed) and not self.broken
+        return bool(self.fixed) and not self.broken and not self.added_failing
 
     def acceptable(self, progress: bool) -> bool:
-        """Moves forward; or, when progress isn't asked (a refactor), breaks nothing."""
-        return self.moves_forward if progress else not self.broken
+        """Moves forward; or, without progress asked (a refactor), breaks nothing and adds no failing test."""
+        return self.moves_forward if progress else not (self.broken or self.added_failing)
 
     def summary(self, level: Level, base: str, shown: int = 20, progress: bool = True) -> str:
         theirs = self.base.passed | self.base.failed
@@ -74,6 +79,10 @@ class Progress(BaseModel):
         ]
         if self.broken:
             lines.append("BROKEN (passed before, not now): " + ", ".join(sorted(self.broken)[:shown]))
+        if self.added_failing:
+            lines.append(
+                "NEW TESTS FAILING (added by this work): " + ", ".join(sorted(self.added_failing)[:shown])
+            )
         if not self.fixed and progress:
             lines.append("NO PROGRESS: none of the level's failing tests passes yet")
         still = sorted(self.base.failed - self.now.passed)

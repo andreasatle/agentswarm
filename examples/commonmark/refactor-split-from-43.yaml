@@ -1,0 +1,36 @@
+# The restructuring, planned: Sonnet 5.5 splits it into steps (the strangler pattern: build the new parser beside
+# the old one, then switch over), DeepSeek V4 Pro builds each step in order, and the refactor ratchet gates every
+# step: nothing that passes may break, and new tests must pass. Can the swarm split a problem no single item
+# could do (refactor-from-43.yaml: two models failed) into pieces that a cheap builder can?
+#   uv run agentswarm run examples/commonmark/refactor-split-from-43.yaml --root ~/agentswarm-runs/refactor-split \
+#       --max-rounds 40 --task "$(cat examples/commonmark/refactor-task.txt)"
+project: commonmark
+domain: software
+north_star: >-
+  A CommonMark-compliant Markdown to HTML converter in pure Python: the package mdconv, whose to_html(markdown)
+  returns exactly the HTML the CommonMark spec's examples show. Done when every example passes.
+seed: ~/agentswarm-data/commonmark/seed-43-spec  # the 43% converter, plus the spec's text in docs/spec.md
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  planner: {model: "openai:anthropic/claude-sonnet-5.5", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  builder: {model: "openai:deepseek/deepseek-v4-pro-0813", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.66, output: 1.98, cache_read: 0.022}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, progress: false}
+teams:
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}
+  - use: executor
+    watches: raw
+    model: builder
+    checks: [spec]
+    max_model_calls: 60
+    repairs: 2  # failing checks: keep the work, say what broke, try again (the first run threw away 150 passes)
+    constraints:
+      - Use only the Python standard library.
+      - Keep the code in the mdconv package, split into modules as it grows.
+      - The CommonMark spec is in docs/spec.md (its examples are your tests). Its appendix "A parsing strategy" says how a parser handles container blocks such as lists and block quotes; search and read the parts you need.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec]}
+budgets: {usd_per_day: 10.0, reserve_usd: 1.0}  # an item costs up to about $1: none starts with less left
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["size:*"]}  # Jev decides whether to split; the split check stays in shadow

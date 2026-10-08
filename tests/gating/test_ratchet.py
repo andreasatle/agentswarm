@@ -70,6 +70,11 @@ class TestOutcomes:
         only_new = Progress(base=base, now=Outcomes(passed=frozenset({"a", "new"}), failed=frozenset({"b"})))
         assert not only_new.moves_forward  # tests the producer added aren't progress
         assert only_new.acceptable(progress=False) and not broke.acceptable(progress=False)  # a refactor
+        own_failing = Progress(
+            base=base, now=Outcomes(passed=frozenset({"a", "b"}), failed=frozenset({"c", "mine"}))
+        )
+        assert own_failing.added_failing == {"mine"} and not own_failing.moves_forward
+        assert not own_failing.acceptable(progress=False)
 
 
 class TestRatchetCheck:
