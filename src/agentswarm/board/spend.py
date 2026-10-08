@@ -37,6 +37,8 @@ class SpendLedger:
                     priced=price is not None,
                     cache_read_tokens=usage.cache_read_tokens,
                     cache_write_tokens=usage.cache_write_tokens,
+                    model_calls=usage.model_calls,
+                    largest_input=usage.largest_input,
                 )
             ]
         )

@@ -1,5 +1,6 @@
 """Executor teams: they implement an artifact's task on its raw branch (proposal §10.3)."""
 
+import functools
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from typing import ClassVar
@@ -26,6 +27,8 @@ from agentswarm.core.domain import (
     Severity,
     Sized,
     TeamName,
+    ToolCall,
+    ToolsUsed,
 )
 from agentswarm.gating.checks import CheckResult, CommandCheck, HardCheck
 from agentswarm.llm.workers import ProviderUnavailable, Worker, WorkerError
@@ -56,6 +59,21 @@ class CheckReport(Frozen):
         )
 
 
+class Traced:
+    """Records each call of a toolbox's tools: the method's arguments and result, by size."""
+
+    @staticmethod
+    def tool(method: Callable[..., str]) -> Callable[..., str]:
+        @functools.wraps(method)
+        def traced(self: "WorktreeToolbox", *args: object, **kwargs: object) -> str:
+            result = method(self, *args, **kwargs)
+            given = sum(len(str(a)) for a in (*args, *kwargs.values()))
+            self.calls.append(ToolCall(tool=method.__name__, input_chars=given, output_chars=len(result)))
+            return result
+
+        return traced
+
+
 class WorktreeToolbox:
     """The executor's tools, confined to one worktree. Checks run in the project's sandbox.
 
@@ -75,15 +93,18 @@ class WorktreeToolbox:
         self._worktree = worktree
         self._checks = tuple(checks)
         self._tests = tests
+        self.calls: list[ToolCall] = []  # every tool call so far, for the board (ToolsUsed)
 
     def tools(self) -> Sequence[Callable[..., str]]:
         names = (*self.TOOLS, "run_tests") if self._tests is not None else self.TOOLS
         return [getattr(self, name) for name in names]
 
+    @Traced.tool
     def list_files(self) -> str:
         """List every file in the project, one relative path per line."""
         return "\n".join(self._worktree.files()) or "(the project has no files yet)"
 
+    @Traced.tool
     def read_file(self, path: str) -> str:
         """Return the full content of the file at `path`, relative to the project root."""
         try:
@@ -94,6 +115,7 @@ class WorktreeToolbox:
             return content[: self.READ_LIMIT] + f"\n... (truncated at {self.READ_LIMIT} characters)"
         return content
 
+    @Traced.tool
     def write_file(self, path: str, content: str) -> str:
         """Create or overwrite the file at `path`, relative to the project root, with `content`."""
         try:
@@ -103,6 +125,7 @@ class WorktreeToolbox:
             return f"error: {error}"
         return f"wrote {relative} ({len(content)} characters)"
 
+    @Traced.tool
     def delete_file(self, path: str) -> str:
         """Delete the file at `path`, relative to the project root."""
         try:
@@ -112,10 +135,12 @@ class WorktreeToolbox:
             return f"error: {error}"
         return f"deleted {relative}"
 
+    @Traced.tool
     def run_checks(self) -> str:
         """Run the project's checks (such as the test suite) and report which passed and why others failed."""
         return self.check_report().summary()
 
+    @Traced.tool
     def run_tests(self, path: str) -> str:
         """Run the tests in one file (or folder), relative to the project root, and show why any fail."""
         if self._tests is None:
@@ -283,7 +308,13 @@ You are the executor in a software team. Implement the task in `instruction.goal
         number, nudged = 1, False
         while number <= self._attempts:
             last = number == self._attempts
-            kept = await self._attempt(ctx, worktree, model, worker, last, nudged)
+            toolbox = WorktreeToolbox(worktree, self._checks, self._tests)
+            kept = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox)
+            if toolbox.calls:  # where the model's tokens went, for the board
+                used = ToolsUsed(
+                    artifact=ctx.artifact.id, team=self.name, model=model, calls=tuple(toolbox.calls)
+                )
+                events.append(used)
             if not isinstance(kept, AttemptFailed):
                 events.extend(kept)
                 break
@@ -323,10 +354,11 @@ You are the executor in a software team. Implement the task in `instruction.goal
         worker: Worker,
         last: bool,
         nudged: bool = False,  # the model said it was done without changing anything, and is told so
+        toolbox: "WorktreeToolbox | None" = None,  # the attempt's tools; one is made when not given
     ) -> list[Event] | AttemptFailed:
         """One attempt's events, or why an attempt before the last failed and was thrown away."""
         artifact = ctx.artifact
-        toolbox = WorktreeToolbox(worktree, self._checks, self._tests)
+        toolbox = toolbox or WorktreeToolbox(worktree, self._checks, self._tests)
         request = self.request(ctx, worktree, nudged)
         try:
             report = await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)

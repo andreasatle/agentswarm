@@ -235,8 +235,11 @@ class Tokens(BaseCallbackHandler):
         written += (details.get("ephemeral_5m_input_tokens", 0) or 0) + (
             details.get("ephemeral_1h_input_tokens", 0) or 0
         )
+        given = message.usage_metadata.get("input_tokens", 0)
         return Usage(
-            input_tokens=message.usage_metadata.get("input_tokens", 0),
+            input_tokens=given,
+            model_calls=1,
+            largest_input=given,
             output_tokens=message.usage_metadata.get("output_tokens", 0),
             cache_read_tokens=details.get("cache_read", 0) or 0,
             cache_write_tokens=written,

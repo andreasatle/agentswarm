@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import sys
+from collections import Counter
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from agentswarm.core.domain import (
     SignedOff,
     Sized,
     Spent,
+    ToolsUsed,
 )
 from agentswarm.evaluation.commonmark import CommonMarkImport
 from agentswarm.evaluation.compare import (
@@ -119,6 +121,11 @@ class Report:
                 return f"profiled: difficulty {event.difficulty:.2f}{'' if event.active else ' (shadow)'}"
             case AttemptFailed():
                 return f"attempt by {event.model or event.team} discarded: {event.reason}"
+            case ToolsUsed():
+                tools = Counter(c.tool for c in event.calls)
+                read = sum(c.output_chars for c in event.calls)
+                listed = ", ".join(f"{t} x{n}" for t, n in tools.most_common())
+                return f"tool calls by {event.model or event.team}: {listed}; {read:,} characters returned"
             case OutcomeRecorded():
                 verdict = "success" if event.success else "failure"
                 return f"outcome for routing: {event.call_kind} by {event.model_id}, {verdict}"

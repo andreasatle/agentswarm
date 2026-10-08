@@ -71,7 +71,8 @@ class TestTokens:
         ]
         tokens = Tokens()
         tokens.on_llm_end(LLMResult(generations=[[ChatGeneration(message=m)] for m in messages]))
-        assert tokens.usage == Usage(input_tokens=15, output_tokens=3)
+        # two calls reported usage; the larger prompt had 10 tokens
+        assert tokens.usage == Usage(input_tokens=15, output_tokens=3, model_calls=2, largest_input=10)
 
     async def test_a_worker_reports_its_usage_to_its_meter(self) -> None:
         reply = AIMessage(
@@ -83,7 +84,7 @@ class TestTokens:
         await LangChainWorker(FakeToolModel(messages=iter([reply])), meter=heard.append).run(
             "Do it.", Request(task="t"), Summary
         )
-        assert heard == [Usage(input_tokens=120, output_tokens=30)]
+        assert heard == [Usage(input_tokens=120, output_tokens=30, model_calls=1, largest_input=120)]
 
     async def test_calls_that_completed_are_metered_when_a_later_call_fails(self) -> None:
         first = AIMessage(
@@ -95,7 +96,7 @@ class TestTokens:
         worker = LangChainWorker(FakeToolModel(messages=iter([first])), meter=heard.append)  # no second reply
         with pytest.raises(WorkerError):
             await worker.run("Do it.", Request(task="t"), Summary)
-        assert heard == [Usage(input_tokens=120, output_tokens=30)]
+        assert heard == [Usage(input_tokens=120, output_tokens=30, model_calls=1, largest_input=120)]
 
 
 class Summary(BaseModel):

@@ -40,6 +40,7 @@ from agentswarm.core.domain import (
     Sized,
     Spent,
     TeamName,
+    ToolsUsed,
 )
 
 
@@ -138,6 +139,7 @@ class BoardViews:
                 | Routed()
                 | AttemptFailed()
                 | OutcomeRecorded()
+                | ToolsUsed()
                 | AcceptanceWritten()
                 | AcceptanceRestored()
             ):

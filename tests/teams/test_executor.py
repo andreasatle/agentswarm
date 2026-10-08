@@ -7,12 +7,14 @@ from agentswarm.core.domain import (
     CommitPushed,
     DecisionId,
     Escalated,
+    Event,
     Finding,
     FindingAdded,
     FindingKind,
     Paused,
     Rejected,
     Severity,
+    ToolsUsed,
 )
 from agentswarm.llm.workers import FakeWorker, LangChainWorker, ProviderUnavailable, Toolbox, WorkerError
 from agentswarm.teams.executor import (
@@ -27,6 +29,13 @@ from agentswarm.workspace.git import Worktree
 from tests.support.fakes import Replies
 from tests.support.harness import Checks, Harness
 from tests.support.samples import Samples
+
+
+class Traces:
+    @staticmethod
+    def drop(events: list[Event]) -> list[Event]:
+        """An executor's events without its tool-call records (ToolsUsed), which every attempt adds."""
+        return [e for e in events if not isinstance(e, ToolsUsed)]
 
 
 class Workspace:
@@ -136,7 +145,9 @@ class TestExecutorTeam:
     async def test_commits_work_that_passes_the_checks(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker([Steps.write({"greeting.py": "def farewell(name): ...\n"})])
-        (event,) = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        (event,) = Traces.drop(
+            await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        )
         assert isinstance(event, CommitPushed)
         assert w.h.repository.tip(w.artifact.branch) == event.commit
         assert w.h.repository.files_at(w.artifact.branch) == ["greeting.py"]
@@ -157,7 +168,7 @@ class TestExecutorTeam:
         )
         worker = FakeWorker([Steps.write({"greeting.py": "def farewell(): ...\n"})])
         team = ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, constraints=["No new dependencies"])
-        await team.act(w.ctx(), w.worktree)
+        Traces.drop(await team.act(w.ctx(), w.worktree))
         ((instructions, payload),) = worker.calls
         assert isinstance(payload, ExecutorRequest)
         assert payload.instruction.goal == "Add a farewell function"
@@ -170,8 +181,8 @@ class TestExecutorTeam:
     async def test_failing_checks_are_committed_but_escalated(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"})])
-        commit, escalated = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(
-            w.ctx(), w.worktree
+        commit, escalated = Traces.drop(
+            await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
         )
         assert isinstance(commit, CommitPushed)
         assert isinstance(escalated, Escalated)
@@ -189,7 +200,7 @@ class TestExecutorTeam:
             ]
         )
         team = ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, attempts=3)
-        failed, event = await team.act(w.ctx(), w.worktree)
+        failed, event = Traces.drop(await team.act(w.ctx(), w.worktree))
         assert (
             isinstance(failed, AttemptFailed) and failed.reason == "checks fail"
         )  # counted against the model
@@ -201,9 +212,9 @@ class TestExecutorTeam:
     async def test_when_every_attempt_fails_the_last_is_committed_and_escalated(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"}) for _ in range(2)])
-        failed, commit, escalated = await ExecutorTeam(
-            worker, [Toolboxes.CHECK], Samples.RAW, attempts=2
-        ).act(w.ctx(), w.worktree)
+        failed, commit, escalated = Traces.drop(
+            await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, attempts=2).act(w.ctx(), w.worktree)
+        )
         assert isinstance(failed, AttemptFailed)
         assert isinstance(commit, CommitPushed) and isinstance(escalated, Escalated)
         assert len(worker.calls) == 2
@@ -213,15 +224,17 @@ class TestExecutorTeam:
         worker = FakeWorker(
             [Steps.write({"greeting.py": "def farewell(): ...\n"}, "half done", complete=False)]
         )
-        events = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        events = Traces.drop(
+            await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        )
         assert isinstance(events[-1], Escalated)
         assert "incomplete: half done" in events[-1].reason
 
     async def test_no_changes_is_told_once_then_escalated_without_a_commit(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker([Steps.write({}), Steps.write({})])
-        first, second, event = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(
-            w.ctx(), w.worktree
+        first, second, event = Traces.drop(
+            await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
         )
         assert isinstance(first, AttemptFailed) and first.changed_nothing
         assert isinstance(second, AttemptFailed) and isinstance(event, Escalated)
@@ -233,7 +246,9 @@ class TestExecutorTeam:
     async def test_told_that_nothing_changed_the_model_does_the_work(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         worker = FakeWorker([Steps.write({}), Steps.write({"greeting.py": "def farewell(name): ...\n"})])
-        failed, commit = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        failed, commit = Traces.drop(
+            await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        )
         assert isinstance(failed, AttemptFailed) and isinstance(commit, CommitPushed)  # one attempt, nudged
 
     async def test_worker_failure_keeps_the_work_done_so_far(self, tmp_path: Path) -> None:
@@ -244,8 +259,8 @@ class TestExecutorTeam:
             toolbox.write_file("greeting.py", "def farewell(): ...\n")
             raise WorkerError("ran out of model calls")
 
-        failed, commit, escalated = await ExecutorTeam(FakeWorker([half]), [], Samples.RAW).act(
-            w.ctx(), w.worktree
+        failed, commit, escalated = Traces.drop(
+            await ExecutorTeam(FakeWorker([half]), [], Samples.RAW).act(w.ctx(), w.worktree)
         )
         assert isinstance(failed, AttemptFailed)  # the work in progress was not the model's answer
         assert isinstance(commit, CommitPushed) and commit.model is None
@@ -258,7 +273,9 @@ class TestExecutorTeam:
         def fail(toolbox: Toolbox | None) -> ExecutorReport:
             raise WorkerError("model unreachable")
 
-        failed, event = await ExecutorTeam(FakeWorker([fail]), [], Samples.RAW).act(w.ctx(), w.worktree)
+        failed, event = Traces.drop(
+            await ExecutorTeam(FakeWorker([fail]), [], Samples.RAW).act(w.ctx(), w.worktree)
+        )
         assert isinstance(failed, AttemptFailed) and isinstance(event, Escalated)
         assert "model unreachable" in event.reason
 
@@ -273,7 +290,7 @@ class TestExecutorTeam:
             .model()
         )
         team = ExecutorTeam(LangChainWorker(model), [Toolboxes.CHECK], Samples.RAW)
-        (event,) = await team.act(w.ctx(), w.worktree)
+        (event,) = Traces.drop(await team.act(w.ctx(), w.worktree))
         assert isinstance(event, CommitPushed)
         assert "def farewell" in w.worktree.read("greeting.py")
         message = w.h.repository.git.run(w.worktree.path, "log", "-1", "--format=%s")
@@ -316,7 +333,7 @@ class TestSyncWithTheBase:
         self.advance_base(w, {"other.py": "x = 1\n"})
         self.conflicted(w)
         team = ExecutorTeam(FakeWorker([]), [Toolboxes.CHECK], Samples.RAW, sync_from=Samples.EXPERIMENTAL)
-        (event,) = await team.act(w.ctx(), w.worktree)
+        (event,) = Traces.drop(await team.act(w.ctx(), w.worktree))
         assert isinstance(event, CommitPushed) and event.model is None
         assert set(w.worktree.files()) == {"greeting.py", "other.py"}
 
@@ -327,7 +344,7 @@ class TestSyncWithTheBase:
         self.advance_base(w, {"greeting.py": "def hello(): ...\n"})
         self.conflicted(w)
         team = ExecutorTeam(FakeWorker([]), [Toolboxes.CHECK], Samples.RAW, sync_from=Samples.EXPERIMENTAL)
-        (event,) = await team.act(w.ctx(), w.worktree)
+        (event,) = Traces.drop(await team.act(w.ctx(), w.worktree))
         assert isinstance(event, Escalated) and "conflicts with experimental" in event.reason
 
 
@@ -340,8 +357,8 @@ class TestRepairsAndPartialWork:
                 Steps.write({"greeting.py": "def farewell(name): ...\n"}),
             ]
         )
-        (commit,) = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, repairs=2).act(
-            w.ctx(), w.worktree
+        (commit,) = Traces.drop(
+            await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, repairs=2).act(w.ctx(), w.worktree)
         )
         assert isinstance(commit, CommitPushed)
         assert set(w.h.repository.files_at(w.artifact.branch)) == {
@@ -355,8 +372,10 @@ class TestRepairsAndPartialWork:
     async def test_partial_work_that_passes_is_committed_for_the_gate(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         step = Steps.write({"greeting.py": "def farewell(): ...\n"}, "some of it", complete=False)
-        (commit,) = await ExecutorTeam(FakeWorker([step]), [Toolboxes.CHECK], Samples.RAW, partial=True).act(
-            w.ctx(), w.worktree
+        (commit,) = Traces.drop(
+            await ExecutorTeam(FakeWorker([step]), [Toolboxes.CHECK], Samples.RAW, partial=True).act(
+                w.ctx(), w.worktree
+            )
         )
         assert isinstance(commit, CommitPushed)  # no escalation: the gate judges the progress
 
@@ -384,5 +403,18 @@ class TestProviderFailures:
         def broke(toolbox: Toolbox | None) -> ExecutorReport:
             raise ProviderUnavailable("APIStatusError: Error code: 402 - out of credits")
 
-        (event,) = await ExecutorTeam(FakeWorker([broke]), [], Samples.RAW).act(w.ctx(), w.worktree)
+        (event,) = Traces.drop(
+            await ExecutorTeam(FakeWorker([broke]), [], Samples.RAW).act(w.ctx(), w.worktree)
+        )
         assert isinstance(event, Paused) and "402" in event.reason  # no AttemptFailed, no escalation
+
+
+class TestToolTraces:
+    async def test_every_attempt_records_its_tool_calls_by_size(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        worker = FakeWorker([Steps.write({"greeting.py": "def farewell(name): ...\n"})])
+        used, commit = await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW).act(w.ctx(), w.worktree)
+        assert isinstance(used, ToolsUsed) and isinstance(commit, CommitPushed)
+        (call,) = used.calls
+        assert (call.tool, call.output_chars) == ("write_file", len("wrote greeting.py (24 characters)"))
+        assert call.input_chars == len("greeting.py") + len("def farewell(name): ...\n")

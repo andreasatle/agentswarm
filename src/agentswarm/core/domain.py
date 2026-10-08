@@ -262,6 +262,8 @@ class Usage(Frozen):
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    model_calls: int = 0  # how many calls these tokens came from
+    largest_input: int = 0  # the input of the largest single call: how far a conversation grew
 
     def __add__(self, other: "Usage") -> "Usage":
         return Usage(
@@ -269,6 +271,8 @@ class Usage(Frozen):
             output_tokens=self.output_tokens + other.output_tokens,
             cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
             cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
+            model_calls=self.model_calls + other.model_calls,
+            largest_input=max(self.largest_input, other.largest_input),
         )
 
 
@@ -284,6 +288,8 @@ class Spent(Frozen):
     priced: bool  # False when the model has no price in the config, so usd is 0
     cache_read_tokens: int = 0  # parts of input_tokens read from the provider's prompt cache
     cache_write_tokens: int = 0
+    model_calls: int = 0  # 0 on boards from before it was recorded
+    largest_input: int = 0  # the input tokens of the largest single call
 
     @property
     def subject(self) -> None:
@@ -368,6 +374,28 @@ class AttemptFailed(Frozen):
     changed_nothing: bool = (
         False  # it said it was done without changing a file: told so, it gets one more try
     )
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
+class ToolCall(Frozen):
+    """One tool call a model made: which tool, and how much text went in and came back."""
+
+    tool: str
+    input_chars: int
+    output_chars: int
+
+
+class ToolsUsed(Frozen):
+    """The tool calls of one model run on an artifact, in order: where a producer's tokens went."""
+
+    kind: Literal["tools_used"] = "tools_used"
+    artifact: ArtifactId
+    team: TeamName
+    model: str | None
+    calls: tuple[ToolCall, ...]
 
     @property
     def subject(self) -> ArtifactId:
@@ -464,6 +492,7 @@ type Event = Annotated[
     | Routed
     | AttemptFailed
     | OutcomeRecorded
+    | ToolsUsed
     | PromotionStarted
     | PromotionSettled
     | Rejected
