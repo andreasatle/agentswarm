@@ -82,3 +82,14 @@ Inside a project nothing yet checks whether an acceptance test demands the right
 - **`OutcomeRecorder`** (control/outcomes.py) runs with the other controllers each step. A commit by a model succeeds when promoted and fails when rejected, escalated (not an approval request) or reworked before promotion. A split succeeds when the umbrella is promoted, fails when the planner escalates, a child is escalated or the umbrella is rejected. Each outcome is written once, keyed by the settled event's position in the artifact's history (`OutcomeRecorded`). Critique and accept calls are not settled in projects.
 - **Comparisons settle plans from the hidden tests** (`settle_plans=False` for their projects, then `OutcomeRecorder.settle_plans` with the delivered result). Produce outcomes come from the board everywhere, so the same evidence teaches the router in projects and experiments.
 - **`Routed.call_kind` defaults to produce,** so boards from before this change still load.
+
+## The model funnel (planned with the user, 2026-10-08)
+
+Thompson sampling explores by itself (each choice draws a plausible rate per model; uncertain models sometimes draw high; with the activity-based discount an unused model drifts back to uncertain and gets re-tried). But giving it every OpenRouter model directly would cost too much: a new model needs a few real items per role and difficulty to be ruled out (about 300 models x 15 items x $0.30, some $1,300), and many fail on technicalities (no tool calls, format) rather than skill. So candidates pass a funnel, each stage far cheaper than the next:
+
+1. **Metadata filter, free:** tool calling, context length, a price ceiling (`agentswarm openrouter-models` reads it all).
+2. **A screening probe set, about $0.05-0.30 per model:** one prompt and one answer each, scored by plain code; format failures and weak models drop out at a hundredth of the cost of real work. The qualification probes (51 tasks x 4 probes) follow for those that pass.
+3. **The router explores among the survivors only:** 5-10 models per role.
+4. **New models start sceptical in real work:** a lower prior, so they get real items only once probes have shown they can.
+
+Rerun the screen when new models appear (or monthly). Evidence that it pays: on CommonMark the builder's model changed the cost per example about 8x at equal progress; FrugalGPT (Chen et al. 2023) matched GPT-4 at up to 98% lower cost by cascading models, RouteLLM (Ong et al. 2024) halved cost at equal quality. Its limit: routing lowers cost, it doesn't raise the ceiling (the CommonMark plateau was the same for four models). So it comes right after getting past the plateau (ROADMAP goal 1), as part of goal 2.
