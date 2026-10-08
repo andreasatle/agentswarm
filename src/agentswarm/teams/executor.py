@@ -1,6 +1,7 @@
 """Executor teams: they implement an artifact's task on its raw branch (proposal §10.3)."""
 
 import functools
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from typing import ClassVar
@@ -60,13 +61,51 @@ class CheckReport(Frozen):
 
 
 class Traced:
-    """Records each call of a toolbox's tools: the method's arguments and result, by size."""
+    """Records each call of a toolbox's tools, by size, and stops a model that repeats itself.
+
+    A read-only call (listing, reading, searching, running tests) repeated with the same arguments while no
+    file has changed returns the same answer, so it isn't run again: the model is told so. After
+    `REPEATS` such calls it is told to finish. Small models loop like this until their step limit (Phase 8:
+    one run listed the files 80 times in a row).
+    """
+
+    REPEATS: ClassVar[int] = 3
+    REPEATED = (
+        "You already called {tool} with these arguments, and no file has changed since: the answer is the "
+        "same. Do something else: change a file with edit_file or write_file, or give your final answer."
+    )
+    FINISH = "You keep repeating calls that change nothing. Stop now and give your final answer."
 
     @staticmethod
     def tool(method: Callable[..., str]) -> Callable[..., str]:
+        """A tool that changes nothing: repeats are refused until a file changes."""
+
+        @functools.wraps(method)
+        def traced(self: "WorktreeToolbox", *args: object, **kwargs: object) -> str:
+            key = (method.__name__, repr(args), repr(sorted(kwargs.items())))
+            if key in self.seen:
+                self.repeats += 1
+                result = (
+                    Traced.FINISH if self.repeats >= Traced.REPEATS else Traced.REPEATED.format(tool=key[0])
+                )
+            else:
+                self.seen.add(key)
+                result = method(self, *args, **kwargs)
+            given = sum(len(str(a)) for a in (*args, *kwargs.values()))
+            self.calls.append(ToolCall(tool=method.__name__, input_chars=given, output_chars=len(result)))
+            return result
+
+        return traced
+
+    @staticmethod
+    def change(method: Callable[..., str]) -> Callable[..., str]:
+        """A tool that changes files: always run, and afterwards every read-only call may be made again."""
+
         @functools.wraps(method)
         def traced(self: "WorktreeToolbox", *args: object, **kwargs: object) -> str:
             result = method(self, *args, **kwargs)
+            if not result.startswith("error:"):
+                self.seen.clear()
             given = sum(len(str(a)) for a in (*args, *kwargs.values()))
             self.calls.append(ToolCall(tool=method.__name__, input_chars=given, output_chars=len(result)))
             return result
@@ -78,11 +117,23 @@ class WorktreeToolbox:
     """The executor's tools, confined to one worktree. Checks run in the project's sandbox.
 
     Each public method is a tool: its signature and docstring are what the model sees. Errors are
-    returned as text so the model can correct itself, never raised into the agent loop.
+    returned as text so the model can correct itself, never raised into the agent loop. Designed after
+    SWE-agent's agent-computer interface: files are read in parts and edited by replacement, so neither a
+    reply nor the conversation carries a whole file again for every change, and outputs stay short.
     """
 
-    READ_LIMIT = 100_000  # characters
-    TOOLS: ClassVar[tuple[str, ...]] = ("list_files", "read_file", "write_file", "delete_file", "run_checks")
+    READ_LINES = 300  # lines returned by one read_file without an explicit range
+    SEARCH_HITS = 50
+    TEST_FLAGS: ClassVar[tuple[str, ...]] = ("--tb=short", "--maxfail=5", "-q")  # pytest: the first failures
+    TOOLS: ClassVar[tuple[str, ...]] = (
+        "list_files",
+        "read_file",
+        "search",
+        "edit_file",
+        "write_file",
+        "delete_file",
+        "run_checks",
+    )
 
     def __init__(
         self,
@@ -94,6 +145,8 @@ class WorktreeToolbox:
         self._checks = tuple(checks)
         self._tests = tests
         self.calls: list[ToolCall] = []  # every tool call so far, for the board (ToolsUsed)
+        self.seen: set[tuple[str, str, str]] = set()  # read-only calls made since the last change
+        self.repeats = 0
 
     def tools(self) -> Sequence[Callable[..., str]]:
         names = (*self.TOOLS, "run_tests") if self._tests is not None else self.TOOLS
@@ -105,17 +158,60 @@ class WorktreeToolbox:
         return "\n".join(self._worktree.files()) or "(the project has no files yet)"
 
     @Traced.tool
-    def read_file(self, path: str) -> str:
-        """Return the full content of the file at `path`, relative to the project root."""
+    def read_file(self, path: str, start: int = 1, end: int | None = None) -> str:
+        """Return lines `start` to `end` (1-based, inclusive) of the file at `path`, relative to the project
+        root, numbered ("  12| ", not part of the file). Without `end`, at most 300 lines."""
         try:
-            content = self._worktree.read(path, self.READ_LIMIT + 1)
+            lines = self._worktree.read(path).splitlines()
         except (OSError, UnicodeDecodeError, UnsafePath) as error:
             return f"error: {error}"
-        if len(content) > self.READ_LIMIT:
-            return content[: self.READ_LIMIT] + f"\n... (truncated at {self.READ_LIMIT} characters)"
-        return content
+        first = max(start, 1)
+        last = min(end if end is not None else first + self.READ_LINES - 1, len(lines))
+        shown = [f"{n:>5}| {lines[n - 1]}" for n in range(first, last + 1)]
+        more = f"\n... lines {last + 1}-{len(lines)} not shown" if end is None and last < len(lines) else ""
+        return ("\n".join(shown) or "(no lines in that range)") + more
 
     @Traced.tool
+    def search(self, pattern: str, path: str = ".") -> str:
+        """Find lines matching the regular expression `pattern` in the files under `path`: file:line: text."""
+        try:
+            regex = re.compile(pattern)
+            root = self._worktree.relative(path) if path not in (".", "") else ""
+        except (re.error, UnsafePath) as error:
+            return f"error: {error}"
+        hits: list[str] = []
+        for name in self._worktree.files():
+            if root and not (name == root or name.startswith(f"{root}/")):
+                continue
+            try:
+                text = self._worktree.read(name)
+            except (OSError, UnicodeDecodeError):
+                continue
+            hits += [
+                f"{name}:{n}: {line}" for n, line in enumerate(text.splitlines(), 1) if regex.search(line)
+            ]
+            if len(hits) > self.SEARCH_HITS:
+                return "\n".join(hits[: self.SEARCH_HITS]) + f"\n... more than {self.SEARCH_HITS} matches"
+        return "\n".join(hits) or "no matches"
+
+    @Traced.change
+    def edit_file(self, path: str, old: str, new: str) -> str:
+        """Replace the text `old` with `new` in the file at `path`. `old` must occur exactly once: include a
+        few surrounding lines to make it unique. Prefer this to write_file for changing an existing file."""
+        try:
+            relative = self._worktree.relative(path)
+            content = self._worktree.read(relative)
+        except (OSError, UnicodeDecodeError, UnsafePath) as error:
+            return f"error: {error}"
+        count = content.count(old) if old else 0
+        if count != 1:
+            return (
+                f"error: the text to replace occurs {count} times in {relative}; it must occur exactly once"
+            )
+        self._worktree.write(relative, content.replace(old, new, 1))
+        return f"edited {relative}"
+
+    @Traced.change
     def write_file(self, path: str, content: str) -> str:
         """Create or overwrite the file at `path`, relative to the project root, with `content`."""
         try:
@@ -125,7 +221,7 @@ class WorktreeToolbox:
             return f"error: {error}"
         return f"wrote {relative} ({len(content)} characters)"
 
-    @Traced.tool
+    @Traced.change
     def delete_file(self, path: str) -> str:
         """Delete the file at `path`, relative to the project root."""
         try:
@@ -142,14 +238,15 @@ class WorktreeToolbox:
 
     @Traced.tool
     def run_tests(self, path: str) -> str:
-        """Run the tests in one file (or folder), relative to the project root, and show why any fail."""
+        """Run the tests in one file or folder, relative to the project root, and show why the first fail."""
         if self._tests is None:
             return "error: no test runner"
         try:
             relative = self._worktree.relative(path)
         except UnsafePath as error:
             return f"error: {error}"
-        result = self._tests.run_on(self._worktree.path, [relative])
+        flags = self.TEST_FLAGS if "pytest" in self._tests.command else ()
+        result = self._tests.run_on(self._worktree.path, [*flags, relative])
         return f"{result.status}:\n{result.output}"
 
     def check_report(self) -> CheckReport:
@@ -253,7 +350,8 @@ class ExecutorTeam(Executor):
     INSTRUCTIONS = """\
 You are the executor in a software team. Implement the task in `instruction.goal` in the project.
 
-- Use list_files and read_file to understand the project before changing it.
+- Use list_files, search and read_file (a range of lines) to understand the project before changing it.
+- Change existing files with edit_file, replacing just the lines that change; write_file is for new files.
 - Make the smallest change that fully accomplishes the task. Do not change unrelated code.
 - Fix every finding in `instruction.must_fix`; they explain why the previous attempt was rejected.
 - Follow every rule in `instruction.constraints`.

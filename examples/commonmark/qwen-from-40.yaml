@@ -24,7 +24,7 @@ teams:
     watches: raw
     model: builder
     checks: [spec]
-    max_model_calls: 80
+    max_model_calls: 40  # loops are caught by the toolbox now; 80 mostly bought repeats
     repairs: 2  # failing checks: keep the work, say what broke, try again (the first run threw away 150 passes)
     partial: true  # some examples fixed and none broken is progress: the ratchet judges, not the model
     constraints:

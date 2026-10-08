@@ -22,6 +22,7 @@ from agentswarm.teams.executor import (
     ExecutorRequest,
     ExecutorTeam,
     FakeExecutor,
+    Traced,
     WorktreeToolbox,
 )
 from agentswarm.teams.runner import Relevance
@@ -84,10 +85,32 @@ class TestWorktreeToolbox:
         box = Toolboxes.of(w.worktree)
         assert box.list_files() == "(the project has no files yet)"
         assert box.write_file("pkg/a.py", "x = 1\n") == "wrote pkg/a.py (6 characters)"
-        assert box.read_file("pkg/a.py") == "x = 1\n"
+        assert box.read_file("pkg/a.py") == "    1| x = 1"
         assert box.list_files() == "pkg/a.py"
         assert box.delete_file("pkg/a.py") == "deleted pkg/a.py"
         assert box.read_file("pkg/a.py").startswith("error:")
+
+    def test_reads_ranges_searches_and_edits_by_replacement(self, tmp_path: Path) -> None:
+        box = Toolboxes.of(Workspace(tmp_path).worktree)
+        box.write_file("m.py", "".join(f"line{n} = {n}\n" for n in range(1, 401)))
+        assert box.read_file("m.py", 2, 3) == "    2| line2 = 2\n    3| line3 = 3"
+        assert box.read_file("m.py").endswith("... lines 301-400 not shown")
+        assert box.search(r"line39\d = ") == "\n".join(f"m.py:{n}: line{n} = {n}" for n in range(390, 400))
+        assert box.edit_file("m.py", "line2 = 2\n", "line2 = 20\n") == "edited m.py"
+        assert box.read_file("m.py", 2, 2) == "    2| line2 = 20"
+        assert "occurs 0 times" in box.edit_file("m.py", "nowhere", "x")
+        assert "occurs 111 times" in box.edit_file("m.py", "line1", "x")  # line1, line10-19, line100-199
+
+    def test_repeating_a_call_while_nothing_changes_is_refused_then_ends(self, tmp_path: Path) -> None:
+        box = Toolboxes.of(Workspace(tmp_path).worktree)
+        box.write_file("a.py", "x = 1\n")
+        assert box.list_files() == "a.py"
+        assert box.list_files() == Traced.REPEATED.format(tool="list_files")
+        box.write_file("b.py", "y = 2\n")  # a change: the same call may be made again
+        assert box.list_files() == "a.py\nb.py"
+        assert box.list_files().startswith("You already called")
+        assert box.list_files() == Traced.FINISH  # the third repeat
+        assert [c.tool for c in box.calls].count("list_files") == 5
 
     @pytest.mark.parametrize(
         "path", ["/etc/passwd", "../outside.txt", "a/../../outside.txt", ".git/config", ""]

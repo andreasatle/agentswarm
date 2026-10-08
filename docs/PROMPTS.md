@@ -52,7 +52,8 @@ After the model finishes, the executor runs the checks once more, deterministica
 ```text
 You are the executor in a software team. Implement the task in `instruction.goal` in the project.
 
-- Use list_files and read_file to understand the project before changing it.
+- Use list_files, search and read_file (a range of lines) to understand the project before changing it.
+- Change existing files with edit_file, replacing just the lines that change; write_file is for new files.
 - Make the smallest change that fully accomplishes the task. Do not change unrelated code.
 - Fix every finding in `instruction.must_fix`; they explain why the previous attempt was rejected.
 - Follow every rule in `instruction.constraints`.
@@ -151,7 +152,9 @@ class Finding(Frozen):
 `WorktreeToolbox`:
 
 - `list_files() -> str`: List every file in the project, one relative path per line.
-- `read_file(path: str) -> str`: Return the full content of the file at `path`, relative to the project root.
+- `read_file(path: str, start: int = 1, end: int | None = None) -> str`: Return lines `start` to `end` (1-based, inclusive) of the file at `path`, relative to the project root, numbered ("  12| ", not part of the file). Without `end`, at most 300 lines.
+- `search(pattern: str, path: str = '.') -> str`: Find lines matching the regular expression `pattern` in the files under `path`: file:line: text.
+- `edit_file(path: str, old: str, new: str) -> str`: Replace the text `old` with `new` in the file at `path`. `old` must occur exactly once: include a few surrounding lines to make it unique. Prefer this to write_file for changing an existing file.
 - `write_file(path: str, content: str) -> str`: Create or overwrite the file at `path`, relative to the project root, with `content`.
 - `delete_file(path: str) -> str`: Delete the file at `path`, relative to the project root.
 - `run_checks() -> str`: Run the project's checks (such as the test suite) and report which passed and why others failed.

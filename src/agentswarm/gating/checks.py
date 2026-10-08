@@ -82,6 +82,10 @@ class CommandCheck:
     def kind(self) -> FindingKind:
         return self._config.kind
 
+    @property
+    def command(self) -> tuple[str, ...]:
+        return self._config.command
+
     def run(self, cwd: Path) -> CheckResult:
         return self.run_on(cwd, ())
 
