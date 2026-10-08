@@ -47,3 +47,4 @@ Kept current by Claude (COLLABORATION.md): every idea the user raised, and what 
 | Check acceptance tests themselves (with Jev) | Planned | routing-per-role.md, step 6: a Jev check in shadow, measured on the accept probes |
 | Minimise cost subject to a good enough product | Adopted | The objective (COLLABORATION.md goal 4) |
 | Decomposition: interpolation instead of extrapolation | Adopted | The hypothesis's plain statement (RESEARCH.md section 5) |
+| Blog posts for atle.dev as a project type | Planned | Not a new type: the existing document preset (outliner, writers, quoting reviewers, a publishing gate a person approves) fits. The first real document project, after the CommonMark restructuring (goal 1); its definition of done is the user's approval, weaker evidence than a test suite, so the second software problem (e.g. TOML) still carries the generalization evidence |
