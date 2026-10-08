@@ -1,11 +1,12 @@
 """Project configuration: one YAML file per project, validated on load (proposal §17)."""
 
 import os
+import urllib.parse
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Self, cast
+from typing import Any, ClassVar, Self, cast
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
@@ -179,6 +180,14 @@ class ModelConfig(Strict):
     def provider(self) -> str:
         return self.model.split(":", 1)[0]
 
+    @property
+    def account(self) -> str:
+        """Who bills for it: the host of `base_url` (openrouter.ai), else the provider (anthropic)."""
+        if self.base_url is None:
+            return self.provider
+        host = urllib.parse.urlparse(self.base_url).hostname
+        return host or self.provider
+
 
 class RoutingConfig(Strict):
     """Choose a team's starting model tier from outcomes so far (Phase 8, teams/routing.py)."""
@@ -221,6 +230,35 @@ class SupervisorConfig(Strict):
     stall_after_minutes: float = Field(default=30.0, gt=0)  # no event on an artifact for this long
     max_rejections: int = Field(default=3, ge=1)  # rejected this many times in a row
     drift_every: int = Field(default=5, ge=1)  # ask about drift after every N changes merged
+
+
+class SpendLimits(Strict):
+    """Spending limits for every run on this machine together, per UTC day (control/limits.py).
+
+    Read from `~/agentswarm-data/limits.yaml` (or the file `AGENTSWARM_LIMITS` names; "off" for none), so they
+    hold whichever project, experiment or command spends. Accounts are who bills: e.g. `anthropic`,
+    `openrouter.ai`, `openai`.
+    """
+
+    ledger: Path = Path("~/agentswarm-data/spend.sqlite")  # every priced model call of every run
+    usd_per_day: float | None = Field(default=None, gt=0)  # all accounts together
+    per_account: dict[str, float] = Field(default_factory=dict[str, float])
+
+    FILE: ClassVar[Path] = Path("~/agentswarm-data/limits.yaml")
+    VARIABLE: ClassVar[str] = "AGENTSWARM_LIMITS"
+
+    @classmethod
+    def load(cls) -> "SpendLimits | None":
+        value = os.environ.get(cls.VARIABLE, "").strip()
+        if value == "off":
+            return None
+        path = Path(value).expanduser() if value else cls.FILE.expanduser()
+        if not path.is_file():
+            if value:
+                raise ValueError(f"{cls.VARIABLE}={value}: no such file")
+            return None
+        limits = cls.model_validate(yaml.safe_load(path.read_text()) or {})
+        return limits.model_copy(update={"ledger": limits.ledger.expanduser()})
 
 
 class Budgets(Strict):

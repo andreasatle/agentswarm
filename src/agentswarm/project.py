@@ -13,13 +13,14 @@ from agentswarm.board.context import ContextBuilder
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.board.spend import SpendLedger
 from agentswarm.control.budget import Budget
+from agentswarm.control.limits import SharedSpend
 from agentswarm.control.outcomes import OutcomeRecorder
 from agentswarm.control.router import FindingRouter
 from agentswarm.control.scheduler import Scheduler
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
-from agentswarm.core.config import ProjectConfig
+from agentswarm.core.config import ProjectConfig, SpendLimits
 from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName, Usage
 from agentswarm.gating.checks import CheckSet, RatchetCheck
 from agentswarm.gating.gate import Gate
@@ -62,6 +63,8 @@ class ProjectServices:
     lease: timedelta = timedelta(minutes=10)
     scheduler: Scheduler | None = None  # shared by several projects in one process (agentswarm swarm)
     settle_plans: bool = True  # False: plan outcomes come from outside, e.g. a comparison's hidden tests
+    # Machine-wide spending limits (~/agentswarm-data/limits.yaml); None: none
+    limits: SpendLimits | None = field(default_factory=SpendLimits.load)
 
 
 class Project:
@@ -146,7 +149,17 @@ class Project:
         if services.scheduler is not None:
             sandbox = services.scheduler.throttle(sandbox)
         checks = CheckSet(config.checks, sandbox)
-        budget = Budget(config.budgets.usd_per_day, clock, config.budgets.reserve_usd)
+        shared = SharedSpend(services.limits, clock) if services.limits is not None else None
+        if shared is not None:
+            owned.append(shared)
+        accounts = {name: model.account for name, model in config.models.items()}
+        budget = Budget(
+            config.budgets.usd_per_day,
+            clock,
+            config.budgets.reserve_usd,
+            shared,
+            frozenset(accounts.values()),
+        )
 
         decisions = services.decisions
         if decisions is None:
@@ -159,7 +172,7 @@ class Project:
         routes = any(t.routing for t in config.teams)
         needs_judges = judged_gates or relevance_filters or decomposes or routes
         workers = services.workers or LangChainWorkers(ChatModels(config.models))
-        ledger = SpendLedger(board)
+        ledger = SpendLedger(board, shared, config.project, accounts)
         if decider is None and needs_judges:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)

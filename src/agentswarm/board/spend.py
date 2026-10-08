@@ -5,9 +5,10 @@ Like the decision log, this is infrastructure, not a team: it writes the board d
 on the board, budgets survive restarts and replays.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from agentswarm.board.blackboard import Blackboard
+from agentswarm.control.limits import SharedSpend
 from agentswarm.core.config import Price
 from agentswarm.core.domain import Spent, Usage
 
@@ -15,8 +16,17 @@ type Meter = Callable[[Usage], None]
 
 
 class SpendLedger:
-    def __init__(self, board: Blackboard) -> None:
+    def __init__(
+        self,
+        board: Blackboard,
+        shared: SharedSpend | None = None,  # the machine-wide ledger the limits are checked against
+        project: str = "",
+        accounts: Mapping[str, str] | None = None,  # model name -> who bills it, e.g. "openrouter.ai"
+    ) -> None:
         self._board = board
+        self._shared = shared
+        self._project = project
+        self._accounts = dict(accounts or {})
 
     def meter(self, by: str, model: str, price: Price | None) -> Meter:
         """A callback for one team's worker (or one decision point): records each usage it is given."""
@@ -26,6 +36,8 @@ class SpendLedger:
         if usage.input_tokens == 0 and usage.output_tokens == 0:
             return
         usd = price.usd_of(usage) if price is not None else 0.0
+        if self._shared is not None:
+            self._shared.record(self._project, self._accounts.get(model, model), usd)
         self._board.append(
             [
                 Spent(

@@ -12,6 +12,8 @@ from tests.support.paths import RepoPaths
 
 # The project's own .env (e.g. TYPESAFE_API_KEY) for the opt-in live tests. Never overrides the shell.
 load_dotenv(RepoPaths.ROOT / ".env")
+# Tests never read or write the machine-wide spending limits and ledger (~/agentswarm-data/limits.yaml).
+os.environ["AGENTSWARM_LIMITS"] = "off"
 
 
 class DockerGate:

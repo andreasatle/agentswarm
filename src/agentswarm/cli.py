@@ -14,8 +14,9 @@ from dotenv import load_dotenv
 from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.escalations import Escalations
+from agentswarm.control.limits import SharedSpend
 from agentswarm.core.clock import SystemClock
-from agentswarm.core.config import JevConfig, ModelOverride, ProjectConfig, SandboxConfig
+from agentswarm.core.config import JevConfig, ModelOverride, ProjectConfig, SandboxConfig, SpendLimits
 from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
@@ -181,6 +182,7 @@ class Cli:
         import-commonmark SPEC --out DIR           the CommonMark spec as a seed project and held-out tests
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
+        spend                                      today's spend of every run, per account, against the limits
         rate SUITE... --out FILE                   Jev rates every task's difficulty, resumable
         prompts                                    every model call and Jev question, as the model sees it
         compare EXPERIMENT --workdir DIR           run a suite's tasks under several setups (build), or plant
@@ -248,6 +250,8 @@ class Cli:
                 return self.score(args)
             case "openrouter-models":
                 return self.openrouter_models(args)
+            case "spend":
+                return self.spend()
             case "rate":
                 return self.rate(args)
             case "prompts":
@@ -374,6 +378,19 @@ class Cli:
         catalog = OpenRouterCatalog()
         entries = catalog.entries(args.ids)
         self._show(OpenRouterCatalog.render(entries, date.today(), catalog.tiered(args.ids)))
+        return 0
+
+    def spend(self) -> int:
+        """Today's spend across every run, from the machine-wide ledger (~/agentswarm-data/limits.yaml)."""
+        limits = SpendLimits.load()
+        if limits is None:
+            self._show(f"no spending limits: write {SpendLimits.FILE}")
+            return 0
+        shared = SharedSpend(limits, SystemClock())
+        try:
+            self._show(shared.report())
+        finally:
+            shared.close()
         return 0
 
     def rate(self, args: argparse.Namespace) -> int:
@@ -544,6 +561,8 @@ class Cli:
 
         openrouter = commands.add_parser("openrouter-models", help="model entries with OpenRouter's prices")
         openrouter.add_argument("ids", nargs="+", help="OpenRouter model ids, e.g. qwen/qwen3-coder")
+
+        commands.add_parser("spend", help="today's spend of every run, per account, against the limits")
 
         rate = commands.add_parser("rate", help="Jev rates every task's difficulty (resumable)")
         rate.add_argument("suites", nargs="+", help="suite files")
