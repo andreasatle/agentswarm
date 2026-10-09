@@ -26,7 +26,7 @@ models:
   haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
   qwen: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:qwen/qwen3-coder', usd_per_million: {cache_read: 0.1, input: 0.3, output: 1.0}}
   deepseek: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
-  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0}}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
   sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
 checks:
   spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, progress: false}
@@ -34,8 +34,9 @@ teams:
   - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 2, build_at_max_depth: true}
   - use: executor
     watches: raw
-    model_tiers: [gemma26, haiku55, deepseek, gpt-sol, sonnet]  # Qwen dropped: it merged no switch-over step
-    attempts: 4  # free, cheap, cheap, strong: a step can climb from local to Sol in one run
+    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # by measured cost per merged step: Sol ~$0.24 (mostly
+    # cached input at $0.10/M), DeepSeek ~$1.65 (it reads 5x as much), so DeepSeek is out; Qwen merged none
+    attempts: 4  # local, Haiku, Sol, Sonnet: a step can climb the whole way in one run
     climb: true  # a failed attempt goes one tier up
     routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200}
     checks: [spec]
@@ -47,6 +48,6 @@ teams:
       - The CommonMark spec is in docs/spec.md (its examples are your tests). Its appendix "A parsing strategy" says how a parser handles container blocks such as lists and block quotes; search and read the parts you need.
 gates:
   - {from: raw, to: experimental, hard_checks: [spec]}
-budgets: {usd_per_day: 5.0, reserve_usd: 2.0}  # the trial of the cost fixes: a strong attempt cost ~$1.30-1.80
+budgets: {usd_per_day: 5.0, reserve_usd: 1.0}  # the trial of the cost fixes: a Sol attempt costs ~$0.25, Haiku less
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether to split; the split check stays in shadow

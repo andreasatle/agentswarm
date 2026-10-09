@@ -115,6 +115,14 @@ A working split between the user and Claude follows from the same view: the user
 
 **Evidence: moderate.** Cascades work when there is a trustworthy signal for "good enough": a verifier, or a well-calibrated score. Without one they inherit the selection problem (P3).
 
+**Our own cost review (2026-10-09, all runs since 2026-10-08, about $43 counted on the boards):**
+
+- **Price per token misleads; price per merged step decides.** GPT-6.1 Sol merged 2 of 2 steps for about $0.24 each, since 93% of its input is cached at $0.10 per million. DeepSeek, at a third of Sol's token price, cost about $1.65 per merged step, because it reads about 5 times as much per attempt. Tiers are ordered by measured cost per merged step, not by list price.
+- **A missing cache price overstated Sol about 5 times** ($3.14 recorded, about $0.47 real), which made it look like the most expensive tier. Every model entry needs its cached-input price.
+- **About 99% of the tokens are input:** a builder re-sending its own history, mostly old file contents. Old tool results are now cleared past 40k tokens.
+- **About half the money went to experiments comparing models** (cmp-*, sl-*, lists-*, refactor-* per model, probes: about $20). About $10 went to runs that merged nothing. From now on, the router learns from delivery runs, a new configuration is tried on one step before a whole run, and broad paid comparisons wait for the competitiveness study (ROADMAP.md).
+- **The call limit stays at 60:** successful attempts used 20 to 220 tool calls, so a lower limit would cut off successes. The early stop is for attempts that read without editing.
+
 ## 10. Context and output format
 
 - **Context rot**: in tests of 18 frontier models, every one got worse as input grew, even on simple retrieval and copying, and long before its window was full. ([Chroma, 2025](https://research.trychroma.com/context-rot)) Our own runs lost a third of their answers to Ollama's silent 4096-token window (MODELS.md, section 4).
@@ -193,4 +201,5 @@ Add a principle only when the evidence is at least moderate, give it the next ID
 - 2026-10-05: first version (P1–P12).
 - 2026-10-05: routing learned online (bandits) added to section 9, after the user proposed it.
 - 2026-10-05: the gaps are planned: 1, 3 and 10 in Phase 8 (step 14), the rest in [Phase 10](design/phase-10-robustness.md).
+- 2026-10-09: our own cost review added to section 9.
 - 2026-10-07: the goldilocks hypothesis restated as interpolation and extrapolation (section 5), after the user proposed it; Dziri et al. added.
