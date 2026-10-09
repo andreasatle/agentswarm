@@ -37,13 +37,14 @@ class Supervised:
             judge = Judge(DriftCheck)
             decider = FakeDecider([DriftCheck(on_course=NoulAnswer(noul=on_course))])
             drift = Judgement(judge, Policy(judge), decider, self.h.decisions, mode, self.h.clock)
-        self.supervisor = Supervisor(
-            ProjectConfig.model_validate(config),
-            self.h.board,
-            self.h.repository,
-            self.h.decisions,
-            drift,
-            self.h.clock,
+        self._config = ProjectConfig.model_validate(config)
+        self._drift = drift
+        self.supervisor = self.started()
+
+    def started(self) -> Supervisor:
+        """A supervisor starting now, as at the start of a run."""
+        return Supervisor(
+            self._config, self.h.board, self.h.repository, self.h.decisions, self._drift, self.h.clock
         )
 
     def escalations(self, id: ArtifactId) -> list[str]:
@@ -81,6 +82,24 @@ class TestStalls:
         s.h.clock.advance(timedelta(minutes=31))
         assert s.supervisor.step() == 1
         assert len(s.escalations(Samples.A)) == 2
+
+    def test_time_before_the_supervisor_started_is_no_stall(self, tmp_path: Path) -> None:
+        s = Supervised(tmp_path)
+        s.h.create()
+        s.h.clock.advance(timedelta(hours=10))  # the computer was off between runs
+        s.supervisor = s.started()
+        assert s.supervisor.step() == 0
+        s.h.clock.advance(timedelta(minutes=31))
+        assert s.supervisor.step() == 1
+
+    def test_an_artifact_waiting_its_turn_is_no_stall(self, tmp_path: Path) -> None:
+        s = Supervised(tmp_path)
+        s.h.create()
+        s.h.create(ArtifactId("a-0002"), task="task 2")
+        assert s.h.claims.claim(ArtifactId("a-0002"), Samples.EXECUTOR, timedelta(hours=2)) is not None
+        s.h.clock.advance(timedelta(minutes=31))
+        assert s.supervisor.step() == 1  # the claimed one, not the one queued behind it
+        assert s.escalations(Samples.A) == []
 
     def test_umbrellas_and_the_top_level_are_never_stalled(self, tmp_path: Path) -> None:
         s = Supervised(tmp_path, levels=["raw", "experimental"])

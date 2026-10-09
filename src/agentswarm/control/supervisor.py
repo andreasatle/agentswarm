@@ -3,7 +3,8 @@
 A plain-code loop the project runs every step, after teams, gates and the router:
 
 - **Stalls:** an artifact below the top level, not an umbrella, not already escalated, with no event for
-  `supervisor.stall_after_minutes`, is escalated.
+  `supervisor.stall_after_minutes`, is escalated. Time counts only while this supervisor runs (the hours
+  between runs are no stall), and an artifact waiting its turn while a team works on another isn't stalled.
 - **Rejections:** rejected `supervisor.max_rejections` times in a row: escalated.
 - **Round budget:** more than `budgets.max_rounds_per_artifact` commits: escalated.
 - **Drift:** after every `supervisor.drift_every` changes merged into the first shared level, Jev is
@@ -60,6 +61,7 @@ class Supervisor:
         self._decisions = decisions
         self._drift = drift
         self._clock = clock
+        self._started = clock.now()  # idle time between runs is no stall (CommonMark, 2026-10-09)
 
     def step(self) -> int:
         views = self._board.current()
@@ -95,7 +97,10 @@ class Supervisor:
         budget = self._config.budgets.max_rounds_per_artifact
         if budget is not None and rounds > budget:
             return f"used {rounds} rounds, over the budget of {budget}"
-        idle = self._clock.now() - views.last_activity(artifact.id)
+        now = self._clock.now()
+        if views.claim_on(artifact.id, now) is None and views.active_claims(now):
+            return None  # waiting its turn: a team is busy with another artifact
+        idle = now - max(views.last_activity(artifact.id), self._started)
         if idle > timedelta(minutes=self._config.supervisor.stall_after_minutes):
             return (
                 f"stalled at {artifact.level}: nothing happened for {int(idle.total_seconds() // 60)} minutes"
