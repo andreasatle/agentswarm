@@ -137,7 +137,7 @@ class TestProjectWithExecutorTeam:
         def work(toolbox: Toolbox | None) -> ExecutorReport:
             assert isinstance(toolbox, WorktreeToolbox)
             toolbox.write_file("greeting.md", "Hello!\n")
-            assert toolbox.run_checks() == "non_empty: passed"
+            assert toolbox.run_checks().startswith("non_empty: passed")  # then the calls left
             return ExecutorReport(summary="add greeting", complete=True)
 
         project = Project.open(
