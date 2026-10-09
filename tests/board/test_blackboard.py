@@ -201,6 +201,41 @@ class TestSplitOrder:
         assert views.waits_for(kids[2].id) is None  # a parked sibling doesn't hold the rest
         assert views.waits_for(parent.id) is None
 
+    def test_a_nested_plan_keeps_its_order_across_levels(self) -> None:
+        b = Board()
+        root = Samples.artifact()
+
+        def child(parent: Artifact, i: int) -> Artifact:
+            return Artifact(
+                id=ArtifactId(f"{parent.id}.{i}"),
+                task=f"part {i}",
+                branch=f"raw/{parent.id}.{i}",
+                level=Samples.RAW,
+                parent=parent.id,
+                created_by=Samples.EXECUTOR,
+            )
+
+        first, second = child(root, 1), child(root, 2)
+        first_a, second_a = child(first, 1), child(second, 1)
+        views = b.board.append(
+            [ArtifactCreated(artifact=a) for a in (root, first, second, first_a, second_a)]
+        )
+        assert views.waits_for(second_a.id) == first.id  # its parent's turn hasn't come
+        merged = Promoted(
+            artifact=first_a.id,
+            from_level=Samples.RAW,
+            to_level=Samples.EXPERIMENTAL,
+            gate_decision=None,
+            commit="m",
+        )
+        views = b.board.append([merged])
+        assert views.waits_for(second_a.id) == first.id  # first is split: done only when promoted as a whole
+        joined = Promoted(
+            artifact=first.id, from_level=Samples.RAW, to_level=Samples.EXPERIMENTAL, gate_decision=None
+        )
+        views = b.board.append([joined])
+        assert views.waits_for(second_a.id) is None
+
 
 class TestBlackboardReplay:
     def test_sees_events_appended_by_others(self) -> None:

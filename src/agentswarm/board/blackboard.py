@@ -231,20 +231,23 @@ class BoardViews:
         return [a for a in self._artifacts.values() if a.parent == id and a.fixes is None]
 
     def waits_for(self, id: ArtifactId) -> ArtifactId | None:
-        """The earlier sibling a child of a split must wait for: still active, and not yet merged.
+        """The earlier sibling a child of a split must wait for: still active, and not yet done.
 
         Children run in order, each starting from what the ones before it merged: split tasks usually build on
-        each other and touch the same files, and siblings worked on side by side conflicted (Phase 8).
+        each other and touch the same files, and siblings worked on side by side conflicted (Phase 8). A child
+        of a child also waits while its parent does, so a nested plan keeps its order across levels. A sibling
+        is done once its work has left the level: merged, or, for one split again, promoted as a whole.
         """
         artifact = self._artifacts[id]
         if artifact.parent is None or artifact.fixes is not None:
             return None
         for sibling in self.children(artifact.parent):
             if sibling.id == id:
-                return None
-            if self.active(sibling.id) and sibling.id not in self._merge_commit:
+                break
+            done = sibling.id in self._merge_commit or self._artifacts[sibling.id].level != artifact.level
+            if self.active(sibling.id) and not done:
                 return sibling.id
-        return None
+        return self.waits_for(artifact.parent)
 
     def closes(self, id: ArtifactId) -> ArtifactId | None:
         """The parent whose split this artifact closes, if it is its last child."""
