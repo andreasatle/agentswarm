@@ -5,14 +5,24 @@ from typing import Any, Self
 
 from langchain.messages import AIMessage
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import BaseMessage
+from langchain_core.outputs import ChatResult
 from langchain_core.runnables import Runnable
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agentswarm.llm.workers import Toolbox
 
 
 class FakeToolModel(GenericFakeChatModel):
     """Replays scripted AI messages, including tool calls. Binding tools is accepted and ignored."""
+
+    prompts: list[list[BaseMessage]] = Field(
+        default_factory=list[list[BaseMessage]]
+    )  # what each call was sent
+
+    def _generate(self, messages: list[BaseMessage], *args: Any, **kwargs: Any) -> ChatResult:
+        self.prompts.append(list(messages))
+        return super()._generate(messages, *args, **kwargs)
 
     def bind_tools(  # type: ignore[override]
         self, tools: Sequence[dict[str, Any] | type | Callable[..., Any]], **kwargs: Any

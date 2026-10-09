@@ -12,7 +12,12 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, ClassVar, Protocol
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ClearToolUsesEdit,
+    ContextEditingMiddleware,
+    ModelCallLimitMiddleware,
+)
 from langchain.agents.structured_output import StructuredOutputError
 from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain.tools import BaseTool
@@ -108,9 +113,16 @@ class Worker(Protocol):
 class LangChainWorker:
     """A worker backed by any LangChain chat model, through `create_agent`."""
 
-    def __init__(self, model: BaseChatModel, max_model_calls: int = 40, meter: Meter | None = None) -> None:
+    def __init__(
+        self,
+        model: BaseChatModel,
+        max_model_calls: int = 40,
+        meter: Meter | None = None,
+        context_window: int | None = None,  # known for local models: history is trimmed well inside it
+    ) -> None:
         self._model = model
         self._max_model_calls = max_model_calls
+        self._context_window = context_window
         self._meter = meter  # told the token usage of every run, so spend reaches the board
 
     async def run[T: BaseModel](
@@ -123,6 +135,7 @@ class LangChainWorker:
             response_format=output,
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
+                self.trimming(self._context_window),
                 *self.caching(),
             ],
         )
@@ -189,6 +202,27 @@ class LangChainWorker:
     def _report(self, usage: Usage) -> None:
         if self._meter is not None:
             self._meter(usage)
+
+    # Over 99% of the tokens a builder sends are its own history, mostly old file contents, re-sent on every
+    # call (CommonMark, 2026-10-09: 24M tokens in, 0.13M out). Past TRIM_AT tokens, all but the last
+    # TRIM_KEEP tool results are replaced by a note; at least TRIM_BY are cleared at once, so a prompt cache
+    # is broken rarely rather than on every call.
+    TRIM_AT: ClassVar[int] = 40_000
+    TRIM_BY: ClassVar[int] = 20_000
+    TRIM_KEEP: ClassVar[int] = 4
+    TRIMMED = "[output cleared to keep the conversation short: call the tool again if you still need it]"
+
+    @classmethod
+    def trimming(cls, context_window: int | None = None) -> ContextEditingMiddleware[Any, Any]:
+        """A small window (a local model's) is trimmed at 60% of it, before Ollama would drop the start."""
+        trigger = cls.TRIM_AT if context_window is None else min(cls.TRIM_AT, int(context_window * 0.6))
+        edit = ClearToolUsesEdit(
+            trigger=trigger,
+            clear_at_least=min(cls.TRIM_BY, trigger // 2),
+            keep=cls.TRIM_KEEP,
+            placeholder=cls.TRIMMED,
+        )
+        return ContextEditingMiddleware(edits=[edit])
 
     @staticmethod
     def caching() -> list[AgentMiddleware[Any, Any]]:
@@ -305,7 +339,9 @@ class LangChainWorkers:
         self._models = models
 
     def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
-        return LangChainWorker(self._models.get(model), max_model_calls, meter)
+        return LangChainWorker(
+            self._models.get(model), max_model_calls, meter, self._models.context_window(model)
+        )
 
 
 class FakeWorkers:

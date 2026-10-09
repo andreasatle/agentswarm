@@ -1,7 +1,8 @@
 from collections.abc import Callable, Sequence
 
 import pytest
-from langchain.messages import AIMessage
+from langchain.agents.middleware import ClearToolUsesEdit
+from langchain.messages import AIMessage, ToolMessage
 from pydantic import BaseModel
 
 from agentswarm.core.config import ModelConfig
@@ -41,6 +42,17 @@ class Notebook:
 
     def tools(self) -> Sequence[Callable[..., str]]:
         return [self.write_note]
+
+
+class Library:
+    """A toolbox whose one tool returns a long text, like a builder reading files."""
+
+    def read_book(self, title: str) -> str:
+        """Read a book."""
+        return f"{title}: " + "word " * 8_000
+
+    def tools(self) -> Sequence[Callable[..., str]]:
+        return [self.read_book]
 
 
 class TestLangChainWorker:
@@ -118,6 +130,26 @@ class TestLangChainWorker:
         )
         usage = Tokens.of(message)
         assert (usage.input_tokens, usage.cache_read_tokens, usage.cache_write_tokens) == (1000, 900, 50)
+
+    async def test_old_tool_results_are_cleared_once_the_conversation_is_long(self) -> None:
+        replies = Replies()
+        for n in range(8):
+            replies.call("read_book", title=f"book {n}")
+        model = replies.call("Answer", summary="read").model()
+        await LangChainWorker(model).run("Read.", Payload(task="t"), Answer, Library())
+        results = [m for m in model.prompts[-1] if isinstance(m, ToolMessage)]
+        assert len(results) == 8
+        assert results[0].content == LangChainWorker.TRIMMED  # the oldest, cleared
+        assert all(str(m.content).startswith("book") for m in results[-LangChainWorker.TRIM_KEEP :])
+
+    def test_a_small_context_window_is_trimmed_well_inside_it(self) -> None:
+        def trigger(window: int | None) -> int:
+            (edit,) = LangChainWorker.trimming(window).edits
+            assert isinstance(edit, ClearToolUsesEdit)
+            return edit.trigger
+
+        assert trigger(None) == LangChainWorker.TRIM_AT
+        assert trigger(32_768) == 19_660
 
     def test_prompt_caching_is_on_when_the_anthropic_package_is_there(self) -> None:
         names = [type(m).__name__ for m in LangChainWorker.caching()]

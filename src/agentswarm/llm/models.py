@@ -31,6 +31,13 @@ class ChatModels:
             self._built[name] = self._build(name)
         return self._built[name]
 
+    def context_window(self, name: str) -> int | None:
+        """The tokens a model reads at once, when known: set in the config, or a provider's default."""
+        config = self._configs.get(name)
+        if config is None:
+            return None
+        return config.context_window or self.DEFAULT_CONTEXT.get(config.provider)
+
     def _build(self, name: str) -> BaseChatModel:
         config = self._configs.get(name)
         if config is None:

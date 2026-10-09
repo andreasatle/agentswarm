@@ -1,6 +1,9 @@
 # The switch-over as a cascade (2026-10-09): the cheap builders failed the design-heavy steps (a container-stack
 # block parser, an inline parser), so each failed attempt now climbs a tier, ending with two strong models from
 # different companies at the same price. The ledger records each, so later runs choose between them by evidence.
+# Then (the same day, the user: spend less, run local where it helps): gemma4:26b on the Mac mini is the free
+# first tier, so a cheap step costs nothing when it succeeds and only time when it fails; builders' old tool
+# results are cleared past 40k tokens and an attempt is stopped after 20 reads without an edit.
 #   uv run agentswarm run examples/commonmark/switch-over-cascade.yaml --root ~/agentswarm-runs/switch-over-3 --max-rounds 60
 # Before: the cascade of switch-over.yaml, which this extends:
 # The restructuring, continued: switch the converter to the new pipeline one block type at a time (the first planned
@@ -19,6 +22,7 @@ sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
 models:
   # Sonnet directly: through OpenRouter its hosts refuse the forced tool choice LangChain uses for typed answers.
   planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  gemma26: {model: "ollama:gemma4:26b", temperature: 0, max_tokens: 16384, timeout_s: 900}  # 32k context (the default): 17 GB of weights leave little room on 24 GB
   haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
   qwen: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:qwen/qwen3-coder', usd_per_million: {cache_read: 0.1, input: 0.3, output: 1.0}}
   deepseek: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
@@ -30,8 +34,8 @@ teams:
   - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 2, build_at_max_depth: true}
   - use: executor
     watches: raw
-    model_tiers: [haiku55, deepseek, gpt-sol, sonnet]  # Qwen dropped: it merged none of the switch-over steps
-    attempts: 3
+    model_tiers: [gemma26, haiku55, deepseek, gpt-sol, sonnet]  # Qwen dropped: it merged no switch-over step
+    attempts: 4  # free, cheap, cheap, strong: a step can climb from local to Sol in one run
     climb: true  # a failed attempt goes one tier up
     routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200}
     checks: [spec]
@@ -43,6 +47,6 @@ teams:
       - The CommonMark spec is in docs/spec.md (its examples are your tests). Its appendix "A parsing strategy" says how a parser handles container blocks such as lists and block quotes; search and read the parts you need.
 gates:
   - {from: raw, to: experimental, hard_checks: [spec]}
-budgets: {usd_per_day: 10.0, reserve_usd: 3.0}  # a strong-tier attempt may cost about $3: none starts with less left
+budgets: {usd_per_day: 5.0, reserve_usd: 2.0}  # the trial of the cost fixes: a strong attempt cost ~$1.30-1.80
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether to split; the split check stays in shadow
