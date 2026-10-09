@@ -441,3 +441,11 @@ class TestToolTraces:
         (call,) = used.calls
         assert (call.tool, call.output_chars) == ("write_file", len("wrote greeting.py (24 characters)"))
         assert call.input_chars == len("greeting.py") + len("def farewell(name): ...\n")
+
+
+class TestStepBudget:
+    def test_each_result_says_about_how_many_calls_are_left_and_when_to_finish(self, tmp_path: Path) -> None:
+        box = WorktreeToolbox(Workspace(tmp_path).worktree, [], budget=7)
+        assert box.write_file("a.py", "x = 1\n").endswith("[about 6 of 7 calls left]")
+        box.write_file("b.py", "y = 2\n")
+        assert "make your edits now" in box.read_file("a.py")  # 4 left

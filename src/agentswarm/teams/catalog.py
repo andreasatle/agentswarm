@@ -166,6 +166,7 @@ class TeamCatalog:
                 tests=resources.test_runner_for(team) if team.checks else None,
                 repairs=team.repairs,
                 partial=team.partial,
+                step_budget=team.max_model_calls,
             ),
         )
         catalog.register(
@@ -184,6 +185,7 @@ class TeamCatalog:
                 tests=resources.test_runner_for(team) if team.checks else None,
                 repairs=team.repairs,
                 partial=team.partial,
+                step_budget=team.max_model_calls,
                 rounds=team.rounds,
             ),
         )

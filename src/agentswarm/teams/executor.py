@@ -38,6 +38,7 @@ from agentswarm.teams.routing import RoutedTiers, Router, Tier
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.files import UnsafePath
 from agentswarm.workspace.git import Worktree
+from agentswarm.workspace.repomap import RepoMap
 
 
 class Frozen(BaseModel):
@@ -93,7 +94,7 @@ class Traced:
                 result = method(self, *args, **kwargs)
             given = sum(len(str(a)) for a in (*args, *kwargs.values()))
             self.calls.append(ToolCall(tool=method.__name__, input_chars=given, output_chars=len(result)))
-            return result
+            return result + self.left()
 
         return traced
 
@@ -108,7 +109,7 @@ class Traced:
                 self.seen.clear()
             given = sum(len(str(a)) for a in (*args, *kwargs.values()))
             self.calls.append(ToolCall(tool=method.__name__, input_chars=given, output_chars=len(result)))
-            return result
+            return result + self.left()
 
         return traced
 
@@ -140,13 +141,27 @@ class WorktreeToolbox:
         worktree: Worktree,
         checks: Sequence[HardCheck],
         tests: CommandCheck | None = None,  # runs one test file with full output: the `run_tests` tool
+        budget: int | None = None,  # the model's calls per run: each result says about how many are left
     ) -> None:
         self._worktree = worktree
         self._checks = tuple(checks)
         self._tests = tests
+        self._budget = budget
         self.calls: list[ToolCall] = []  # every tool call so far, for the board (ToolsUsed)
         self.seen: set[tuple[str, str, str]] = set()  # read-only calls made since the last change
         self.repeats = 0
+
+    FINISH_AT: ClassVar[int] = 5  # with this few calls left, the model is told to make its edits and finish
+
+    def left(self) -> str:
+        """About how many calls the model has left; a nudge to act when it is nearly out (agents that knew it
+        acted sooner, instead of reading until the limit)."""
+        if self._budget is None:
+            return ""
+        left = max(self._budget - len(self.calls), 0)
+        if left <= self.FINISH_AT:
+            return f"\n[about {left} calls left: make your edits now, then give your final answer]"
+        return f"\n[about {left} of {self._budget} calls left]"
 
     def tools(self) -> Sequence[Callable[..., str]]:
         names = (*self.TOOLS, "run_tests") if self._tests is not None else self.TOOLS
@@ -260,6 +275,7 @@ class ExecutorRequest(Frozen):
     instruction: Instruction
     files: tuple[str, ...]
     diff_summary: str  # what the branch already changes relative to the level it forked from
+    repo_map: str = ""  # each file's size, and its functions and classes with their lines: where to look
 
 
 class ExecutorReport(Frozen):
@@ -377,7 +393,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
         tests: CommandCheck | None = None,  # the model may run single test files with it (`run_tests`)
         repairs: int = 0,  # when the checks fail, the work is kept and the model is told what failed
         partial: bool = False,  # passing work is committed even if the model calls it incomplete
+        step_budget: int
+        | None = None,  # the model's calls per run (max_model_calls), counted down in results
     ) -> None:
+        self._step_budget = step_budget
         self._tests = tests
         self._repairs = repairs
         self._partial = partial
@@ -406,7 +425,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         number, nudged = 1, False
         while number <= self._attempts:
             last = number == self._attempts
-            toolbox = WorktreeToolbox(worktree, self._checks, self._tests)
+            toolbox = WorktreeToolbox(worktree, self._checks, self._tests, self._step_budget)
             kept = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox)
             if toolbox.calls:  # where the model's tokens went, for the board
                 used = ToolsUsed(
@@ -456,7 +475,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
     ) -> list[Event] | AttemptFailed:
         """One attempt's events, or why an attempt before the last failed and was thrown away."""
         artifact = ctx.artifact
-        toolbox = toolbox or WorktreeToolbox(worktree, self._checks, self._tests)
+        toolbox = toolbox or WorktreeToolbox(worktree, self._checks, self._tests, self._step_budget)
         request = self.request(ctx, worktree, nudged)
         try:
             report = await self.work(worker, request, toolbox)
@@ -595,4 +614,5 @@ You are the executor in a software team. Implement the task in `instruction.goal
             instruction=Instruction(goal=ctx.artifact.task, must_fix=must_fix, constraints=self._constraints),
             files=tuple(worktree.files()),
             diff_summary=ctx.diff_summary,
+            repo_map=RepoMap(worktree).render(),
         )

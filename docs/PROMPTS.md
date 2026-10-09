@@ -111,7 +111,8 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
     "greeter.py",
     "tests/test_greeter.py"
   ],
-  "diff_summary": " greeter.py | 5 +++++\n 1 file changed, 5 insertions(+)"
+  "diff_summary": " greeter.py | 5 +++++\n 1 file changed, 5 insertions(+)",
+  "repo_map": ""
 }
 </data>
 ```
@@ -126,6 +127,7 @@ class ExecutorRequest(Frozen):
     instruction: Instruction
     files: tuple[str, ...]
     diff_summary: str  # what the branch already changes relative to the level it forked from
+    repo_map: str = ""  # each file's size, and its functions and classes with their lines: where to look
 
 
 class Instruction(Frozen):
