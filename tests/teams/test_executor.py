@@ -254,6 +254,24 @@ class TestExecutorTeam:
         assert isinstance(commit, CommitPushed) and commit.model == "strong"
         assert len(cheap.calls) == len(strong.calls) == 1
 
+    async def test_climbing_starts_above_the_tiers_that_failed_in_earlier_runs(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        w.h.board.append(
+            [
+                AttemptFailed(
+                    artifact=w.artifact.id, team=Samples.EXECUTOR, model="cheap", reason="checks fail"
+                )
+            ]
+        )
+        cheap = FakeWorker([])
+        strong = FakeWorker([Steps.write({"greeting.py": "def farewell(name): ...\n"})])
+        team = ExecutorTeam(
+            [Tier("cheap", cheap), Tier("strong", strong)], [Toolboxes.CHECK], Samples.RAW, climb=True
+        )
+        (commit,) = Traces.drop(await team.act(w.ctx(), w.worktree))
+        assert isinstance(commit, CommitPushed) and commit.model == "strong"
+        assert not cheap.calls
+
     async def test_without_climbing_attempts_stay_on_one_tier(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         cheap = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"}) for _ in range(2)])

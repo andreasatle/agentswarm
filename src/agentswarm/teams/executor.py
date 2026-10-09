@@ -554,10 +554,16 @@ You are the executor in a software team. Implement the task in `instruction.goal
         )
 
     def tier_index(self, ctx: ArtifactContext, start: int = 0) -> int:
-        """An attempt's tier: from the starting tier, one up per rejection, staying on the strongest."""
+        """An attempt's tier: from the starting tier, one up per rejection, staying on the strongest.
+
+        Climbing, failed attempts of earlier runs count too: a reopened step starts where its cascade stopped
+        (CommonMark, 2026-10-09: DeepSeek spent $2.53 on an inline parser it had failed twice before).
+        """
         if self._tiers is None:
             return 0
         rejections = sum(isinstance(e, Rejected) for e in ctx.history)
+        if self._climb:
+            rejections += sum(isinstance(e, AttemptFailed) and e.team == self.name for e in ctx.history)
         return min(start + rejections, len(self._tiers) - 1)
 
     def tier_for(self, ctx: ArtifactContext, start: int = 0) -> tuple[str | None, Worker]:
