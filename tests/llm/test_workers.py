@@ -133,12 +133,12 @@ class TestLangChainWorker:
 
     async def test_old_tool_results_are_cleared_once_the_conversation_is_long(self) -> None:
         replies = Replies()
-        for n in range(8):
+        for n in range(14):
             replies.call("read_book", title=f"book {n}")
         model = replies.call("Answer", summary="read").model()
         await LangChainWorker(model).run("Read.", Payload(task="t"), Answer, Library())
         results = [m for m in model.prompts[-1] if isinstance(m, ToolMessage)]
-        assert len(results) == 8
+        assert len(results) == 14
         assert results[0].content == LangChainWorker.TRIMMED  # the oldest, cleared
         assert all(str(m.content).startswith("book") for m in results[-LangChainWorker.TRIM_KEEP :])
 

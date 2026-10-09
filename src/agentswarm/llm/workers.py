@@ -209,7 +209,7 @@ class LangChainWorker:
     # is broken rarely rather than on every call.
     TRIM_AT: ClassVar[int] = 40_000
     TRIM_BY: ClassVar[int] = 20_000
-    TRIM_KEEP: ClassVar[int] = 4
+    TRIM_KEEP: ClassVar[int] = 10  # as Lindenbauer et al. 2025 (RESEARCH.md section 10): their best window
     TRIMMED = "[output cleared to keep the conversation short: call the tool again if you still need it]"
 
     @classmethod
