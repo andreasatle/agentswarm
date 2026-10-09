@@ -201,5 +201,5 @@ Add a principle only when the evidence is at least moderate, give it the next ID
 - 2026-10-05: first version (P1–P12).
 - 2026-10-05: routing learned online (bandits) added to section 9, after the user proposed it.
 - 2026-10-05: the gaps are planned: 1, 3 and 10 in Phase 8 (step 14), the rest in [Phase 10](design/phase-10-robustness.md).
-- 2026-10-09: our own cost review added to section 9.
 - 2026-10-07: the goldilocks hypothesis restated as interpolation and extrapolation (section 5), after the user proposed it; Dziri et al. added.
+- 2026-10-09: our own cost review added to section 9.
