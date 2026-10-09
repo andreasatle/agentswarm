@@ -86,6 +86,7 @@ from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
 from agentswarm.teams.routing import Beliefs, Prior, RoutingLedger
 from agentswarm.workspace.sandbox import Sandboxes
+from agentswarm.workspace.view import LevelFolders
 
 
 class Report:
@@ -292,9 +293,15 @@ class Cli:
                 project.create_artifact(task)
             asyncio.run(project.run_until_idle(args.max_rounds))
             self._show(Report.render(project.views()))
+            self._show(self.levels(config, Path(args.root).expanduser()))
         finally:
             project.close()
         return 0
+
+    @staticmethod
+    def levels(config: ProjectConfig, root: Path) -> str:
+        """Plain folders of each level's files, for a person to look at (`levels/<level>/` under the root)."""
+        return LevelFolders.render(LevelFolders(root / "repo", root, config.levels).write())
 
     def status(self, args: argparse.Namespace) -> int:
         """Reads only the board: works while the project runs, and needs no models or keys."""
@@ -304,6 +311,8 @@ class Cli:
             raise SystemExit(f"no project at {root}")
         with SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), SystemClock()) as log:
             self._show(Report.render(Blackboard(log).current()))
+        if (root / "repo").is_dir():
+            self._show(self.levels(config, root))
         return 0
 
     async def compare(self, args: argparse.Namespace) -> int:

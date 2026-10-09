@@ -8,5 +8,5 @@ fresh "$ROOT"
 
 run uv run agentswarm run examples/greeter/evaluation/project.yaml --root "$ROOT" \
     --task "Add a function farewell(name) to greeter.py that returns 'Goodbye, <name>!', with tests."
-run git -C "$ROOT/repo" show experimental:greeter.py
+run cat "$ROOT/levels/experimental/greeter.py"  # every level is a plain folder under $ROOT/levels/
 where "$ROOT"
