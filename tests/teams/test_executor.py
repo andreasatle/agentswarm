@@ -25,6 +25,7 @@ from agentswarm.teams.executor import (
     Traced,
     WorktreeToolbox,
 )
+from agentswarm.teams.routing import Tier
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.git import Worktree
 from tests.support.fakes import Replies
@@ -241,6 +242,27 @@ class TestExecutorTeam:
         assert isinstance(failed, AttemptFailed)
         assert isinstance(commit, CommitPushed) and isinstance(escalated, Escalated)
         assert len(worker.calls) == 2
+
+    async def test_climbing_gives_each_failed_attempt_to_the_next_tier(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        cheap = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"})])  # fails the check
+        strong = FakeWorker([Steps.write({"greeting.py": "def farewell(name): ...\n"})])
+        tiers = [Tier("cheap", cheap), Tier("strong", strong)]
+        team = ExecutorTeam(tiers, [Toolboxes.CHECK], Samples.RAW, attempts=2, climb=True)
+        failed, commit = Traces.drop(await team.act(w.ctx(), w.worktree))
+        assert isinstance(failed, AttemptFailed) and failed.model == "cheap"
+        assert isinstance(commit, CommitPushed) and commit.model == "strong"
+        assert len(cheap.calls) == len(strong.calls) == 1
+
+    async def test_without_climbing_attempts_stay_on_one_tier(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        cheap = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"}) for _ in range(2)])
+        strong = FakeWorker([])
+        team = ExecutorTeam(
+            [Tier("cheap", cheap), Tier("strong", strong)], [Toolboxes.CHECK], Samples.RAW, attempts=2
+        )
+        Traces.drop(await team.act(w.ctx(), w.worktree))
+        assert len(cheap.calls) == 2 and not strong.calls
 
     async def test_incomplete_work_is_escalated(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)

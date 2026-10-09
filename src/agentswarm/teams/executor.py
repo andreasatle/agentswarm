@@ -388,6 +388,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         requires_sizing: bool = False,
         router: Router | None = None,  # chooses the starting tier by the task's difficulty (Phase 8)
         attempts: int = 1,  # independent attempts per action; the first that passes its checks is kept
+        climb: bool = False,  # each failed attempt moves one tier up instead of retrying the same model
         requires_acceptance: bool = False,  # wait for the acceptance team's tests before the first attempt
         sync_from: Level | None = None,  # the level merged into the branch before each action (the base)
         tests: CommandCheck | None = None,  # the model may run single test files with it (`run_tests`)
@@ -404,6 +405,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         if attempts < 1:
             raise ValueError("an executor needs at least one attempt")
         self._attempts = attempts
+        self._climb = climb
         super().__init__(watches, name, requires_sizing, requires_acceptance)
         self._tiers: tuple[Tier, ...] | None = tuple(workers) if isinstance(workers, Sequence) else None
         self._single = workers if not isinstance(workers, Sequence) else None
@@ -440,6 +442,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 nudged = True  # the same attempt once more, told that nothing changed
             else:
                 number += 1
+                if self._climb:  # the cascade: the next attempt goes to a stronger model
+                    model, worker = self.tier_for(ctx, start + number - 1)
+                    nudged = False
         return events
 
     def sync(self, ctx: ArtifactContext, worktree: Worktree) -> Event | None:
