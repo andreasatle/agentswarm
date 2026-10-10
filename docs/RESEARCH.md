@@ -123,6 +123,9 @@ A working split between the user and Claude follows from the same view: the user
 - **About half the money went to experiments comparing models** (cmp-*, sl-*, lists-*, refactor-* per model, probes: about $20). About $10 went to runs that merged nothing. From now on, the router learns from delivery runs, a new configuration is tried on one step before a whole run, and broad paid comparisons wait for the competitiveness study (ROADMAP.md).
 - **The call limit stays at 60, and reading isn't capped:** successful attempts used 20 to 220 tool calls, and a quarter of them (17 of 65) read 20 times or more before their first edit (median 14, at most 65). A rule stopping attempts after 20 reads without an edit, added on 2026-10-09 without this check, would have blocked them; it was removed the next day.
 
+- **The nudge after an attempt that changed nothing stays (2026-10-10):** across all runs, 23 of 59 such nudges (39%) led the same model to a commit. Haiku 5.5 failed all 3 of its nudges on the switch-over that day, too few to single it out; the router records those failures and picks it less for such steps.
+- **A local model's window must hold its whole working conversation:** gemma4:26b's empty, cut-off replies after 8-12 calls (3 of its 4 failures on 2026-10-10) came from a full 32k window, where keeping the last 10 tool results leaves nothing to clear. Its window is now 64k: on the 24 GB Mac mini 29-33% of it runs on the CPU at any window size, so the larger window costs little.
+
 ## 10. Context and output format
 
 - **Context rot**: in tests of 18 frontier models, every one got worse as input grew, even on simple retrieval and copying, and long before its window was full. ([Chroma, 2025](https://research.trychroma.com/context-rot)) Our own runs lost a third of their answers to Ollama's silent 4096-token window (MODELS.md, section 4).
