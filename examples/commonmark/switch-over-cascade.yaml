@@ -46,6 +46,7 @@ teams:
       - Use only the Python standard library.
       - Keep the code in the mdconv package, split into modules as it grows.
       - The CommonMark spec is in docs/spec.md (its examples are your tests). Its appendix "A parsing strategy" says how a parser handles container blocks such as lists and block quotes; search and read the parts you need.
+score: {check: spec, held_out: [~/agentswarm-data/commonmark/held_out]}  # measured at the start and end of every run
 gates:
   - {from: raw, to: experimental, hard_checks: [spec]}
 budgets: {usd_per_day: 5.0, reserve_usd: 1.0}  # the trial of the cost fixes: a Sol attempt costs ~$0.25, Haiku less

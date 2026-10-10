@@ -49,6 +49,7 @@ from agentswarm.core.domain import (
     Resolution,
     Resumed,
     Routed,
+    Scored,
     SignedOff,
     Sized,
     Spent,
@@ -68,7 +69,7 @@ from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, Import
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
-from agentswarm.evaluation.score import Scoreboard
+from agentswarm.evaluation.score import Progress, Scoreboard
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.audit import GateAudit
@@ -115,6 +116,9 @@ class Report:
                 cost = f"${event.usd:.4f}" if event.priced else "unpriced"
                 tokens = f"{event.input_tokens}+{event.output_tokens} tokens"
                 return f"spent by {event.by} on {event.model}: {tokens}, {cost}"
+            case Scored():
+                held = f", held out {Progress.tally(event.held_out)}" if event.held_out is not None else ""
+                return f"scored {event.level} at {event.commit[:10]}: seen {Progress.tally(event.seen)}{held}"
             case Paused():
                 return f"PAUSED: {event.reason}"
             case Resumed():
@@ -163,6 +167,7 @@ class Report:
         header = [f"spent: ${usd:.2f}" + (f" ({unpriced} unpriced model runs)" if unpriced else "")]
         header += [f"ESCALATED (project): {e.reason}" for e in views.project_escalations()[-5:]]
         header += ["PAUSED"] if views.paused else []
+        header += [cls.line(views.scores()[-1])] if views.scores() else []
         blocks: list[str] = ["\n".join(header)]
         for artifact in views.artifacts():
             lines = [f"{artifact.id} [{artifact.level}] {artifact.task}"]
@@ -291,12 +296,32 @@ class Cli:
         try:
             for task in args.task:
                 project.create_artifact(task)
+            progress = self.progress(config, Path(args.root).expanduser())
+            before = self.scored(progress, project)
             asyncio.run(project.run_until_idle(args.max_rounds))
             self._show(Report.render(project.views()))
+            after = self.scored(progress, project)
+            if before is not None and after is not None:
+                self._show(Progress.render(before, after))
             self._show(self.levels(config, Path(args.root).expanduser()))
         finally:
             project.close()
         return 0
+
+    @staticmethod
+    def progress(config: ProjectConfig, root: Path) -> Progress | None:
+        if config.score is None:
+            return None
+        return Progress(config, config.score, root / "repo", Sandboxes.build(config.sandbox))
+
+    @staticmethod
+    def scored(progress: Progress | None, project: Project) -> Scored | None:
+        """Scores the first shared level and records it on the board (None without a `score` section)."""
+        if progress is None:
+            return None
+        scored = progress.measure(project.views())
+        project.board.append([scored])
+        return scored
 
     @staticmethod
     def levels(config: ProjectConfig, root: Path) -> str:
@@ -375,6 +400,15 @@ class Cli:
     def score(self, args: argparse.Namespace) -> int:
         """The share of a test suite that passes on the project's first shared level."""
         config = ProjectConfig.load(Path(args.config))
+        progress = self.progress(config, Path(args.root).expanduser())
+        if progress is not None and args.check is None and not args.extra:  # the config's definition of done
+            root = Path(args.root).expanduser()
+            with SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), SystemClock()) as log:
+                board = Blackboard(log)
+                scored = progress.measure(board.current())
+                board.append([scored])
+            self._show(Report.line(scored))
+            return 0
         name = args.check or (config.worklist.check if config.worklist is not None else None)
         if name is None or name not in config.checks:
             self._show("name the test check with --check (or give the project a worklist)")

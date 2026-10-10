@@ -306,6 +306,31 @@ class Spent(Frozen):
         return None
 
 
+class Tally(Frozen):
+    passed: int = Field(ge=0)
+    total: int = Field(ge=0)
+
+    @property
+    def share(self) -> float | None:
+        return self.passed / self.total if self.total else None
+
+
+class Scored(Frozen):
+    """How far a level is through the project's definition of done: measured at the start and end of every
+    run, so each run reports what it bought (docs/design/best-practice-review.md, fix 8)."""
+
+    kind: Literal["scored"] = "scored"
+    level: Level
+    commit: str
+    seen: Tally  # the tests the agents see
+    held_out: Tally | None  # tests no agent has seen; None when the project has none
+    spent_usd: float = Field(ge=0)  # all spend on the board when measured: the cost between two scores
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
 class Promoted(Frozen):
     kind: Literal["promoted"] = "promoted"
     artifact: ArtifactId
@@ -497,6 +522,7 @@ type Event = Annotated[
     | Paused
     | Resumed
     | Spent
+    | Scored
     | Promoted
     | Profiled
     | Routed

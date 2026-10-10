@@ -336,6 +336,15 @@ class WorklistConfig(Strict):
     only: tuple[str, ...] = ()  # glob patterns: only these test files become items (e.g. one hard section)
 
 
+class ScoreConfig(Strict):
+    """The definition of done as numbers: a test check run on the first shared level at the start and end of
+    every run, with tests the agents see and held-out ones they don't (evaluation/score.py)."""
+
+    check: str  # a test check (`checks.<name>`) whose command runs pytest
+    seen: str = "tests/acceptance/"  # where the tests the agents see live in the repository
+    held_out: tuple[Path, ...] = ()  # folders of tests no agent sees, copied in only to score
+
+
 class ProjectConfig(Strict):
     project: str
     domain: Domain
@@ -351,6 +360,7 @@ class ProjectConfig(Strict):
     supervisor: SupervisorConfig = SupervisorConfig()
     jev: JevConfig = JevConfig()
     worklist: WorklistConfig | None = None  # failing tests of a ratchet check become work items
+    score: ScoreConfig | None = None  # measured at the start and end of every run
 
     @model_validator(mode="before")
     @classmethod
@@ -400,6 +410,8 @@ class ProjectConfig(Strict):
                         f"gate {gate.from_level} -> {gate.to_level} uses undefined check {name!r}"
                     )
             self._check_gate_level_rules(gate)
+        if self.score is not None and self.score.check not in self.checks:
+            raise ValueError(f"score uses undefined check {self.score.check!r}")
         return self
 
     def _check_gate_level_rules(self, gate: GateConfig) -> None:
