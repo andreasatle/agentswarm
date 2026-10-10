@@ -3,7 +3,7 @@
 # different companies at the same price. The ledger records each, so later runs choose between them by evidence.
 # Then (the same day, the user: spend less, run local where it helps): gemma4:26b on the Mac mini is the free
 # first tier, so a cheap step costs nothing when it succeeds and only time when it fails; builders' old tool
-# results are cleared past 40k tokens and an attempt is stopped after 20 reads without an edit.
+# results are cleared past 40k tokens, keeping the last 10.
 #   uv run agentswarm run examples/commonmark/switch-over-cascade.yaml --root ~/agentswarm-runs/switch-over-3 --max-rounds 60
 # Before: the cascade of switch-over.yaml, which this extends:
 # The restructuring, continued: switch the converter to the new pipeline one block type at a time (the first planned

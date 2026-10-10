@@ -121,7 +121,7 @@ A working split between the user and Claude follows from the same view: the user
 - **A missing cache price overstated Sol about 5 times** ($3.14 recorded, about $0.47 real), which made it look like the most expensive tier. Every model entry needs its cached-input price.
 - **About 99% of the tokens are input:** a builder re-sending its own history, mostly old file contents. Old tool results are now cleared past 40k tokens.
 - **About half the money went to experiments comparing models** (cmp-*, sl-*, lists-*, refactor-* per model, probes: about $20). About $10 went to runs that merged nothing. From now on, the router learns from delivery runs, a new configuration is tried on one step before a whole run, and broad paid comparisons wait for the competitiveness study (ROADMAP.md).
-- **The call limit stays at 60:** successful attempts used 20 to 220 tool calls, so a lower limit would cut off successes. The early stop is for attempts that read without editing.
+- **The call limit stays at 60, and reading isn't capped:** successful attempts used 20 to 220 tool calls, and a quarter of them (17 of 65) read 20 times or more before their first edit (median 14, at most 65). A rule stopping attempts after 20 reads without an edit, added on 2026-10-09 without this check, would have blocked them; it was removed the next day.
 
 ## 10. Context and output format
 

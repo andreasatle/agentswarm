@@ -76,11 +76,6 @@ class Traced:
         "same. Do something else: change a file with edit_file or write_file, or give your final answer."
     )
     FINISH = "You keep repeating calls that change nothing. Stop now and give your final answer."
-    # CommonMark, 2026-10-09: DeepSeek read for 60 calls (~$0.80 each attempt) and changed nothing, twice.
-    IDLE = (
-        "Refused: {calls} calls and no file changed yet. Make your first edit now with edit_file or "
-        "write_file, or give your final answer saying what blocks you."
-    )
 
     @staticmethod
     def tool(method: Callable[..., str]) -> Callable[..., str]:
@@ -89,9 +84,7 @@ class Traced:
         @functools.wraps(method)
         def traced(self: "WorktreeToolbox", *args: object, **kwargs: object) -> str:
             key = (method.__name__, repr(args), repr(sorted(kwargs.items())))
-            if not self.changed and len(self.calls) >= self.IDLE_LIMIT:
-                result = Traced.IDLE.format(calls=len(self.calls))
-            elif key in self.seen:
+            if key in self.seen:
                 self.repeats += 1
                 result = (
                     Traced.FINISH if self.repeats >= Traced.REPEATS else Traced.REPEATED.format(tool=key[0])
@@ -114,7 +107,6 @@ class Traced:
             result = method(self, *args, **kwargs)
             if not result.startswith("error:"):
                 self.seen.clear()
-                self.changed = True
             given = sum(len(str(a)) for a in (*args, *kwargs.values()))
             self.calls.append(ToolCall(tool=method.__name__, input_chars=given, output_chars=len(result)))
             return result + self.left()
@@ -158,10 +150,6 @@ class WorktreeToolbox:
         self.calls: list[ToolCall] = []  # every tool call so far, for the board (ToolsUsed)
         self.seen: set[tuple[str, str, str]] = set()  # read-only calls made since the last change
         self.repeats = 0
-        self.changed = False  # a file changed in this run: from then on reading is never refused
-
-    # read-only calls allowed before the first change; enough for Sol's inline parser (20 calls in all)
-    IDLE_LIMIT: ClassVar[int] = 20
 
     FINISH_AT: ClassVar[int] = 5  # with this few calls left, the model is told to make its edits and finish
 

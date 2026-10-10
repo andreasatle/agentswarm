@@ -113,14 +113,6 @@ class TestWorktreeToolbox:
         assert box.list_files() == Traced.FINISH  # the third repeat
         assert [c.tool for c in box.calls].count("list_files") == 5
 
-    def test_reading_is_refused_after_the_idle_limit_until_a_file_changes(self, tmp_path: Path) -> None:
-        box = Toolboxes.of(Workspace(tmp_path).worktree)
-        for n in range(WorktreeToolbox.IDLE_LIMIT):
-            box.read_file(f"missing{n}.py")
-        assert box.list_files() == Traced.IDLE.format(calls=WorktreeToolbox.IDLE_LIMIT)
-        box.write_file("a.py", "x = 1\n")
-        assert box.list_files() == "a.py"  # after a change, reading is never refused again
-
     @pytest.mark.parametrize(
         "path", ["/etc/passwd", "../outside.txt", "a/../../outside.txt", ".git/config", ""]
     )
