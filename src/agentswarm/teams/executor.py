@@ -30,6 +30,7 @@ from agentswarm.core.domain import (
     TeamName,
     ToolCall,
     ToolsUsed,
+    Unbuildable,
 )
 from agentswarm.gating.checks import CheckResult, CommandCheck, HardCheck
 from agentswarm.llm.workers import ProviderUnavailable, Worker, WorkerError
@@ -326,7 +327,9 @@ class Executor(ABC):
         milestones = [
             e
             for e in ctx.history
-            if isinstance(e, CommitPushed | Rejected | Promoted | Escalated | EscalationResolved)
+            if isinstance(
+                e, CommitPushed | Rejected | Promoted | Escalated | EscalationResolved | Unbuildable
+            )
         ]
         if not milestones or isinstance(milestones[-1], Rejected):
             return Relevance.YES
@@ -389,6 +392,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         router: Router | None = None,  # chooses the starting tier by the task's difficulty (Phase 8)
         attempts: int = 1,  # independent attempts per action; the first that passes its checks is kept
         climb: bool = False,  # each failed attempt moves one tier up instead of retrying the same model
+        split_on_failure: bool = False,  # climbing: a step every tier failed goes back to be split (ADaPT)
         requires_acceptance: bool = False,  # wait for the acceptance team's tests before the first attempt
         sync_from: Level | None = None,  # the level merged into the branch before each action (the base)
         tests: CommandCheck | None = None,  # the model may run single test files with it (`run_tests`)
@@ -406,6 +410,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
             raise ValueError("an executor needs at least one attempt")
         self._attempts = attempts
         self._climb = climb
+        self._split_on_failure = split_on_failure
         super().__init__(watches, name, requires_sizing, requires_acceptance)
         self._tiers: tuple[Tier, ...] | None = tuple(workers) if isinstance(workers, Sequence) else None
         self._single = workers if not isinstance(workers, Sequence) else None
@@ -448,7 +453,24 @@ You are the executor in a software team. Implement the task in `instruction.goal
                     failed.add(model)
                     model, worker = self.next_tier(ctx, failed, (model, worker))
                     nudged = False
+        if climbing and self._split_on_failure and model is not None:
+            return self.split_when_exhausted(ctx, events, failed | {model})
         return events
+
+    def split_when_exhausted(
+        self, ctx: ArtifactContext, events: list[Event], failed: set[str]
+    ) -> list[Event]:
+        """When the last attempt was escalated and every tier has failed the step, it goes back to the
+        planner to be split instead of to a person (ADaPT: decompose when execution fails)."""
+        assert self._tiers is not None
+        escalated = [
+            e for e in events if isinstance(e, Escalated) and e.parks and e.artifact == ctx.artifact.id
+        ]
+        if not escalated or not {t.model for t in self._tiers} <= failed:
+            return events
+        reason = escalated[-1].reason
+        unbuildable = Unbuildable(artifact=ctx.artifact.id, team=self.name, reason=reason)
+        return [unbuildable if e is escalated[-1] else e for e in events]
 
     def sync(self, ctx: ArtifactContext, worktree: Worktree) -> Event | None:
         """Merge the base level into the branch, so the work starts from what has been merged since it forked.

@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     Sized,
     Spent,
     TeamName,
+    Unbuildable,
 )
 from agentswarm.teams.routing import Router
 
@@ -154,6 +155,8 @@ class OutcomeRecorder:
                     return False
                 case Escalated(parks=True, approval_for=None):
                     return False  # checks still failing, incomplete, or stalled
+                case Unbuildable():
+                    return False  # the cascade's last model failed too: the step goes back to be split
                 case CommitPushed(model=str()):
                     return False  # reworked before it was promoted: the reviewers found a problem
                 case _:

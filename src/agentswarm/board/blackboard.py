@@ -42,6 +42,7 @@ from agentswarm.core.domain import (
     Spent,
     TeamName,
     ToolsUsed,
+    Unbuildable,
 )
 
 
@@ -148,6 +149,7 @@ class BoardViews:
                 | ToolsUsed()
                 | AcceptanceWritten()
                 | AcceptanceRestored()
+                | Unbuildable()
             ):
                 pass  # kept in the artifact's history, where the teams read them
             case Rejected():
@@ -320,7 +322,14 @@ class BoardViews:
     # don't: if they did, one analyzer signing off would make every other analyzer look again, and an
     # escalation would void the sign-offs it was raised about.
     # A retry is a change too (teams should look again); accepting or dropping leaves the artifact as it was.
-    CHANGES: ClassVar[tuple[type, ...]] = (ArtifactCreated, CommitPushed, Promoted, Rejected, Sized)
+    CHANGES: ClassVar[tuple[type, ...]] = (
+        ArtifactCreated,
+        CommitPushed,
+        Promoted,
+        Rejected,
+        Sized,
+        Unbuildable,
+    )
 
     def version(self, id: ArtifactId) -> int:
         """The seq of the artifact's last change (see CHANGES); teams key on it to act once per change."""

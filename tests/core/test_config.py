@@ -175,6 +175,30 @@ class TestCachedPrice:
         ModelConfig(model="anthropic:claude-sonnet-5-5")  # unpriced: nothing to get wrong
 
 
+class TestSplitOnFailure:
+    def test_needs_climbing_and_a_decomposer(self) -> None:
+        def config(climb: bool, decomposer: bool) -> dict[str, Any]:
+            teams: list[dict[str, Any]] = [
+                {"use": "executor", "watches": "raw", "model": "m", "climb": climb, "split_on_failure": True}
+            ]
+            if decomposer:
+                teams.append({"use": "decomposer", "watches": "raw", "model": "m"})
+            return {
+                "project": "p",
+                "domain": "software",
+                "north_star": "n",
+                "levels": ["raw", "experimental"],
+                "models": {"m": {"model": "ollama:m"}},
+                "teams": teams,
+                "gates": [],
+            }
+
+        ProjectConfig.model_validate(config(climb=True, decomposer=True))
+        for climb, decomposer in [(False, True), (True, False)]:
+            with pytest.raises(ValidationError, match="split_on_failure"):
+                ProjectConfig.model_validate(config(climb, decomposer))
+
+
 class TestModelOverride:
     def test_replaces_every_model_a_config_names(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

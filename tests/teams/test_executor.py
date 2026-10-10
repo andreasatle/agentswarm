@@ -15,6 +15,7 @@ from agentswarm.core.domain import (
     Rejected,
     Severity,
     ToolsUsed,
+    Unbuildable,
 )
 from agentswarm.llm.workers import FakeWorker, LangChainWorker, ProviderUnavailable, Toolbox, WorkerError
 from agentswarm.teams.executor import (
@@ -271,6 +272,25 @@ class TestExecutorTeam:
         (commit,) = Traces.drop(await team.act(w.ctx(), w.worktree))
         assert isinstance(commit, CommitPushed) and commit.model == "strong"
         assert not cheap.calls
+
+    async def test_a_step_every_tier_failed_goes_back_to_be_split(self, tmp_path: Path) -> None:
+        def team(split: bool) -> ExecutorTeam:
+            cheap = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"})])  # fails the check
+            strong = FakeWorker([Steps.write({"greeting.py": "def hi(): ...\n"})])  # fails it too
+            tiers = [Tier("cheap", cheap), Tier("strong", strong)]
+            return ExecutorTeam(
+                tiers, [Toolboxes.CHECK], Samples.RAW, attempts=2, climb=True, split_on_failure=split
+            )
+
+        (tmp_path / "split").mkdir()
+        (tmp_path / "person").mkdir()
+        w = Workspace(tmp_path / "split")
+        events = Traces.drop(await team(split=True).act(w.ctx(), w.worktree))
+        assert isinstance(events[-1], Unbuildable) and not any(isinstance(e, Escalated) for e in events)
+        assert "checks still fail" in events[-1].reason
+        w = Workspace(tmp_path / "person")
+        events = Traces.drop(await team(split=False).act(w.ctx(), w.worktree))
+        assert isinstance(events[-1], Escalated)  # without a planner to send it to, a person takes it
 
     async def test_without_climbing_attempts_stay_on_one_tier(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)

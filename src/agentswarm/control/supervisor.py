@@ -30,6 +30,7 @@ from agentswarm.core.domain import (
     Paused,
     Promoted,
     Rejected,
+    Unbuildable,
 )
 from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.decisions import DecisionStore
@@ -113,7 +114,7 @@ class Supervisor:
         for event in reversed(history):
             if isinstance(event, Escalated):
                 return True
-            if isinstance(event, CommitPushed | Promoted | Rejected | EscalationResolved):
+            if isinstance(event, CommitPushed | Promoted | Rejected | EscalationResolved | Unbuildable):
                 return False
         return False
 

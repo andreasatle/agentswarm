@@ -54,6 +54,7 @@ from agentswarm.core.domain import (
     Sized,
     Spent,
     ToolsUsed,
+    Unbuildable,
 )
 from agentswarm.evaluation.commonmark import CommonMarkImport
 from agentswarm.evaluation.compare import (
@@ -116,6 +117,8 @@ class Report:
                 cost = f"${event.usd:.4f}" if event.priced else "unpriced"
                 tokens = f"{event.input_tokens}+{event.output_tokens} tokens"
                 return f"spent by {event.by} on {event.model}: {tokens}, {cost}"
+            case Unbuildable():
+                return f"every model of {event.team} failed, back to the planner: {event.reason}"
             case Scored():
                 held = f", held out {Progress.tally(event.held_out)}" if event.held_out is not None else ""
                 return f"scored {event.level} at {event.commit[:10]}: seen {Progress.tally(event.seen)}{held}"

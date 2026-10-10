@@ -20,6 +20,7 @@ from agentswarm.core.domain import (
     Level,
     Sized,
     TeamName,
+    Unbuildable,
 )
 from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.judgement import Judgement
@@ -46,6 +47,7 @@ class SplitRequest(Frozen):
     north_star: str
     task: str
     depth: int  # how many splits above this task already
+    failed: str | None = None  # why every builder model failed it, when that is why it is being split
 
 
 class Decomposer:
@@ -59,7 +61,9 @@ You are the planner. The task in the data is too large for one change by one tea
   decisions.
 - The children are done one after another, in the order you give, each on top of what the earlier ones
   merged: order them so each step builds on the last and leaves everything working.
-- Don't add work the parent task didn't ask for."""
+- Don't add work the parent task didn't ask for.
+- If `failed` is given, every builder model tried the task and failed for that reason: split so that the
+  part that failed becomes small enough to do on its own."""
 
     def __init__(
         self,
@@ -95,24 +99,40 @@ You are the planner. The task in the data is too large for one change by one tea
 
     def relevant(self, ctx: ArtifactContext) -> Relevance:
         unsized = not any(isinstance(e, Sized) for e in ctx.history)
-        return Relevance.YES if unsized and ctx.artifact.fixes is None else Relevance.NO
+        return Relevance.YES if (unsized or self.failed(ctx)) and ctx.artifact.fixes is None else Relevance.NO
+
+    @staticmethod
+    def failed(ctx: ArtifactContext) -> bool:
+        """Every builder model failed it since it was last sized: split it after all (ADaPT)."""
+        decided = [e for e in ctx.history if isinstance(e, Sized | Unbuildable)]
+        return bool(decided) and isinstance(decided[-1], Unbuildable)
 
     async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
         artifact = ctx.artifact
         head = worktree.head()  # nothing is committed yet: the decision refers to the fork point
-        try:
-            size = self._size.ask(f"size:{self._watches}", ctx, head, head, "")
-        except DeciderError:
-            return [Sized(artifact=artifact.id, fits=True)]  # without an answer, let the executor try
-        fits = Sized(artifact=artifact.id, fits=True, decision=size.id)
-        if size.mode is JevMode.SHADOW or size.ruling.verdict is not Verdict.REJECT:
-            return [fits]  # fits, or unsure: the gate will catch a change that is too big
-        if ctx.depth >= self._max_depth and self._build_at_max_depth:
-            return [fits]  # unattended: the gate's checks catch a change that is too big
-        if ctx.depth >= self._max_depth:
-            return [Escalated(artifact=artifact.id, reason=f"too large, but already split {ctx.depth} times")]
+        decision = None
+        if self.failed(ctx):  # the builders' failure is the evidence: no size question (ADaPT)
+            if ctx.depth >= self._max_depth:
+                reason = f"every builder model failed it, and it is already split {ctx.depth} times"
+                return [Escalated(artifact=artifact.id, reason=reason)]
+        else:
+            try:
+                size = self._size.ask(f"size:{self._watches}", ctx, head, head, "")
+            except DeciderError:
+                return [Sized(artifact=artifact.id, fits=True)]  # without an answer, let the executor try
+            decision = size.id
+            fits = Sized(artifact=artifact.id, fits=True, decision=size.id)
+            if size.mode is JevMode.SHADOW or size.ruling.verdict is not Verdict.REJECT:
+                return [fits]  # fits, or unsure: the gate will catch a change that is too big
+            if ctx.depth >= self._max_depth and self._build_at_max_depth:
+                return [fits]  # unattended: the gate's checks catch a change that is too big
+            if ctx.depth >= self._max_depth:
+                reason = f"too large, but already split {ctx.depth} times"
+                return [Escalated(artifact=artifact.id, reason=reason)]
 
-        request = SplitRequest(north_star=ctx.north_star, task=artifact.task, depth=ctx.depth)
+        unbuildable = [e for e in ctx.history if isinstance(e, Unbuildable)]
+        failed = unbuildable[-1].reason if self.failed(ctx) else None
+        request = SplitRequest(north_star=ctx.north_star, task=artifact.task, depth=ctx.depth, failed=failed)
         worker = self._worker
         routed: list[Event] = []  # routed only when the model is needed: a task that fits makes no call
         if self._routing is not None:
@@ -139,5 +159,7 @@ You are the planner. The task in the data is too large for one change by one tea
         return [
             *routed,
             *(ArtifactCreated(artifact=child) for child in children),
-            Sized(artifact=artifact.id, fits=False, children=tuple(c.id for c in children), decision=size.id),
+            Sized(
+                artifact=artifact.id, fits=False, children=tuple(c.id for c in children), decision=decision
+            ),
         ]

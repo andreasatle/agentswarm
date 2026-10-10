@@ -504,6 +504,8 @@ You are the planner. The task in the data is too large for one change by one tea
 - The children are done one after another, in the order you give, each on top of what the earlier ones
   merged: order them so each step builds on the last and leaves everything working.
 - Don't add work the parent task didn't ask for.
+- If `failed` is given, every builder model tried the task and failed for that reason: split so that the
+  part that failed becomes small enough to do on its own.
 ```
 
 ### `outliner`
@@ -527,7 +529,8 @@ You are the editor planning a document. The task in the data is too large for on
 {
   "north_star": "A small greeting library",
   "task": "Add a greeting book: store greetings per contact, look them up, and export them as CSV.",
-  "depth": 0
+  "depth": 0,
+  "failed": null
 }
 </data>
 ```
@@ -539,6 +542,7 @@ class SplitRequest(Frozen):
     north_star: str
     task: str
     depth: int  # how many splits above this task already
+    failed: str | None = None  # why every builder model failed it, when that is why it is being split
 ```
 
 ### Answer

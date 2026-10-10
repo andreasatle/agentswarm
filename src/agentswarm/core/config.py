@@ -238,6 +238,9 @@ class TeamConfig(Strict):
     # executors with model_tiers: each failed attempt moves one tier up (a cascade: cheap models try first,
     # the strong one takes only what they failed), instead of retrying the same model
     climb: bool = False
+    # with climb: a step every model has failed goes back to the decomposer to be split (ADaPT), instead of
+    # to a person; needs a decomposer team
+    split_on_failure: bool = False
     # stateless builders: model answers per attempt at most (plain code runs the loop between them)
     rounds: int = Field(default=20, ge=1)
     # executors: when its checks fail, the model keeps its work and is told what failed, this many times
@@ -428,6 +431,9 @@ class ProjectConfig(Strict):
                         f"gate {gate.from_level} -> {gate.to_level} uses undefined check {name!r}"
                     )
             self._check_gate_level_rules(gate)
+        for team in self.teams:
+            if team.split_on_failure and not (team.climb and any(t.use == "decomposer" for t in self.teams)):
+                raise ValueError(f"team {team.use!r}: split_on_failure needs climb and a decomposer team")
         if self.score is not None and self.score.check not in self.checks:
             raise ValueError(f"score uses undefined check {self.score.check!r}")
         return self

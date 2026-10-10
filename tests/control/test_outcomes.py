@@ -21,6 +21,7 @@ from agentswarm.core.domain import (
     Sized,
     Spent,
     TeamName,
+    Unbuildable,
 )
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.judgement import Judgement
@@ -147,6 +148,13 @@ class TestProducerOutcomes:
         assert r.step(r.commit("small", "c2"), r.commit("large", "c3")) == [("produce", SMALL, False)]
         escalated = Escalated(artifact=r.artifact.id, reason="checks still fail")
         assert r.step(escalated) == [("produce", LARGE, False)]
+
+    def test_a_commit_handed_back_to_be_split_failed(self, tmp_path: Path) -> None:
+        r = Recording(tmp_path)
+        back = Unbuildable(artifact=r.artifact.id, team=Samples.EXECUTOR, reason="checks still fail")
+        routed = r.routed(Samples.EXECUTOR, CallKind.PRODUCE)
+        assert r.step(routed, r.commit("large"), back) == [("produce", LARGE, False)]
+        assert r.step(r.promoted()) == []  # the umbrella's promotion later is not this model's success
 
     def test_a_rejection_for_conflicts_alone_is_not_the_models_failure(self, tmp_path: Path) -> None:
         r = Recording(tmp_path)

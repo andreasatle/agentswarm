@@ -307,6 +307,20 @@ class Spent(Frozen):
         return self.artifact  # in the artifact's history, so an attempt's cost can be read there
 
 
+class Unbuildable(Frozen):
+    """Every model of a team's cascade has failed this step: it goes back to the planner to be split, as
+    ADaPT does (decompose as needed, when execution fails; docs/design/best-practice-review.md, fix 5)."""
+
+    kind: Literal["unbuildable"] = "unbuildable"
+    artifact: ArtifactId
+    team: TeamName
+    reason: str
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class Tally(Frozen):
     passed: int = Field(ge=0)
     total: int = Field(ge=0)
@@ -524,6 +538,7 @@ type Event = Annotated[
     | Resumed
     | Spent
     | Scored
+    | Unbuildable
     | Promoted
     | Profiled
     | Routed

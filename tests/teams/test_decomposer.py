@@ -4,14 +4,14 @@ from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import JevMode
-from agentswarm.core.domain import ArtifactCreated, ArtifactId, Escalated, Event, Sized
+from agentswarm.core.domain import ArtifactCreated, ArtifactId, Escalated, Event, Sized, Unbuildable
 from agentswarm.jev.api import NoulAnswer
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.judges import Judge, SizeCheck, SplitCheck
 from agentswarm.judging.policy import Policy
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
-from agentswarm.teams.decomposer import ChildTask, Decomposer, Split
+from agentswarm.teams.decomposer import ChildTask, Decomposer, Split, SplitRequest
 from agentswarm.teams.executor import FakeExecutor
 from agentswarm.teams.runner import Relevance
 from tests.support.harness import Harness
@@ -44,9 +44,10 @@ class Sizing:
         )
 
     def decomposer(self, *steps: Step[BaseModel], max_depth: int = 3, build: bool = False) -> Decomposer:
+        self.worker = FakeWorker(steps)  # the planner, whose calls the tests can read
         return Decomposer(
             Samples.RAW,
-            FakeWorker(steps),
+            self.worker,
             self.judgement(SizeCheck),
             self.judgement(SplitCheck, self.split_mode),
             ArtifactFactory(self.h.board, Harness.LADDER),
@@ -129,6 +130,30 @@ class TestDecomposer:
             "fix", Samples.EXECUTOR, s.artifact.id, fixes=Samples.finding().id
         )
         assert s.decomposer().relevant(s.h.contexts.build(fix.id)) is Relevance.NO
+
+
+class TestSplitOnFailure:
+    """ADaPT: a step every builder model failed goes back to the planner, without asking its size again."""
+
+    def failed(self, s: Sizing) -> None:
+        unbuildable = Unbuildable(artifact=s.artifact.id, team=Samples.EXECUTOR, reason="checks still fail")
+        s.h.board.append([Sized(artifact=s.artifact.id, fits=True), unbuildable])
+
+    async def test_a_step_every_model_failed_is_split_with_the_reason_given(self, tmp_path: Path) -> None:
+        s = Sizing(tmp_path, fits=0.95)  # Jev thought it fit; the builders proved otherwise
+        self.failed(s)
+        await s.run(s.decomposer(split_into("the block parser", "its rendering")))
+        assert s.h.board.current().is_umbrella(s.artifact.id)
+        ((_, request),) = s.worker.calls
+        assert isinstance(request, SplitRequest) and request.failed == "checks still fail"
+        assert len(s.decider.calls) == 1  # only the split check: the size wasn't asked again
+
+    async def test_at_the_depth_limit_a_failed_step_goes_to_a_person(self, tmp_path: Path) -> None:
+        s = Sizing(tmp_path, fits=0.95)
+        self.failed(s)
+        history = await s.run(s.decomposer(max_depth=0, build=True))
+        (escalated,) = [e for e in history if isinstance(e, Escalated)]
+        assert "every builder model failed" in escalated.reason
 
 
 class TestExecutorWaitsForSizing:
