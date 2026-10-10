@@ -201,6 +201,7 @@ class Project:
             lambda team, model: ledger.meter(team, model, config.models[model].usd_per_million),
             {name: model.model for name, model in config.models.items()},
             config.project,
+            {name: model.usd_per_million for name, model in config.models.items()},
         )
         runners = [
             TeamRunner(

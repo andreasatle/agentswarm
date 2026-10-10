@@ -1,12 +1,13 @@
 import random
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
 
-from agentswarm.core.config import JevMode, ProjectConfig
-from agentswarm.core.domain import Profiled, Rejected, Routed
+from agentswarm.core.config import JevMode, Price, ProjectConfig
+from agentswarm.core.domain import AttemptFailed, Profiled, Rejected, Routed
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.judges import CallProfile, Judge
@@ -55,16 +56,24 @@ class Routing:
         self.ledger = ledger
         self.router = self.make((SMALL, LARGE))
 
-    def make(self, model_ids: tuple[str, ...]) -> Router:
+    def make(
+        self,
+        model_ids: tuple[str, ...],
+        target: float = 0.8,
+        estimates: tuple[float, ...] | None = None,
+        explore_usd: float | None = None,
+    ) -> Router:
         rng = random.Random(0)
         return Router(
             self.judgement,
             CallKind.PRODUCE,
             model_ids,
             self.ledger,
-            0.8,
+            target,
             self.h.clock,
             rng=rng,
+            estimates=estimates,
+            explore_usd=explore_usd,
         )
 
     def choose(self) -> int:
@@ -108,6 +117,35 @@ class TestRoutingLedger:
         assert [c.kind for c in again.calls()] == [CallKind.PRODUCE, CallKind.CRITIQUE]
         assert again.calls(CallKind.CRITIQUE) == [critique]
         assert Bands.of(1.0) == 2 and Bands.of(0.34) == 1
+
+
+class TestCosts:
+    def test_an_old_ledger_gains_the_cost_column_and_keeps_its_calls(self, tmp_path: Path) -> None:
+        path = tmp_path / "routing.sqlite"
+        old = sqlite3.connect(path)
+        old.execute(
+            "CREATE TABLE calls (kind TEXT, band INTEGER, model_id TEXT, success INTEGER, attributes TEXT, "
+            "source TEXT, at TEXT)"
+        )
+        old.execute(
+            "INSERT INTO calls VALUES ('produce', 0, 'ollama:small', 1, '{}', 't', ?)", (AT.isoformat(),)
+        )
+        old.commit()
+        old.close()
+        ledger = RoutingLedger(path)
+        ledger.record(Outcomes.call(SMALL, 0, True).model_copy(update={"usd": 0.3}))
+        assert [c.usd for c in ledger.calls()] == [None, 0.3]
+
+    def test_a_models_cost_is_measured_with_its_price_estimate_as_one_attempt(self) -> None:
+        calls = [Outcomes.call(SMALL, 0, True).model_copy(update={"usd": 0.2}) for _ in range(2)]
+        beliefs = Beliefs(calls, Prior())
+        assert beliefs.cost(CallKind.PRODUCE, 0, SMALL, estimate=1.0) == pytest.approx(1.4 / 3)
+        assert beliefs.cost(CallKind.PRODUCE, 0, LARGE, estimate=1.0) == 1.0  # nothing measured yet
+
+    def test_a_price_gives_an_estimate_and_a_local_model_costs_nothing(self) -> None:
+        assert Router.estimate(None) == 0.0
+        sol = Router.estimate(Price(input=2.0, output=10.0, cache_read=0.1))
+        assert sol == pytest.approx(0.15 * 2.0 + 0.85 * 0.1 + 0.02 * 10.0)
 
 
 class TestDiscountedBeliefs:
@@ -159,6 +197,29 @@ class TestRouter:
         again = r.make((SMALL, LARGE)).choose(r.h.contexts.build(r.artifact.id), "c0ffee")
         assert again.profile == first.profile and not again.fresh
         assert len(r.decider.calls) == 1
+
+    def test_ranks_by_expected_cost_per_success_not_by_the_config_order(self, tmp_path: Path) -> None:
+        ledger = RoutingLedger(":memory:")
+        for n in range(20):  # the first model is cheaper per token but reads more and fails more
+            ledger.record(Outcomes.call(SMALL, 2, n % 2 == 0).model_copy(update={"usd": 1.65}))
+            ledger.record(Outcomes.call(LARGE, 2, True).model_copy(update={"usd": 0.24}))
+        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=ledger)
+        router = r.make((SMALL, LARGE), target=0.3)
+        assert router.rank(0.9) == [1, 0]
+        assert router.rank(0.9, failed=[1]) == [0]  # the cascade, after the best one failed
+        assert router.rank(0.9, failed=[0, 1]) == []
+
+    def test_an_expensive_model_not_yet_measured_starts_nothing_while_another_is_left(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = RoutingLedger(":memory:")
+        for _ in range(20):
+            ledger.record(Outcomes.call(SMALL, 2, True).model_copy(update={"usd": 0.5}))
+        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=ledger)
+        router = r.make((SMALL, "ollama:new"), target=0.3, estimates=(0.5, 0.01), explore_usd=1.0)
+        assert router.rank(0.9)[0] == 1  # cheap and unmeasured: tried
+        dear = r.make((SMALL, "ollama:new"), target=0.3, estimates=(0.5, 5.0), explore_usd=1.0)
+        assert dear.rank(0.9) == [0, 1]  # dear and unmeasured: only when nothing else is left
 
     def test_records_each_outcome_with_its_band_and_model(self, tmp_path: Path) -> None:
         r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=RoutingLedger(":memory:"))
@@ -214,6 +275,29 @@ class TestRoutedExecutor:
         assert sum(isinstance(e, Routed) for e in history) == 1  # routed once per artifact and team
         assert sum(isinstance(e, Profiled) for e in history) == 1  # Jev is asked once per artifact
         assert used == ["large", "large"]  # stays on the strongest after a rejection
+
+
+class TestCascade:
+    async def test_a_reopened_step_skips_the_model_that_failed_it_however_well_it_ranks(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = RoutingLedger(":memory:")
+        for _ in range(20):  # large is the better buy: it would start the step
+            ledger.record(Outcomes.call(SMALL, 2, False).model_copy(update={"usd": 1.0}))
+            ledger.record(Outcomes.call(LARGE, 2, True).model_copy(update={"usd": 0.2}))
+        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=ledger)
+        used: list[str] = []
+        tiers = [
+            Tier("small", FakeWorker([Recorder("small", used).step()])),
+            Tier("large", FakeWorker([Recorder("large", used).step()])),
+        ]
+        executor = ExecutorTeam(tiers, [], Samples.RAW, router=r.make((SMALL, LARGE)), climb=True)
+        failed = AttemptFailed(
+            artifact=r.artifact.id, team=executor.name, model="large", reason="checks fail"
+        )
+        r.h.board.append([failed])
+        assert await r.h.runner(executor).step() == 1
+        assert used == ["small"]
 
 
 class TestRoutingConfig:

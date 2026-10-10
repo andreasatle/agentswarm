@@ -5,14 +5,40 @@ Like the decision log, this is infrastructure, not a team: it writes the board d
 on the board, budgets survive restarts and replays.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import ClassVar
 
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.control.limits import SharedSpend
 from agentswarm.core.config import Price
-from agentswarm.core.domain import Spent, Usage
+from agentswarm.core.domain import ArtifactId, Spent, Usage
 
 type Meter = Callable[[Usage], None]
+
+
+class SpendScope:
+    """The artifact a team is acting on, so the money its models spend is recorded against it.
+
+    Set by the team runner around each action and read by the meter. A context variable: concurrent actions
+    in asyncio tasks each keep their own, and nothing has to be passed through the workers.
+    """
+
+    _current: ClassVar[ContextVar[ArtifactId | None]] = ContextVar("spend_artifact", default=None)
+
+    @classmethod
+    @contextmanager
+    def on(cls, artifact: ArtifactId) -> Generator[None]:
+        token = cls._current.set(artifact)
+        try:
+            yield
+        finally:
+            cls._current.reset(token)
+
+    @classmethod
+    def current(cls) -> ArtifactId | None:
+        return cls._current.get()
 
 
 class SpendLedger:
@@ -53,6 +79,7 @@ class SpendLedger:
                     cache_write_tokens=usage.cache_write_tokens,
                     model_calls=usage.model_calls,
                     largest_input=usage.largest_input,
+                    artifact=SpendScope.current(),
                 )
             ]
         )

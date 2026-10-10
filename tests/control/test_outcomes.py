@@ -19,6 +19,7 @@ from agentswarm.core.domain import (
     Rejected,
     Routed,
     Sized,
+    Spent,
     TeamName,
 )
 from agentswarm.judging.deciders import FakeDecider
@@ -112,6 +113,31 @@ class TestProducerOutcomes:
         assert [(e.team, e.call_kind, e.success) for e in recorded] == [
             (Samples.EXECUTOR, CallKind.PRODUCE, False),
             (Samples.EXECUTOR, CallKind.PRODUCE, True),
+        ]
+
+    def test_each_attempt_is_recorded_with_its_own_cost(self, tmp_path: Path) -> None:
+        r = Recording(tmp_path)
+
+        def spent(model: str, usd: float) -> Spent:
+            return Spent(
+                by=Samples.EXECUTOR,
+                model=model,
+                input_tokens=1,
+                output_tokens=1,
+                usd=usd,
+                priced=True,
+                artifact=r.artifact.id,
+            )
+
+        failed = AttemptFailed(
+            artifact=r.artifact.id, team=Samples.EXECUTOR, model="small", reason="checks fail"
+        )
+        routed = r.routed(Samples.EXECUTOR, CallKind.PRODUCE)
+        r.step(routed, spent("small", 0.5), spent("small", 0.25), failed)
+        r.step(spent("large", 0.3), r.commit("large"), r.promoted())
+        assert [(c.model_id, c.success, c.usd) for c in r.ledger.calls()] == [
+            (SMALL, False, 0.75),
+            (LARGE, True, 0.3),
         ]
 
     def test_a_rejected_reworked_or_escalated_commit_fails(self, tmp_path: Path) -> None:

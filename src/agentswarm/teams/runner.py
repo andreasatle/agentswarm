@@ -8,6 +8,7 @@ from typing import Protocol
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.claims import ClaimRegistry
 from agentswarm.board.context import ContextBuilder
+from agentswarm.board.spend import SpendScope
 from agentswarm.control.budget import Budget
 from agentswarm.control.scheduler import Scheduler
 from agentswarm.core.clock import Clock
@@ -134,11 +135,12 @@ class TeamRunner:
                 else self._repository.checkout_merged(ctx.merge_commit, artifact.id)
             )
             try:
-                if self._scheduler is None:
-                    events = await self._team.act(ctx, worktree)
-                else:
-                    async with self._scheduler.model_call(self._project):
+                with SpendScope.on(artifact.id):  # what its models spend is recorded against the artifact
+                    if self._scheduler is None:
                         events = await self._team.act(ctx, worktree)
+                    else:
+                        async with self._scheduler.model_call(self._project):
+                            events = await self._team.act(ctx, worktree)
             finally:
                 worktree.remove()
             published = self._claims.publish(claim, version, events)

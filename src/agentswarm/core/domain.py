@@ -300,10 +300,11 @@ class Spent(Frozen):
     model_calls: int = 0  # 0 on boards from before it was recorded
     largest_input: int = 0  # the input tokens of the largest single call
     billed: bool = False  # usd is what the provider reported charging, not a price-list estimate
+    artifact: ArtifactId | None = None  # what it was spent on, when a team spent it acting on one artifact
 
     @property
-    def subject(self) -> None:
-        return None
+    def subject(self) -> ArtifactId | None:
+        return self.artifact  # in the artifact's history, so an attempt's cost can be read there
 
 
 class Tally(Frozen):

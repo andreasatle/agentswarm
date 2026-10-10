@@ -31,6 +31,7 @@ from agentswarm.core.domain import (
     Rejected,
     Routed,
     Sized,
+    Spent,
     TeamName,
 )
 from agentswarm.teams.routing import Router
@@ -45,6 +46,7 @@ class Settled(BaseModel):
     model_id: str
     settles: int  # its position in the artifact's history
     success: bool
+    usd: float | None = None  # what the attempt cost (its team's spend on that model since the last attempt)
 
 
 class OutcomeRecorder:
@@ -100,7 +102,7 @@ class OutcomeRecorder:
             router = self._routers.get(team)
             if router is None or (team, outcome.settles) in done:
                 continue
-            if router.record(outcome.model_id, profile, outcome.success):
+            if router.record(outcome.model_id, profile, outcome.success, outcome.usd):
                 events.append(
                     OutcomeRecorded(
                         artifact=profile.artifact,
@@ -117,15 +119,27 @@ class OutcomeRecorder:
         routed = next((e for e in history if isinstance(e, Routed) and e.call_kind is CallKind.PRODUCE), None)
         if routed is None:
             return
+        since = 0  # where the current attempt's spend starts
         for index, event in enumerate(history):
             if isinstance(event, AttemptFailed) and event.team == routed.team:
                 model_id = self.model_id(event.model, routed)
-                yield Settled(routed=routed, model_id=model_id, settles=index, success=False)
+                usd = self.cost(history[since:index], routed.team, event.model)
+                since = index + 1
+                yield Settled(routed=routed, model_id=model_id, settles=index, success=False, usd=usd)
             elif isinstance(event, CommitPushed) and event.model is not None:
+                usd = self.cost(history[since:index], routed.team, event.model)
+                since = index + 1
                 success = self.commit_outcome(history[index + 1 :])
                 if success is not None:
                     model_id = self.model_id(event.model, routed)
-                    yield Settled(routed=routed, model_id=model_id, settles=index, success=success)
+                    yield Settled(routed=routed, model_id=model_id, settles=index, success=success, usd=usd)
+
+    @staticmethod
+    def cost(events: Sequence[Event], team: TeamName, model: str | None) -> float | None:
+        """A team's spend on one model among these events; None when none was recorded against the artifact
+        (boards from before 2026-10-10, or a model without a meter)."""
+        spent = [e.usd for e in events if isinstance(e, Spent) and e.by == team and e.model == model]
+        return sum(spent) if spent else None
 
     @staticmethod
     def commit_outcome(after: Sequence[Event]) -> bool | None:

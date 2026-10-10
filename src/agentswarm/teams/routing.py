@@ -10,8 +10,11 @@ Three parts that never depend on each other's internals:
   shared by projects and probes, so they all teach the same router.
 - **The router is plain code.** Per (kind of call, band, model) it counts successes and failures on top of a
   small starting guess (`Prior`), draws a plausible success rate from those counts (Thompson sampling), and
-  starts on the cheapest model whose draw meets the target. Uncertain models still get tried now and then;
-  proven ones are used most of the time. A rejection steps up a tier from there, as before.
+  ranks the models whose draw meets the target by expected cost per success: the model's cost per attempt
+  (measured; from its price until measured) divided by its drawn success rate (FrugalGPT; cost-aware bandits,
+  RESEARCH.md section 9). Uncertain models still get tried now and then; proven ones are used most of the
+  time. After a failure the cascade asks again, among the models that haven't failed the step. The order
+  of models in the config matters only when nothing is known.
 - **Outcomes are settled by an observer** (`control/outcomes.py`), from events after the call: the team
   that made a call never grades it.
 
@@ -21,7 +24,7 @@ In shadow mode, or without a ledger, the router only records what Jev said and k
 import json
 import random
 import sqlite3
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,8 +33,8 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.core.clock import Clock
-from agentswarm.core.config import JevMode
-from agentswarm.core.domain import ArtifactContext, CallKind, Event, Profiled, Routed, TeamName
+from agentswarm.core.config import JevMode, Price
+from agentswarm.core.domain import ArtifactContext, CallKind, Event, Profiled, Routed, TeamName, Usage
 from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.judgement import Judgement
 from agentswarm.llm.workers import Worker
@@ -62,6 +65,7 @@ class RoutedCall(Frozen):
     attributes: dict[str, float] = Field(default_factory=dict[str, float])  # Jev's p(yes) per question
     source: str  # e.g. "project:greeter" or "probe"
     at: datetime
+    usd: float | None = None  # what the attempt cost; None where it wasn't recorded (before 2026-10-10)
 
 
 class RoutingLedger:
@@ -75,8 +79,12 @@ class RoutingLedger:
         self._db = sqlite3.connect(str(path), check_same_thread=False)
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS calls (kind TEXT, band INTEGER, model_id TEXT, success INTEGER, "
-            "attributes TEXT, source TEXT, at TEXT)"
+            "attributes TEXT, source TEXT, at TEXT, usd REAL)"
         )
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(calls)")}
+        if "usd" not in columns:  # a ledger from before costs were recorded
+            with self._db:
+                self._db.execute("ALTER TABLE calls ADD COLUMN usd REAL")
 
     def record(self, call: RoutedCall) -> None:
         row = (
@@ -87,12 +95,15 @@ class RoutingLedger:
             json.dumps(call.attributes, sort_keys=True),
             call.source,
             call.at.isoformat(),
+            call.usd,
         )
         with self._db:
-            self._db.execute("INSERT INTO calls VALUES (?, ?, ?, ?, ?, ?, ?)", row)
+            self._db.execute("INSERT INTO calls VALUES (?, ?, ?, ?, ?, ?, ?, ?)", row)
 
     def calls(self, kind: CallKind | None = None) -> list[RoutedCall]:
-        rows = self._db.execute("SELECT kind, band, model_id, success, attributes, source, at FROM calls")
+        rows = self._db.execute(
+            "SELECT kind, band, model_id, success, attributes, source, at, usd FROM calls"
+        )
         found = [
             RoutedCall(
                 kind=CallKind(k),
@@ -102,8 +113,9 @@ class RoutingLedger:
                 attributes=json.loads(a),
                 source=src,
                 at=datetime.fromisoformat(at),
+                usd=usd,
             )
-            for k, b, m, s, a, src, at in rows
+            for k, b, m, s, a, src, at, usd in rows
         ]
         return [c for c in found if kind is None or c.kind is kind]
 
@@ -165,11 +177,17 @@ class Beliefs:
         self._prior = prior
         self._counts: dict[tuple[CallKind, int, str], list[float]] = {}
         self._seen: dict[tuple[CallKind, int, str], int] = {}
+        self._costs: dict[tuple[CallKind, int, str], list[float]] = {}  # weighted dollars, weights
         later: dict[CallKind, int] = {}
         for call in reversed(calls):  # the ledger lists calls in the order they were recorded
             key = (call.kind, call.band, call.model_id)
             counts = self._counts.setdefault(key, [0.0, 0.0])
-            counts[0 if call.success else 1] += self.weight(later.get(call.kind, 0), half_life_calls)
+            weight = self.weight(later.get(call.kind, 0), half_life_calls)
+            counts[0 if call.success else 1] += weight
+            if call.usd is not None:
+                costs = self._costs.setdefault(key, [0.0, 0.0])
+                costs[0] += weight * call.usd
+                costs[1] += weight
             self._seen[key] = self._seen.get(key, 0) + 1
             later[call.kind] = later.get(call.kind, 0) + 1
 
@@ -186,6 +204,11 @@ class Beliefs:
             prior=self._prior.counts(band),
             seen=self._seen.get(key, 0),
         )
+
+    def cost(self, kind: CallKind, band: int, model_id: str, estimate: float) -> float:
+        """Dollars per attempt: the measured mean, with the price-based estimate counting as one attempt."""
+        spent, weight = self._costs.get((kind, band, model_id), [0.0, 0.0])
+        return (estimate + spent) / (1.0 + weight)
 
     def render(self) -> str:
         """The table: per kind and model, successes/runs and the believed rate in each band."""
@@ -238,8 +261,13 @@ class Router:
         source: str = "project",
         rng: random.Random | None = None,
         half_life_calls: float | None = None,  # older outcomes count less (discounted Thompson sampling)
+        estimates: Sequence[float]
+        | None = None,  # dollars per attempt from each model's price, until measured
+        explore_usd: float | None = None,  # a model costing more per attempt starts a step only once measured
     ) -> None:
         self._half_life_calls = half_life_calls
+        self._estimates = tuple(estimates) if estimates is not None else tuple(0.0 for _ in model_ids)
+        self._explore_usd = explore_usd
         self._clock = clock
         self._judgement = judgement
         self._kind = kind
@@ -253,6 +281,11 @@ class Router:
     @property
     def kind(self) -> CallKind:
         return self._kind
+
+    @property
+    def acts(self) -> bool:
+        """Whether it has a ledger to rank by (without one it only records what Jev says)."""
+        return self._ledger is not None
 
     def model_id(self, tier: int) -> str:
         return self._model_ids[tier]
@@ -279,20 +312,44 @@ class Router:
     def choose(self, ctx: ArtifactContext, head: str) -> RouteChoice:
         profile, fresh = self.profile(ctx, head)
         active = profile is not None and profile.active and self._ledger is not None
-        tier = self.tier_for(profile.difficulty) if active and profile is not None else 0
+        tier = self.rank(profile.difficulty)[0] if active and profile is not None else 0
         return RouteChoice(tier=tier, profile=profile, fresh=fresh, acted=active)
 
-    def tier_for(self, difficulty: float) -> int:
-        """The cheapest tier whose drawn success rate meets the target; else the strongest."""
+    # A typical builder attempt, from the boards of 2026-10-09 (GPT-6.1 Sol: 0.6-0.9M input tokens, over 90%
+    # cached; DeepSeek: 2.8-4.5M): prices a model's attempts until its own costs are measured.
+    TYPICAL_ATTEMPT: ClassVar[Usage] = Usage(
+        input_tokens=1_000_000, cache_read_tokens=850_000, output_tokens=20_000
+    )
+
+    @classmethod
+    def estimate(cls, price: Price | None) -> float:
+        """Dollars per attempt from a model's price; 0 for an unpriced (local) model."""
+        return price.usd_of(cls.TYPICAL_ATTEMPT) if price is not None else 0.0
+
+    MEASURED: ClassVar[int] = 3  # outcomes after which a model's cost counts as known (`explore_usd`)
+
+    def rank(self, difficulty: float, failed: Collection[int] = ()) -> list[int]:
+        """The tiers to try, best first, leaving out those that failed: one Thompson draw per model, then the
+        models whose draw meets the target by expected cost per success (cost per attempt / drawn rate), then
+        the rest the same way. A model dearer than `explore_usd` per attempt, not yet measured, starts nothing
+        while another is left. Empty when every tier has failed."""
         assert self._ledger is not None
         beliefs = Beliefs(self._ledger.calls(self._kind), self._prior, self._half_life_calls)
         band = Bands.of(difficulty)
+        scored: list[tuple[bool, bool, float, int]] = []
         for index, model_id in enumerate(self._model_ids):
-            if beliefs.of(self._kind, band, model_id).draw(self._rng) >= self._target:
-                return index
-        return len(self._model_ids) - 1
+            if index in failed:
+                continue
+            belief = beliefs.of(self._kind, band, model_id)
+            rate = max(belief.draw(self._rng), 1e-6)
+            cost = beliefs.cost(self._kind, band, model_id, self._estimates[index])
+            unproven = (
+                self._explore_usd is not None and belief.seen < self.MEASURED and cost > self._explore_usd
+            )
+            scored.append((unproven, rate < self._target, cost / rate, index))
+        return [index for *_, index in sorted(scored)]
 
-    def record(self, model_id: str, profile: Profiled, success: bool) -> bool:
+    def record(self, model_id: str, profile: Profiled, success: bool, usd: float | None = None) -> bool:
         """One settled call's outcome, for the ledger. False when there is no ledger to teach."""
         if self._ledger is None:
             return False
@@ -304,6 +361,7 @@ class Router:
             attributes=profile.attributes,
             source=self._source,
             at=self._clock.now(),
+            usd=usd,
         )
         self._ledger.record(call)
         return True
@@ -334,6 +392,19 @@ class RoutedTiers:
     def routed(self, ctx: ArtifactContext) -> Routed | None:
         earlier = [e for e in ctx.history if isinstance(e, Routed) and e.team == self._team]
         return earlier[0] if earlier else None
+
+    def next(self, ctx: ArtifactContext, failed: Collection[str]) -> int | None:
+        """After failures, the tier to try next among those that haven't failed this step: by the router's
+        ranking once the step is profiled and routing acts, else the config's order. None when all failed."""
+        names = [t.model for t in self._tiers]
+        left = [i for i, name in enumerate(names) if name not in failed]
+        if not left:
+            return None
+        profile = next((e for e in ctx.history if isinstance(e, Profiled)), None)
+        if self._router is not None and self._router.acts and profile is not None and profile.active:
+            ranked = self._router.rank(profile.difficulty, [i for i in range(len(names)) if i not in left])
+            return ranked[0] if ranked else None
+        return left[0]
 
     def start(self, ctx: ArtifactContext, head: str) -> tuple[int, list[Event]]:
         """The starting tier's index, and the events recording the choice when it was made just now."""

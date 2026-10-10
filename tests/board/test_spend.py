@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.eventlog import InMemoryEventLog
-from agentswarm.board.spend import SpendLedger
+from agentswarm.board.spend import SpendLedger, SpendScope
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import Price
 from agentswarm.core.domain import Spent, Usage
@@ -48,6 +48,15 @@ class TestSpendLedger:
         ledger = Ledger()
         ledger.ledger.record("executor", "m", Usage(), Price(input=1, output=1))
         assert ledger.spent() == []
+
+    def test_spend_while_a_team_acts_on_an_artifact_is_recorded_against_it(self) -> None:
+        ledger = Ledger()
+        meter = ledger.ledger.meter("executor", "large", Price(input=1, output=1))
+        with SpendScope.on(Samples.A):
+            meter(Usage(input_tokens=10))
+        meter(Usage(input_tokens=10))
+        assert [e.artifact for e in ledger.spent()] == [Samples.A, None]
+        assert len(ledger.board.current().history(Samples.A)) == 1  # so an attempt's cost can be read there
 
     def test_views_sum_spend_since_a_moment(self) -> None:
         ledger = Ledger()

@@ -34,11 +34,11 @@ teams:
   - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 2, build_at_max_depth: true}
   - use: executor
     watches: raw
-    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # by measured cost per merged step: Sol ~$0.24 (mostly
-    # cached input at $0.10/M), DeepSeek ~$1.65 (it reads 5x as much), so DeepSeek is out; Qwen merged none
+    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # the router ranks them by expected cost per success,
+    # measured (from prices until measured); this order counts only when nothing is known
     attempts: 4  # local, Haiku, Sol, Sonnet: a step can climb the whole way in one run
     climb: true  # a failed attempt goes one tier up
-    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200}
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
     checks: [spec]
     max_model_calls: 60
     repairs: 2  # failing checks: keep the work, say what broke, try again (the first run threw away 150 passes)

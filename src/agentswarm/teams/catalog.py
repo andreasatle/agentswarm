@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import ClassVar, Self
 
 from agentswarm.board.artifacts import ArtifactFactory
-from agentswarm.core.config import LevelLadder, TeamConfig, Threshold
+from agentswarm.core.config import LevelLadder, Price, TeamConfig, Threshold
 from agentswarm.core.domain import CallKind, TeamName
 from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
 from agentswarm.judging.judgement import Judgement, Judgements
@@ -44,7 +44,9 @@ class TeamResources:
         meters: Callable[[str, str], Meter] | None = None,  # (team, model) -> meter, for spend
         model_ids: Mapping[str, str] | None = None,  # model name -> "<provider>:<model>", for routing
         project: str = "",  # for the routing ledger's record of where an outcome came from
+        prices: Mapping[str, Price | None] | None = None,  # model name -> its price, for routing estimates
     ) -> None:
+        self._prices = dict(prices or {})
         self._model_ids = dict(model_ids or {})
         self._meters = meters
         self._workers = workers
@@ -98,6 +100,8 @@ class TeamResources:
             self._judgements.clock,
             source=f"project:{self.project}",
             half_life_calls=routing.half_life_calls,
+            estimates=[Router.estimate(self._prices.get(name)) for name in names],
+            explore_usd=routing.explore_usd,
         )
         self.routers[TeamName(team.use)] = router
         return router

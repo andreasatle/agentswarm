@@ -204,6 +204,9 @@ class RoutingConfig(Strict):
     # An outcome counts half once this many later calls of its kind are recorded (discounted Thompson
     # sampling, by activity rather than time, so a pause forgets nothing); None: all count fully
     half_life_calls: float | None = Field(default=200.0, gt=0)
+    # A model whose estimated cost per attempt is above this starts no step until it has a few measured
+    # outcomes (it can still be reached by the cascade): bounded exploration of expensive models
+    explore_usd: float | None = Field(default=None, gt=0)
 
 
 class TeamConfig(Strict):

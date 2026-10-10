@@ -422,7 +422,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
         synced = self.sync(ctx, worktree)
         if synced is not None:
             return [*routed, synced]
-        model, worker = self.tier_for(ctx, start)
+        climbing = self._climb and self._tiers is not None
+        failed = self.failed_models(ctx) if climbing else set[str]()
+        model, worker = self.next_tier(ctx, failed) if failed else self.tier_for(ctx, start)
         events: list[Event] = list(routed)
         number, nudged = 1, False
         while number <= self._attempts:
@@ -442,8 +444,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 nudged = True  # the same attempt once more, told that nothing changed
             else:
                 number += 1
-                if self._climb:  # the cascade: the next attempt goes to a stronger model
-                    model, worker = self.tier_for(ctx, start + number - 1)
+                if climbing and model is not None:  # the cascade: the next model not yet failed
+                    failed.add(model)
+                    model, worker = self.next_tier(ctx, failed, (model, worker))
                     nudged = False
         return events
 
@@ -554,17 +557,44 @@ You are the executor in a software team. Implement the task in `instruction.goal
         )
 
     def tier_index(self, ctx: ArtifactContext, start: int = 0) -> int:
-        """An attempt's tier: from the starting tier, one up per rejection, staying on the strongest.
-
-        Climbing, failed attempts of earlier runs count too: a reopened step starts where its cascade stopped
-        (CommonMark, 2026-10-09: DeepSeek spent $2.53 on an inline parser it had failed twice before).
-        """
+        """An attempt's tier: from the starting tier, one up per rejection, staying on the strongest."""
         if self._tiers is None:
             return 0
         rejections = sum(isinstance(e, Rejected) for e in ctx.history)
-        if self._climb:
-            rejections += sum(isinstance(e, AttemptFailed) and e.team == self.name for e in ctx.history)
         return min(start + rejections, len(self._tiers) - 1)
+
+    def failed_models(self, ctx: ArtifactContext) -> set[str]:
+        """The models that have failed this step: a discarded attempt, or a commit the gate rejected. A
+        reopened step's cascade goes on from there (CommonMark, 2026-10-09: DeepSeek spent $2.53 on an
+        inline parser it had failed twice before)."""
+        failed: set[str] = set()
+        committed: str | None = None
+        for event in ctx.history:
+            match event:
+                case AttemptFailed(team=team, model=str() as model) if team == self.name:
+                    failed.add(model)
+                case CommitPushed(model=str() as model):
+                    committed = model
+                case Rejected() if committed is not None and not all(
+                    f.kind is FindingKind.CONFLICT for f in event.findings
+                ):
+                    failed.add(committed)
+                case _:
+                    pass
+        return failed
+
+    def next_tier(
+        self, ctx: ArtifactContext, failed: set[str], fallback: tuple[str | None, Worker] | None = None
+    ) -> tuple[str | None, Worker]:
+        """The cascade's next model: the router's best among those that haven't failed this step. When all
+        have, the fallback (the model just tried) or the strongest."""
+        assert self._tiers is not None and self._routing is not None
+        index = self._routing.next(ctx, failed)
+        if index is None:
+            if fallback is not None:
+                return fallback
+            index = len(self._tiers) - 1
+        return self._tiers[index].model, self._tiers[index].worker
 
     def tier_for(self, ctx: ArtifactContext, start: int = 0) -> tuple[str | None, Worker]:
         """From the starting tier, one tier up per rejection so far, staying on the strongest."""
