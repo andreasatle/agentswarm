@@ -331,8 +331,9 @@ class Router:
     def rank(self, difficulty: float, failed: Collection[int] = ()) -> list[int]:
         """The tiers to try, best first, leaving out those that failed: one Thompson draw per model, then the
         models whose draw meets the target by expected cost per success (cost per attempt / drawn rate), then
-        the rest the same way. A model dearer than `explore_usd` per attempt, not yet measured, starts nothing
-        while another is left. Empty when every tier has failed."""
+        the rest by drawn rate, the likeliest first (by cost, a free model with a poor record would always
+        come first: gemma4:26b, 0 for 6 on 2026-10-10). A model dearer than `explore_usd` per attempt, not
+        yet measured, starts nothing while another is left. Empty when every tier has failed."""
         assert self._ledger is not None
         beliefs = Beliefs(self._ledger.calls(self._kind), self._prior, self._half_life_calls)
         band = Bands.of(difficulty)
@@ -346,7 +347,8 @@ class Router:
             unproven = (
                 self._explore_usd is not None and belief.seen < self.MEASURED and cost > self._explore_usd
             )
-            scored.append((unproven, rate < self._target, cost / rate, index))
+            below = rate < self._target
+            scored.append((unproven, below, -rate if below else cost / rate, index))
         return [index for *_, index in sorted(scored)]
 
     def record(

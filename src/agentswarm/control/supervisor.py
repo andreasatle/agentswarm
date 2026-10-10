@@ -99,6 +99,8 @@ class Supervisor:
         if budget is not None and rounds > budget:
             return f"used {rounds} rounds, over the budget of {budget}"
         now = self._clock.now()
+        if views.waits_for(artifact.id) is not None:
+            return None  # waiting for an earlier sibling of its split: its turn comes when that one merges
         if views.claim_on(artifact.id, now) is None and views.active_claims(now):
             return None  # waiting its turn: a team is busy with another artifact
         idle = now - max(views.last_activity(artifact.id), self._started)

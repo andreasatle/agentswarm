@@ -209,6 +209,16 @@ class TestRouter:
         assert router.rank(0.9, failed=[1]) == [0]  # the cascade, after the best one failed
         assert router.rank(0.9, failed=[0, 1]) == []
 
+    def test_below_the_target_the_likeliest_model_comes_first_however_cheap_the_others(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = RoutingLedger(":memory:")
+        for n in range(20):
+            ledger.record(Outcomes.call(SMALL, 2, False).model_copy(update={"usd": 0.0}))  # free, never works
+            ledger.record(Outcomes.call(LARGE, 2, n % 2 == 0).model_copy(update={"usd": 0.9}))
+        r = Routing(tmp_path, simple=0.1, mode=JevMode.ACTIVE, ledger=ledger)
+        assert r.make((SMALL, LARGE), target=0.95).rank(0.9) == [1, 0]
+
     def test_an_expensive_model_not_yet_measured_starts_nothing_while_another_is_left(
         self, tmp_path: Path
     ) -> None:
