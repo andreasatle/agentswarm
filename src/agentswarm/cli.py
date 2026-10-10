@@ -46,6 +46,7 @@ from agentswarm.core.domain import (
     PromotionStarted,
     Rejected,
     Released,
+    Repaired,
     Resolution,
     Resumed,
     Routed,
@@ -117,6 +118,9 @@ class Report:
                 cost = f"${event.usd:.4f}" if event.priced else "unpriced"
                 tokens = f"{event.input_tokens}+{event.output_tokens} tokens"
                 return f"spent by {event.by} on {event.model}: {tokens}, {cost}"
+            case Repaired():
+                result = "checks pass" if event.passed else "checks still fail"
+                return f"repair by {event.model or event.team}: {result}"
             case Unbuildable():
                 return f"every model of {event.team} failed, back to the planner: {event.reason}"
             case Scored():

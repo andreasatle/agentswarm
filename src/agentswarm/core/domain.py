@@ -307,6 +307,22 @@ class Spent(Frozen):
         return self.artifact  # in the artifact's history, so an attempt's cost can be read there
 
 
+class Repaired(Frozen):
+    """One repair round: the builder kept its work, was told what failed, and tried to fix it. Whether the
+    checks passed afterwards settles it as a `repair` outcome, so repairing can be weighed against a fresh
+    attempt per model (Olausson et al. 2024; docs/design/best-practice-review.md, fix 6)."""
+
+    kind: Literal["repaired"] = "repaired"
+    artifact: ArtifactId
+    team: TeamName
+    model: str | None
+    passed: bool
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class Unbuildable(Frozen):
     """Every model of a team's cascade has failed this step: it goes back to the planner to be split, as
     ADaPT does (decompose as needed, when execution fails; docs/design/best-practice-review.md, fix 5)."""
@@ -368,6 +384,7 @@ class CallKind(StrEnum):
     CRITIQUE = "critique"  # analyzers, critique probes
     PLAN = "plan"  # decomposers, outliners
     ACCEPT = "accept"  # acceptance writers, accept probes
+    REPAIR = "repair"  # a builder fixing its own work after the checks failed, against starting over
 
 
 class Profiled(Frozen):
@@ -539,6 +556,7 @@ type Event = Annotated[
     | Spent
     | Scored
     | Unbuildable
+    | Repaired
     | Promoted
     | Profiled
     | Routed

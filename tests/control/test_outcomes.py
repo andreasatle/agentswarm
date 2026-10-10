@@ -17,6 +17,7 @@ from agentswarm.core.domain import (
     Profiled,
     Promoted,
     Rejected,
+    Repaired,
     Routed,
     Sized,
     Spent,
@@ -155,6 +156,18 @@ class TestProducerOutcomes:
         routed = r.routed(Samples.EXECUTOR, CallKind.PRODUCE)
         assert r.step(routed, r.commit("large"), back) == [("produce", LARGE, False)]
         assert r.step(r.promoted()) == []  # the umbrella's promotion later is not this model's success
+
+    def test_repair_rounds_are_recorded_as_repairs_by_whether_the_checks_passed(self, tmp_path: Path) -> None:
+        r = Recording(tmp_path)
+        routed = r.routed(Samples.EXECUTOR, CallKind.PRODUCE)
+
+        def repaired(passed: bool) -> Repaired:
+            return Repaired(artifact=r.artifact.id, team=Samples.EXECUTOR, model="small", passed=passed)
+
+        assert r.step(routed, repaired(False), repaired(True)) == [
+            ("repair", SMALL, False),
+            ("repair", SMALL, True),
+        ]
 
     def test_a_rejection_for_conflicts_alone_is_not_the_models_failure(self, tmp_path: Path) -> None:
         r = Recording(tmp_path)

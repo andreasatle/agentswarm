@@ -29,6 +29,7 @@ from agentswarm.core.domain import (
     Profiled,
     Promoted,
     Rejected,
+    Repaired,
     Routed,
     Sized,
     Spent,
@@ -48,6 +49,7 @@ class Settled(BaseModel):
     settles: int  # its position in the artifact's history
     success: bool
     usd: float | None = None  # what the attempt cost (its team's spend on that model since the last attempt)
+    kind: CallKind | None = None  # recorded as this kind instead of the router's own (a repair round)
 
 
 class OutcomeRecorder:
@@ -71,7 +73,7 @@ class OutcomeRecorder:
         events: list[Event] = []
         for artifact in views.artifacts():
             history = views.history(artifact.id)
-            settled = [*self.produce(history)]
+            settled = [*self.produce(history), *self.repairs(history)]
             if self._settle_plans:
                 settled.extend(self.plan(views, history))
             events.extend(self._record(history, settled))
@@ -103,12 +105,13 @@ class OutcomeRecorder:
             router = self._routers.get(team)
             if router is None or (team, outcome.settles) in done:
                 continue
-            if router.record(outcome.model_id, profile, outcome.success, outcome.usd):
+            kind = outcome.kind or router.kind
+            if router.record(outcome.model_id, profile, outcome.success, outcome.usd, kind):
                 events.append(
                     OutcomeRecorded(
                         artifact=profile.artifact,
                         team=team,
-                        call_kind=router.kind,
+                        call_kind=kind,
                         model_id=outcome.model_id,
                         success=outcome.success,
                         settles=outcome.settles,
@@ -134,6 +137,22 @@ class OutcomeRecorder:
                 if success is not None:
                     model_id = self.model_id(event.model, routed)
                     yield Settled(routed=routed, model_id=model_id, settles=index, success=success, usd=usd)
+
+    def repairs(self, history: Sequence[Event]) -> Iterator[Settled]:
+        """Each repair round, settled at once by whether the checks passed after it."""
+        routed = next((e for e in history if isinstance(e, Routed) and e.call_kind is CallKind.PRODUCE), None)
+        if routed is None:
+            return
+        for index, event in enumerate(history):
+            if isinstance(event, Repaired) and event.team == routed.team:
+                model_id = self.model_id(event.model, routed)
+                yield Settled(
+                    routed=routed,
+                    model_id=model_id,
+                    settles=index,
+                    success=event.passed,
+                    kind=CallKind.REPAIR,
+                )
 
     @staticmethod
     def cost(events: Sequence[Event], team: TeamName, model: str | None) -> float | None:

@@ -349,12 +349,19 @@ class Router:
             scored.append((unproven, rate < self._target, cost / rate, index))
         return [index for *_, index in sorted(scored)]
 
-    def record(self, model_id: str, profile: Profiled, success: bool, usd: float | None = None) -> bool:
+    def record(
+        self,
+        model_id: str,
+        profile: Profiled,
+        success: bool,
+        usd: float | None = None,
+        kind: CallKind | None = None,  # another kind than the router's own, e.g. a builder's repair round
+    ) -> bool:
         """One settled call's outcome, for the ledger. False when there is no ledger to teach."""
         if self._ledger is None:
             return False
         call = RoutedCall(
-            kind=self._kind,
+            kind=kind or self._kind,
             band=Bands.of(profile.difficulty),
             model_id=model_id,
             success=success,

@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     PromotionStarted,
     Rejected,
     Released,
+    Repaired,
     Resolution,
     Resumed,
     Routed,
@@ -150,6 +151,7 @@ class BoardViews:
                 | AcceptanceWritten()
                 | AcceptanceRestored()
                 | Unbuildable()
+                | Repaired()
             ):
                 pass  # kept in the artifact's history, where the teams read them
             case Rejected():

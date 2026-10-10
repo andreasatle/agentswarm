@@ -24,6 +24,7 @@ from agentswarm.core.domain import (
     Paused,
     Promoted,
     Rejected,
+    Repaired,
     Resolution,
     Severity,
     Sized,
@@ -151,6 +152,7 @@ class WorktreeToolbox:
         self.calls: list[ToolCall] = []  # every tool call so far, for the board (ToolsUsed)
         self.seen: set[tuple[str, str, str]] = set()  # read-only calls made since the last change
         self.repeats = 0
+        self.repairs: list[bool] = []  # each repair round of the attempt: whether the checks passed after it
 
     FINISH_AT: ClassVar[int] = 5  # with this few calls left, the model is told to make its edits and finish
 
@@ -441,6 +443,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
                     artifact=ctx.artifact.id, team=self.name, model=model, calls=tuple(toolbox.calls)
                 )
                 events.append(used)
+            events.extend(
+                Repaired(artifact=ctx.artifact.id, team=self.name, model=model, passed=passed)
+                for passed in toolbox.repairs
+            )
             if not isinstance(kept, AttemptFailed):
                 events.extend(kept)
                 break
@@ -540,6 +546,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 break
             restored = [*restored, *worktree.restore(AcceptanceTester.FOLDER)]
             checks = toolbox.check_report()
+            toolbox.repairs.append(checks.passed)
             if checks.passed:
                 break
         protection = [AcceptanceRestored(artifact=artifact.id, paths=tuple(restored))] if restored else []

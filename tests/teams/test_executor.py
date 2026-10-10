@@ -13,6 +13,7 @@ from agentswarm.core.domain import (
     FindingKind,
     Paused,
     Rejected,
+    Repaired,
     Severity,
     ToolsUsed,
     Unbuildable,
@@ -440,9 +441,10 @@ class TestRepairsAndPartialWork:
                 Steps.write({"greeting.py": "def farewell(name): ...\n"}),
             ]
         )
-        (commit,) = Traces.drop(
+        repaired, commit = Traces.drop(
             await ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, repairs=2).act(w.ctx(), w.worktree)
         )
+        assert isinstance(repaired, Repaired) and repaired.passed  # one round, recorded for routing
         assert isinstance(commit, CommitPushed)
         assert set(w.h.repository.files_at(w.artifact.branch)) == {
             "greeting.py",
