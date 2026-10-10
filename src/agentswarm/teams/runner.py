@@ -104,6 +104,11 @@ class TeamRunner:
                 acted += 1
         return acted
 
+    def _allowed(self) -> bool:
+        """Whether the budget allows another attempt within an action (checked between attempts, since one
+        step's cascade cost $1.19 and overran a $3 cap on 2026-10-10)."""
+        return self._budget is None or not self._budget.exhausted(self._board.current())
+
     def _candidates(self) -> list[Artifact]:
         views = self._board.current()
         now = self._clock.now()
@@ -135,7 +140,7 @@ class TeamRunner:
                 else self._repository.checkout_merged(ctx.merge_commit, artifact.id)
             )
             try:
-                with SpendScope.on(artifact.id):  # what its models spend is recorded against the artifact
+                with SpendScope.on(artifact.id, self._allowed):  # spend is recorded against the artifact
                     if self._scheduler is None:
                         events = await self._team.act(ctx, worktree)
                     else:

@@ -8,6 +8,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
+from agentswarm.board.spend import SpendScope
 from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
@@ -451,6 +452,8 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 events.extend(kept)
                 break
             events.append(kept)  # thrown away: a failure of this model, for the outcome recorder
+            if not SpendScope.allowed():
+                break  # out of budget: the step waits, and its cascade goes on from here next time
             if kept.changed_nothing and not nudged:
                 nudged = True  # the same attempt once more, told that nothing changed
             else:

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from agentswarm.board.spend import SpendScope
 from agentswarm.core.domain import (
     AttemptFailed,
     CommitPushed,
@@ -292,6 +293,21 @@ class TestExecutorTeam:
         w = Workspace(tmp_path / "person")
         events = Traces.drop(await team(split=False).act(w.ctx(), w.worktree))
         assert isinstance(events[-1], Escalated)  # without a planner to send it to, a person takes it
+
+    async def test_out_of_budget_the_step_stops_between_attempts_and_waits(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        cheap = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"})])  # fails the check
+        strong = FakeWorker([Steps.write({"greeting.py": "def farewell(name): ...\n"})])
+        team = ExecutorTeam(
+            [Tier("cheap", cheap), Tier("strong", strong)],
+            [Toolboxes.CHECK],
+            Samples.RAW,
+            attempts=2,
+            climb=True,
+        )
+        with SpendScope.on(w.artifact.id, allowed=lambda: False):
+            (failed,) = Traces.drop(await team.act(w.ctx(), w.worktree))
+        assert isinstance(failed, AttemptFailed) and not strong.calls  # no escalation: it resumes later
 
     async def test_without_climbing_attempts_stay_on_one_tier(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)

@@ -19,22 +19,33 @@ type Meter = Callable[[Usage], None]
 
 
 class SpendScope:
-    """The artifact a team is acting on, so the money its models spend is recorded against it.
+    """The artifact a team is acting on, so the money its models spend is recorded against it, and whether
+    the budget still allows another attempt within the action.
 
-    Set by the team runner around each action and read by the meter. A context variable: concurrent actions
-    in asyncio tasks each keep their own, and nothing has to be passed through the workers.
+    Set by the team runner around each action, read by the meter and by teams that make several attempts. A
+    context variable: concurrent actions in asyncio tasks each keep their own, and nothing has to be passed
+    through the workers.
     """
 
     _current: ClassVar[ContextVar[ArtifactId | None]] = ContextVar("spend_artifact", default=None)
+    _allowed: ClassVar[ContextVar[Callable[[], bool] | None]] = ContextVar("spend_allowed", default=None)
 
     @classmethod
     @contextmanager
-    def on(cls, artifact: ArtifactId) -> Generator[None]:
+    def on(cls, artifact: ArtifactId, allowed: Callable[[], bool] | None = None) -> Generator[None]:
         token = cls._current.set(artifact)
+        allowed_token = cls._allowed.set(allowed)
         try:
             yield
         finally:
+            cls._allowed.reset(allowed_token)
             cls._current.reset(token)
+
+    @classmethod
+    def allowed(cls) -> bool:
+        """Whether the budget allows another attempt now; always outside a runner's action or without one."""
+        check = cls._allowed.get()
+        return check is None or check()
 
     @classmethod
     def current(cls) -> ArtifactId | None:
