@@ -31,13 +31,14 @@ models:
 checks:
   spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, progress: false}
 teams:
-  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 2, build_at_max_depth: true}
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 3, build_at_max_depth: true}  # 3: a step every model fails is split once more
   - use: executor
     watches: raw
     model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # the router ranks them by expected cost per success,
     # measured (from prices until measured); this order counts only when nothing is known
     attempts: 4  # local, Haiku, Sol, Sonnet: a step can climb the whole way in one run
-    climb: true  # a failed attempt goes one tier up
+    climb: true  # after a failure, the router's best model not yet failed on the step
+    split_on_failure: true  # a step every model fails goes back to the planner (ADaPT), not to a person
     routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
     checks: [spec]
     max_model_calls: 60
