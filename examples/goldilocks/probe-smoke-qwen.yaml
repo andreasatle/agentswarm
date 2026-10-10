@@ -13,6 +13,6 @@ bugs_per_task: 2
 constraints: [Use only the Python standard library.]
 sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
 models:
-  qwen-coder-30b: {model: "openai:qwen/qwen3-coder-30b-a3b-instruct", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.07, output: 0.28}}
+  qwen-coder-30b: {model: "openai:qwen/qwen3-coder-30b-a3b-instruct", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.07, output: 0.28, cache_read: 0.07}}
   qwen-coder-next: {model: "openai:qwen/qwen3-coder-next", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.12, output: 0.80, cache_read: 0.07}}
   qwen-coder-480b: {model: "openai:qwen/qwen3-coder", base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY, max_tokens: 16384, usd_per_million: {input: 0.30, output: 1.00, cache_read: 0.10}}

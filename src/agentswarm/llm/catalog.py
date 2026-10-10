@@ -106,9 +106,11 @@ class OpenRouterCatalog:
         for model_id in ids:
             m = listed[model_id]
             cache = m.per_million("input_cache_read")
-            price = Price(
+            price = Price(  # no listed cache price: no discount, so cached input costs the full price
                 input=m.per_million("prompt"), output=m.per_million("completion"), cache_read=cache or None
             )
+            if price.cache_read is None:
+                price = price.model_copy(update={"cache_read": price.input})
             entries[self.name(model_id)] = ModelConfig(
                 model=f"openai:{model_id}",
                 base_url=self.BASE_URL,

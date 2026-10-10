@@ -45,6 +45,11 @@ class TestOpenRouterCatalog:
         assert text.startswith("# OpenRouter models, prices read 2026-10-08")
         assert yaml.safe_load(text)["models"]["qwen3-coder"]["model"] == "openai:qwen/qwen3-coder"
 
+    def test_a_model_without_a_listed_cache_price_has_no_discount(self) -> None:
+        (config,) = OpenRouterCatalog(lambda: LISTING).entries(["y/tiered"]).values()
+        price = config.usd_per_million
+        assert price is not None and price.cache_read == price.input == 1.0
+
     def test_unknown_models_and_models_without_tool_calling_are_refused(self) -> None:
         catalog = OpenRouterCatalog(lambda: LISTING)
         with pytest.raises(ValueError, match="doesn't list"):

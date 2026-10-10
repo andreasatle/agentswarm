@@ -183,6 +183,21 @@ class ModelConfig(Strict):
     thinking: bool | None = None  # a thinking model's reasoning on or off; None: the provider's default
     usd_per_million: Price | None = None  # for spend and budgets; unpriced models cost 0 (and say so)
 
+    # Providers that cache prompts (OpenRouter is reached through "openai"): their entries name the cached-
+    # input price, or cached input would be counted at full price (GPT-6.1 Sol was counted about 5 times too
+    # high on 2026-10-09, which misled the routing).
+    CACHING: ClassVar[frozenset[str]] = frozenset({"openai", "anthropic"})
+
+    @model_validator(mode="after")
+    def _cached_price_named(self) -> Self:
+        price = self.usd_per_million
+        if price is not None and price.cache_read is None and self.provider in self.CACHING:
+            raise ValueError(
+                f"{self.model}: set usd_per_million.cache_read, the price of cached input (equal to `input` "
+                "when the model has no cache discount); without it cached input counts at the full price"
+            )
+        return self
+
     @property
     def provider(self) -> str:
         return self.model.split(":", 1)[0]

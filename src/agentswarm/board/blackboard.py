@@ -71,6 +71,7 @@ class BoardViews:
     _dropped: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _spent: list[tuple[datetime, float]] = field(default_factory=list[tuple[datetime, float]])
     _unpriced: int = 0  # Spent events for models without a price
+    _billed: float = 0.0  # the part of the spend the providers reported charging
     _scores: list[Scored] = field(default_factory=list[Scored])
     _project_escalations: list[Escalated] = field(default_factory=list[Escalated])
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
@@ -116,6 +117,7 @@ class BoardViews:
                 self._scores.append(event)
             case Spent():
                 self._spent.append((envelope.at, event.usd))
+                self._billed += event.usd if event.billed else 0.0
                 self._unpriced += not event.priced
             case Paused():
                 self.paused = True
@@ -213,6 +215,10 @@ class BoardViews:
     def spent(self) -> tuple[float, int]:
         """All spend so far: US dollars, and how many model runs had no price (counted as $0)."""
         return sum(usd for _, usd in self._spent), self._unpriced
+
+    def billed(self) -> float:
+        """The part of the spend the providers reported charging; the rest is estimated from prices."""
+        return self._billed
 
     def scores(self) -> list[Scored]:
         """Every measurement of the definition of done, oldest first."""

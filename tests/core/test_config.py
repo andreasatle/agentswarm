@@ -4,7 +4,15 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agentswarm.core.config import Domain, LevelLadder, ModelOverride, Presets, Price, ProjectConfig
+from agentswarm.core.config import (
+    Domain,
+    LevelLadder,
+    ModelConfig,
+    ModelOverride,
+    Presets,
+    Price,
+    ProjectConfig,
+)
 from agentswarm.core.domain import FindingKind, Level, Usage
 from tests.support.paths import RepoPaths
 
@@ -156,6 +164,15 @@ class TestPrice:
         anthropic = Price(input=1.0, output=5.0, cache_read=0.1, cache_write=1.25)
         assert anthropic.usd_of(usage) == pytest.approx(0.1 + 0.08 + 0.125)
         assert Price(input=1.0, output=5.0).usd_of(usage) == pytest.approx(1.0)
+
+
+class TestCachedPrice:
+    def test_a_caching_provider_must_name_its_cached_input_price(self) -> None:
+        with pytest.raises(ValidationError, match="cache_read"):
+            ModelConfig(model="openai:gpt-6.1-sol", usd_per_million=Price(input=2.0, output=10.0))
+        ModelConfig(model="openai:gpt-6.1-sol", usd_per_million=Price(input=2.0, output=10.0, cache_read=0.1))
+        ModelConfig(model="ollama:gemma4:26b", usd_per_million=Price(input=0.0, output=0.0))  # caches nothing
+        ModelConfig(model="anthropic:claude-sonnet-5-5")  # unpriced: nothing to get wrong
 
 
 class TestModelOverride:

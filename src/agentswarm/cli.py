@@ -164,7 +164,11 @@ class Report:
     @classmethod
     def render(cls, views: BoardViews) -> str:
         usd, unpriced = views.spent()
-        header = [f"spent: ${usd:.2f}" + (f" ({unpriced} unpriced model runs)" if unpriced else "")]
+        billed = views.billed()
+        header = [
+            f"spent: ${usd:.2f} (${billed:.2f} billed by providers, ${usd - billed:.2f} estimated from prices)"
+            + (f"; {unpriced} unpriced model runs" if unpriced else "")
+        ]
         header += [f"ESCALATED (project): {e.reason}" for e in views.project_escalations()[-5:]]
         header += ["PAUSED"] if views.paused else []
         header += [cls.line(views.scores()[-1])] if views.scores() else []
