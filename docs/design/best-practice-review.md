@@ -8,13 +8,13 @@ Every mechanism in AgentSwarm, held against established practice. Asked for by t
 |---|---|---|---|---|
 | 1 | Builder context | Aligned (since 2026-10-09) | — | — |
 | 2 | Early stop for reading | Fixed: removed | — | — |
-| 3 | Routing | Gap | Choose by expected cost per success; no hand-written order | Free (code) |
-| 4 | Cascade | Gap (same as 3) | Climb to the next-best model not yet failed on this step | Free (code) |
-| 5 | Decomposition | Gap | Also split a step when every model has failed it (ADaPT), instead of escalating to a person | Free (code) |
-| 6 | Retries and repairs | Partly measured | Record repair against fresh attempt in the ledger; decide by data | Free (code) |
-| 7 | Cost accounting | Gap | Refuse a model entry without a cached-input price where the provider caches | Free (code) |
-| 8 | Progress measurement | Gap | Every run reports the spec pass rates (visible and held-out) and cost per example gained | Free (code) |
-| 9 | Product hygiene | Gap | A check that fails on stray files (debug_*.py and the like) outside the package and tests | Free (code), then a run to clean up |
+| 3 | Routing | Fixed (b45b21a) | Choose by expected cost per success; no hand-written order | Free (code) |
+| 4 | Cascade | Fixed (b45b21a) | Climb to the next-best model not yet failed on this step | Free (code) |
+| 5 | Decomposition | Fixed (f7093de) | Also split a step when every model has failed it (ADaPT), instead of escalating to a person | Free (code) |
+| 6 | Retries and repairs | Fixed (7e1d1b5): recorded; the decision waits for data | Record repair against fresh attempt in the ledger; decide by data | Free (code) |
+| 7 | Cost accounting | Fixed (03970e8) | Refuse a model entry without a cached-input price where the provider caches | Free (code) |
+| 8 | Progress measurement | Fixed (b64cd08) | Every run reports the spec pass rates (visible and held-out) and cost per example gained | Free (code) |
+| 9 | Product hygiene | Fixed (cd8ecb8); cleanup task waiting for a run | A check that fails on stray files (debug_*.py and the like) outside the package and tests | Free (code), then a run to clean up |
 | 10 | Experiments | Fixed: policy | No paid comparison runs; the router learns in real runs; one-step trial for new configs | — |
 | 11 | Checks, gates, ratchet, held-out tests | Aligned | — | — |
 | 12 | Blackboard and decoupled teams | Aligned | — | — |
@@ -22,7 +22,7 @@ Every mechanism in AgentSwarm, held against established practice. Asked for by t
 | 14 | Builders' tools | Aligned | — | — |
 | 15 | Supervisor | Fixed (2026-10-09) | — | — |
 
-Suggested order: 8 first (every later decision needs the measurement), then 3 and 4 together, 7, 5, 9, 6.
+Suggested order: 8 first (every later decision needs the measurement), then 3 and 4 together, 7, 5, 9, 6. All six were done on 2026-10-10, in that order, with the user's approval; none needed a paid run.
 
 ## 1. Builder context
 
