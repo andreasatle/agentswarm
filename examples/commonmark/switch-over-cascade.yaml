@@ -89,6 +89,6 @@ teams:
 score: {check: spec, held_out: [~/agentswarm-data/commonmark/held_out]}  # measured at the start and end of every run
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, layout]}
-budgets: {usd_per_day: 5.12, reserve_usd: 0.3}  # 2026-10-11: $3.62 spent, $1.50 more to finish the final switch (approved)
+budgets: {usd_per_day: 6.35, reserve_usd: 0.3}  # 2026-10-11: $1.50 more for the last 3 steps (approved)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether to split; the split check stays in shadow
