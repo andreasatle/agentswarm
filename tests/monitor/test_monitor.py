@@ -7,7 +7,7 @@ from typing import Any
 
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import ArtifactId, AttemptFailed, Scored, Spent, Tally
-from agentswarm.monitor.server import MonitorServer
+from agentswarm.monitor.server import MonitorServer, Watched
 from agentswarm.monitor.state import MonitorState, Status
 from tests.support.harness import Harness
 from tests.support.samples import Samples
@@ -25,7 +25,7 @@ CONFIG = ProjectConfig.model_validate(
 )
 
 
-class Watched:
+class Demo:
     """A board with one merged step, one being worked on, a failed attempt, spend and two scores."""
 
     def __init__(self, tmp_path: Path) -> None:
@@ -76,7 +76,7 @@ class Watched:
 
 class TestMonitorState:
     def test_the_overview_teams_models_and_plan(self, tmp_path: Path) -> None:
-        w = Watched(tmp_path)
+        w = Demo(tmp_path)
         state = w.state().state(now=w.h.clock.now())
         o = state.overview
         assert [p.seen for p in o.progress] == [0.05, 0.4]
@@ -87,8 +87,16 @@ class TestMonitorState:
         statuses = {n.id: n.status for n in state.nodes}
         assert statuses == {w.merged.id: Status.DONE, Samples.B: Status.WORKING}
 
+    def test_a_team_past_its_lease_is_still_working_and_flagged(self, tmp_path: Path) -> None:
+        w = Demo(tmp_path)
+        w.h.clock.advance(timedelta(minutes=30))  # a slow local model: the 10-minute lease ran out
+        state = w.state().state(now=w.h.clock.now())
+        (executor,) = [t for t in state.teams if t.team == Samples.EXECUTOR]
+        assert executor.working_on == Samples.B and executor.overdue
+        assert {n.id: n.status for n in state.nodes}[Samples.B] is Status.WORKING
+
     def test_one_steps_history(self, tmp_path: Path) -> None:
-        w = Watched(tmp_path)
+        w = Demo(tmp_path)
         detail = w.state().detail(w.merged.id)
         assert detail is not None and any("discarded" in line for _, line in detail.lines)
         assert w.state().detail(ArtifactId("a-0099")) is None
@@ -96,18 +104,29 @@ class TestMonitorState:
 
 class TestMonitorServer:
     def test_serves_the_page_and_the_state_and_only_reads(self, tmp_path: Path) -> None:
-        w = Watched(tmp_path)
+        w = Demo(tmp_path)
         before = w.h.log.head()
-        server = MonitorServer(CONFIG, tmp_path / "events.sqlite", port=0)
+        later = CONFIG.model_copy(update={"project": "later"})
+        projects = {
+            "demo": Watched(config=CONFIG, board=tmp_path / "events.sqlite"),
+            "later": Watched(config=later, board=tmp_path / "not-started" / "blackboard.sqlite"),
+        }
+        server = MonitorServer(projects, port=0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
             with urllib.request.urlopen(server.url) as page:
                 assert b"AgentSwarm monitor" in page.read()
-            with urllib.request.urlopen(server.url + "api/state") as reply:
+            with urllib.request.urlopen(server.url + "api/projects") as reply:
+                rows: list[dict[str, Any]] = json.load(reply)
+            assert [(r["project"], r["started"], r["seen"]) for r in rows] == [
+                ("demo", True, 0.4),
+                ("later", False, None),
+            ]
+            with urllib.request.urlopen(server.url + "api/projects/demo/state") as reply:
                 state: dict[str, Any] = json.load(reply)
             assert state["overview"]["project"] == "demo"
-            with urllib.request.urlopen(f"{server.url}api/artifact/{w.merged.id}") as reply:
+            with urllib.request.urlopen(f"{server.url}api/projects/demo/artifact/{w.merged.id}") as reply:
                 assert json.load(reply)["id"] == w.merged.id
         finally:
             server.shutdown()

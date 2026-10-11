@@ -25,11 +25,13 @@ from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import (
     ArtifactId,
     AttemptFailed,
+    Claim,
     Claimed,
     CommitPushed,
     Envelope,
     Promoted,
     Rejected,
+    Released,
     Scored,
     Spent,
     TeamName,
@@ -81,6 +83,7 @@ class TeamRow(Frozen):
     working_on: ArtifactId | None
     task: str | None
     since: datetime | None
+    overdue: bool = False  # still working past its claim's lease (a slow local model, or a stuck one)
     commits: int
     failures: int  # discarded attempts
     merged: int  # its commits that were promoted
@@ -113,6 +116,22 @@ class Detail(Frozen):
     lines: tuple[tuple[datetime, str], ...]
 
 
+class Summary(Frozen):
+    """One project's row in the list of all projects."""
+
+    project: str
+    north_star: str
+    started: bool  # it has a board yet
+    seen: float | None = None
+    held_out: float | None = None
+    spent_today_usd: float = 0.0
+    budget_per_day_usd: float | None = None
+    working: int = 0  # steps a team is working on now
+    escalations: int = 0
+    paused: bool = False
+    last_event: datetime | None = None
+
+
 class State(Frozen):
     overview: Overview
     teams: tuple[TeamRow, ...]
@@ -134,6 +153,25 @@ class MonitorState:
             teams=self.teams(views, envelopes, now),
             models=self.models(envelopes),
             nodes=self.nodes(views, envelopes, now),
+        )
+
+    def summary(self, now: datetime | None = None) -> Summary:
+        state = self.state(now)
+        o = state.overview
+        last = o.progress[-1] if o.progress else None
+        envelopes = self._log.read()
+        return Summary(
+            project=o.project,
+            north_star=o.north_star,
+            started=True,
+            seen=last.seen if last else None,
+            held_out=last.held_out if last else None,
+            spent_today_usd=o.spent_today_usd,
+            budget_per_day_usd=o.budget_per_day_usd,
+            working=sum(n.status is Status.WORKING for n in state.nodes),
+            escalations=len(o.escalations),
+            paused=o.paused,
+            last_event=envelopes[-1].at if envelopes else None,
         )
 
     def detail(self, id: ArtifactId) -> Detail | None:
@@ -179,11 +217,23 @@ class MonitorState:
             paused=views.paused,
         )
 
+    @staticmethod
+    def open_claims(envelopes: list[Envelope]) -> dict[TeamName, tuple[Claim, datetime]]:
+        """Claims not yet released, with when they were taken: a team still works past its lease (the board's
+        views drop a claim when its lease expires, so another team may take the artifact over)."""
+        held: dict[str, tuple[Claim, datetime]] = {}
+        for e in envelopes:
+            match e.event:
+                case Claimed(claim=claim) if claim.id is not None:
+                    held[claim.id] = (claim, e.at)
+                case Released(claim=str() as claim):
+                    held.pop(claim, None)
+                case _:
+                    pass
+        return {claim.team: (claim, at) for claim, at in held.values()}
+
     def teams(self, views: BoardViews, envelopes: list[Envelope], now: datetime) -> tuple[TeamRow, ...]:
-        claimed_at = {
-            e.event.claim.id: e.at for e in envelopes if isinstance(e.event, Claimed) and e.event.claim.id
-        }
-        working = {c.team: c for c in views.active_claims(now)}
+        working = self.open_claims(envelopes)
         commits: Counter[str] = Counter()
         failures: Counter[str] = Counter()
         merged: Counter[str] = Counter()
@@ -207,13 +257,14 @@ class MonitorState:
         names |= {name for name in spent if not name.startswith("jev")}
         rows: list[TeamRow] = []
         for name in sorted(names):
-            claim = working.get(TeamName(name))
+            claim, since = working.get(TeamName(name), (None, None))
             rows.append(
                 TeamRow(
                     team=TeamName(name),
                     working_on=claim.artifact if claim else None,
                     task=views.artifact(claim.artifact).task if claim else None,
-                    since=claimed_at.get(claim.id) if claim and claim.id else None,
+                    since=since,
+                    overdue=claim is not None and claim.expires_at < now,
                     commits=commits[name],
                     failures=failures[name],
                     merged=merged[name],
@@ -261,10 +312,11 @@ class MonitorState:
         for e in envelopes:
             if isinstance(e.event, Spent) and e.event.artifact is not None:
                 spent[e.event.artifact] = spent.get(e.event.artifact, 0.0) + e.event.usd
+        held = {claim.artifact: claim for claim, _ in self.open_claims(envelopes).values()}
         nodes: list[Node] = []
         for artifact in views.artifacts():
             history = views.history(artifact.id)
-            claim = views.claim_on(artifact.id, now)
+            claim = held.get(artifact.id)
             models = [e.model for e in history if isinstance(e, CommitPushed | AttemptFailed) and e.model]
             attempts = sum(isinstance(e, CommitPushed | AttemptFailed) for e in history)
             nodes.append(

@@ -57,7 +57,7 @@ from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.llm.catalog import OpenRouterCatalog
 from agentswarm.llm.workers import WorkerProvider
 from agentswarm.monitor.report import Report
-from agentswarm.monitor.server import MonitorServer
+from agentswarm.monitor.server import MonitorServer, Watched
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.swarm import Swarm, SwarmConfig
@@ -72,7 +72,8 @@ class Cli:
 
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
-        monitor CONFIG --root DIR [--port N]       a read-only web page of the project on localhost
+        monitor [CONFIG --root DIR] [--project CONFIG=ROOT]... [--swarm FILE] [--port N]
+                                                   a read-only web page of one or more projects, on localhost
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
         routing LEDGER                             what the router has learned: outcomes per model and band
@@ -289,13 +290,32 @@ class Cli:
         return 0
 
     def monitor(self, args: argparse.Namespace) -> int:
-        """Serves the project's board as a web page on localhost until interrupted; it only reads."""
-        config = ProjectConfig.load(Path(args.config))
-        board = Path(args.root).expanduser() / "blackboard.sqlite"
-        if not board.is_file():
-            raise SystemExit(f"no project at {args.root}")
-        server = MonitorServer(config, board, port=args.port)
-        self._show(f"monitoring {config.project} at {server.url} (Ctrl-C to stop)")
+        """Serves projects' boards as a web page on localhost until interrupted; it only reads.
+
+        The projects: CONFIG with --root, any number of --project CONFIG=ROOT, and every project of --swarm.
+        """
+        pairs: list[tuple[Path, Path]] = []
+        if args.config is not None:
+            if args.root is None:
+                raise SystemExit("CONFIG needs --root")
+            pairs.append((Path(args.config), Path(args.root)))
+        for item in args.project:
+            config, _, root = item.partition("=")
+            if not root:
+                raise SystemExit(f"--project takes CONFIG=ROOT, not {item!r}")
+            pairs.append((Path(config), Path(root)))
+        if args.swarm is not None:
+            pairs += [(p.config, p.root) for p in SwarmConfig.load(Path(args.swarm)).projects]
+        if not pairs:
+            raise SystemExit("name a project: CONFIG --root DIR, --project CONFIG=ROOT, or --swarm FILE")
+        projects: dict[str, Watched] = {}
+        for config_path, root in pairs:
+            config = ProjectConfig.load(config_path)
+            if config.project in projects:
+                raise SystemExit(f"two projects are called {config.project!r}")
+            projects[config.project] = Watched(config=config, board=root.expanduser() / "blackboard.sqlite")
+        server = MonitorServer(projects, port=args.port)
+        self._show(f"monitoring {', '.join(projects)} at {server.url} (Ctrl-C to stop)")
         try:
             server.serve_forever()
         except KeyboardInterrupt:
@@ -524,8 +544,12 @@ class Cli:
             "--text", help="spec.txt: the spec's text, put in the seed without its examples"
         )
         monitor = commands.add_parser("monitor", help="a read-only web page of a project, on localhost")
-        monitor.add_argument("config", help="the project's YAML configuration")
-        monitor.add_argument("--root", required=True, help="directory holding the project")
+        monitor.add_argument("config", nargs="?", help="a project's YAML configuration (with --root)")
+        monitor.add_argument("--root", help="directory holding that project")
+        monitor.add_argument(
+            "--project", action="append", default=[], help="another project, as CONFIG=ROOT (repeatable)"
+        )
+        monitor.add_argument("--swarm", help="a swarm file: every project in it")
         monitor.add_argument("--port", type=int, default=8765, help="the port on 127.0.0.1 (default 8765)")
         toml = commands.add_parser("import-toml", help="the toml-test suite as a seed project")
         toml.add_argument("suite", help="a checkout of github.com/toml-lang/toml-test")

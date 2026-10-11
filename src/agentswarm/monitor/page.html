@@ -18,9 +18,14 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
   header { padding: 16px 20px 8px; }
   header h1 { margin: 0; font-size: 20px; }
+  nav { margin-bottom: 6px; font-size: 13px; }
+  a { color: var(--seen); }
+  tr.row { cursor: pointer; }
+  tr.row:hover td { background: var(--line); }
   header p { margin: 4px 0 0; color: var(--muted); max-width: 900px; }
   main { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; padding: 12px 20px 24px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
@@ -64,10 +69,17 @@
 </head>
 <body>
 <header>
+  <nav id="nav"><a href="#" id="all">All projects</a></nav>
   <h1 id="title">AgentSwarm</h1>
   <p id="star"></p>
 </header>
-<main>
+<main id="list" hidden>
+  <section class="wide">
+    <h2>Projects</h2>
+    <table id="projects"></table>
+  </section>
+</main>
+<main id="project">
   <section class="wide">
     <h2>Overview</h2>
     <div class="kpis" id="kpis"></div>
@@ -104,7 +116,9 @@
 <script>
 const STATES = ["working", "escalated", "queued", "waiting", "split", "merged", "done", "dropped"];
 const collapsed = new Set();
-let head = -1, last = null, opened = null;
+let head = -1, last = null, opened = null, projects = [];
+const current = () => decodeURIComponent(location.hash.slice(1));  // the project shown; "" for the list
+const api = (path) => "/api/projects/" + encodeURIComponent(current()) + path;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -135,7 +149,7 @@ function render(state) {
   $("escalations").innerHTML = o.escalations.map((e) => `<p class="esc">${esc(e)}</p>`).join("");
   $("teams").innerHTML = `<tr><th>Team</th><th>Working on</th><th class="num">Commits</th><th class="num">Discarded</th><th class="num">Merged</th><th class="num">Spent</th></tr>` +
     state.teams.map((t) => `<tr><td>${t.working_on ? dot("working") : dot("queued")}${esc(t.team)}</td>
-      <td>${t.working_on ? `<a href="#" data-id="${esc(t.working_on)}">${esc(t.working_on)}</a> <span class="muted">${ago(t.since)}</span>` : '<span class="muted">idle</span>'}</td>
+      <td>${t.working_on ? `<a href="#" data-id="${esc(t.working_on)}">${esc(t.working_on)}</a> <span class="muted">${ago(t.since)}${t.overdue ? " · past its lease" : ""}</span>` : '<span class="muted">idle</span>'}</td>
       <td class="num">${t.commits}</td><td class="num">${t.failures}</td><td class="num">${t.merged}</td><td class="num">${usd(t.spent_usd)}</td></tr>`).join("");
   $("models").innerHTML = `<tr><th>Model</th><th class="num">Attempts</th><th class="num">Merged</th><th class="num">Spent</th><th class="num">Per merge</th></tr>` +
     state.models.map((m) => `<tr><td>${esc(m.model)}</td><td class="num">${m.attempts}</td><td class="num">${m.merged}</td>
@@ -182,7 +196,7 @@ function tree(nodes) {
 
 async function detail(id) {
   opened = id;
-  const r = await fetch("/api/artifact/" + encodeURIComponent(id));
+  const r = await fetch(api("/artifact/" + encodeURIComponent(id)));
   if (!r.ok) return;
   const d = await r.json();
   $("detail").innerHTML = `<button id="close">Close</button>
@@ -203,15 +217,52 @@ $("status").onchange = () => last && tree(last.nodes);
 $("expand").onclick = () => { collapsed.clear(); last && tree(last.nodes); };
 $("collapse").onclick = () => { last && last.nodes.forEach((n) => collapsed.add(n.id)); last && tree(last.nodes); };
 
-async function poll() {
+function list() {
+  document.title = "AgentSwarm monitor";
+  $("title").textContent = "AgentSwarm";
+  $("star").textContent = `${projects.length} projects`;
+  $("projects").innerHTML = `<tr><th>Project</th><th class="num">Seen</th><th class="num">Held out</th><th class="num">Spent today</th><th class="num">Working</th><th class="num">Escalations</th><th>Last event</th></tr>` +
+    projects.map((p) => `<tr class="row" data-project="${esc(p.project)}"><td>${dot(!p.started ? "dropped" : p.paused ? "waiting" : p.working ? "working" : "queued")}<b>${esc(p.project)}</b><br><span class="muted">${esc(p.north_star)}</span></td>
+      <td class="num">${pct(p.seen)}</td><td class="num">${pct(p.held_out)}</td>
+      <td class="num">${usd(p.spent_today_usd)}${p.budget_per_day_usd ? " / " + usd(p.budget_per_day_usd) : ""}</td>
+      <td class="num">${p.working}</td><td class="num">${p.escalations || ""}</td>
+      <td>${p.started ? (p.last_event ? ago(p.last_event) + " ago" : "") : '<span class="muted">not started</span>'}${p.paused ? " · paused" : ""}</td></tr>`).join("");
+}
+
+function show() {
+  const one = current();
+  $("list").hidden = !!one;
+  $("project").hidden = !one;
+  $("nav").hidden = !one || projects.length < 2;
+  if (!one) { opened = null; $("detail").classList.remove("open"); list(); }
+}
+
+document.addEventListener("click", (e) => {
+  const row = e.target.closest("[data-project]");
+  if (row) location.hash = encodeURIComponent(row.dataset.project);
+});
+$("all").onclick = (e) => { e.preventDefault(); location.hash = ""; };
+window.onhashchange = () => { head = -1; collapsed.clear(); show(); poll(true); };
+
+let timer = null;
+async function poll(now) {
+  clearTimeout(timer);
   try {
-    const r = await fetch("/api/state");
-    const state = await r.json();
-    last = state;
-    render(state);  // every time: claims expire and times move without new events
-    if (state.overview.head !== head) { head = state.overview.head; if (opened) detail(opened); }
+    projects = await (await fetch("/api/projects")).json();
+    if (!current() && projects.length === 1) { location.hash = encodeURIComponent(projects[0].project); return; }
+    show();
+    if (current()) {
+      const r = await fetch(api("/state"));
+      if (!r.ok) { $("title").textContent = current(); $("star").textContent = "not started yet"; }
+      else {
+        const state = await r.json();
+        last = state;
+        render(state);  // every time: claims expire and times move without new events
+        if (state.overview.head !== head) { head = state.overview.head; if (opened) detail(opened); }
+      }
+    }
   } catch (err) { $("star").textContent = "can't reach the monitor: " + err; }
-  setTimeout(poll, 3000);
+  timer = setTimeout(poll, 3000);
 }
 poll();
 </script>
