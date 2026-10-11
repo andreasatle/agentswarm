@@ -17,6 +17,7 @@ src/agentswarm/
   teams/       the team loop, executors, analyzers, decomposer, document teams, team catalog (§10)
   control/     plain-code controllers: finding router, supervisor, escalations, scheduler, budgets (§14)
   evaluation/  task suites with known answers, evaluation runs, mutation testing
+  monitor/     text reports and a read-only web page over a board (`agentswarm status`, `monitor`)
   project.py   wires one project together; swarm.py runs several; cli.py is the command line;
                prompts.py collects every prompt and Jev question into docs/PROMPTS.md
 tests/         mirrors src/agentswarm/; shared helpers live in tests/support/

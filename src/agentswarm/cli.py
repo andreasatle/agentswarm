@@ -3,7 +3,6 @@
 import argparse
 import asyncio
 import sys
-from collections import Counter
 from collections.abc import Callable, Sequence
 from datetime import date
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from agentswarm.board.blackboard import Blackboard, BoardViews
+from agentswarm.board.blackboard import Blackboard
 from agentswarm.board.eventlog import SqliteEventLog
 from agentswarm.control.escalations import Escalations
 from agentswarm.control.limits import SharedSpend
@@ -25,37 +24,10 @@ from agentswarm.core.config import (
     SpendLimits,
 )
 from agentswarm.core.domain import (
-    AcceptanceRestored,
-    AcceptanceWritten,
-    ArtifactCreated,
     ArtifactId,
-    AttemptFailed,
-    Claimed,
-    CommitPushed,
-    Escalated,
-    EscalationResolved,
-    Event,
-    FindingAdded,
-    FindingResolved,
-    OutcomeRecorded,
-    Paused,
-    Profiled,
     ProjectId,
-    Promoted,
-    PromotionSettled,
-    PromotionStarted,
-    Rejected,
-    Released,
-    Repaired,
     Resolution,
-    Resumed,
-    Routed,
     Scored,
-    SignedOff,
-    Sized,
-    Spent,
-    ToolsUsed,
-    Unbuildable,
 )
 from agentswarm.evaluation.commonmark import CommonMarkImport
 from agentswarm.evaluation.compare import (
@@ -84,6 +56,8 @@ from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.llm.catalog import OpenRouterCatalog
 from agentswarm.llm.workers import WorkerProvider
+from agentswarm.monitor.report import Report
+from agentswarm.monitor.server import MonitorServer
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.swarm import Swarm, SwarmConfig
@@ -93,110 +67,12 @@ from agentswarm.workspace.sandbox import Sandboxes
 from agentswarm.workspace.view import LevelFolders
 
 
-class Report:
-    """Renders an artifact's history as one line per event."""
-
-    @staticmethod
-    def line(event: Event) -> str:
-        match event:
-            case ArtifactCreated():
-                return f"created at {event.artifact.level}: {event.artifact.task}"
-            case Claimed():
-                return f"claimed by {event.claim.team}"
-            case Released():
-                return f"released by {event.team}"
-            case CommitPushed():
-                by = f" by {event.model}" if event.model else ""
-                return f"commit {event.commit[:10]}{by}"
-            case FindingAdded():
-                return f"finding {event.finding.id} ({event.finding.kind}): {event.finding.detail}"
-            case FindingResolved():
-                by = f" by {event.resolved_by}" if event.resolved_by else ""
-                return f"finding {event.finding} resolved{by}: {event.reason}"
-            case SignedOff():
-                return f"signed off by {event.team}"
-            case Spent():
-                cost = f"${event.usd:.4f}" if event.priced else "unpriced"
-                tokens = f"{event.input_tokens}+{event.output_tokens} tokens"
-                return f"spent by {event.by} on {event.model}: {tokens}, {cost}"
-            case Repaired():
-                result = "checks pass" if event.passed else "checks still fail"
-                return f"repair by {event.model or event.team}: {result}"
-            case Unbuildable():
-                return f"every model of {event.team} failed, back to the planner: {event.reason}"
-            case Scored():
-                held = f", held out {Progress.tally(event.held_out)}" if event.held_out is not None else ""
-                return f"scored {event.level} at {event.commit[:10]}: seen {Progress.tally(event.seen)}{held}"
-            case Paused():
-                return f"PAUSED: {event.reason}"
-            case Resumed():
-                return f"resumed: {event.reason}"
-            case Sized():
-                return "fits one branch" if event.fits else f"split into {', '.join(event.children)}"
-            case Promoted():
-                return f"promoted {event.from_level} -> {event.to_level}"
-            case Routed():
-                score = event.difficulty
-                difficulty = f"difficulty {score:.2f}" if score is not None else "no score"
-                how = "chosen from the ledger" if event.acted else "cheapest tier"
-                return f"{event.call_kind} routed to {event.model} ({difficulty}, {how})"
-            case Profiled():
-                return f"profiled: difficulty {event.difficulty:.2f}{'' if event.active else ' (shadow)'}"
-            case AttemptFailed():
-                return f"attempt by {event.model or event.team} discarded: {event.reason}"
-            case ToolsUsed():
-                tools = Counter(c.tool for c in event.calls)
-                read = sum(c.output_chars for c in event.calls)
-                listed = ", ".join(f"{t} x{n}" for t, n in tools.most_common())
-                return f"tool calls by {event.model or event.team}: {listed}; {read:,} characters returned"
-            case OutcomeRecorded():
-                verdict = "success" if event.success else "failure"
-                return f"outcome for routing: {event.call_kind} by {event.model_id}, {verdict}"
-            case AcceptanceWritten():
-                return f"acceptance tests by {event.team}: {', '.join(f.path for f in event.files)}"
-            case AcceptanceRestored():
-                return f"acceptance tests restored after the producer changed them: {', '.join(event.paths)}"
-            case PromotionStarted():
-                return f"moving {event.branch} to {event.target[:10]}"
-            case PromotionSettled():
-                return f"{event.branch} {'moved' if event.moved else 'did not move'}"
-            case Rejected():
-                return "rejected: " + "; ".join(f"{f.kind}: {f.detail}" for f in event.findings)
-            case Escalated():
-                label = "ESCALATED" if event.parks else "ESCALATED (notice; others carry on)"
-                return f"{label}: {event.reason}"
-            case EscalationResolved():
-                note = f": {event.note}" if event.note else ""
-                return f"escalation resolved ({event.resolution}){note}"
-
-    @classmethod
-    def render(cls, views: BoardViews) -> str:
-        usd, unpriced = views.spent()
-        billed = views.billed()
-        split = f"${billed:.2f} billed by providers, ${usd - billed:.2f} estimated from prices"
-        header = [f"spent: ${usd:.2f} ({split})" + (f"; {unpriced} unpriced model runs" if unpriced else "")]
-        header += [f"ESCALATED (project): {e.reason}" for e in views.project_escalations()[-5:]]
-        header += ["PAUSED"] if views.paused else []
-        header += [cls.line(views.scores()[-1])] if views.scores() else []
-        blocks: list[str] = ["\n".join(header)]
-        for artifact in views.artifacts():
-            lines = [f"{artifact.id} [{artifact.level}] {artifact.task}"]
-            lines += [
-                f"  - {cls.line(e)}"
-                for e in views.history(artifact.id)
-                if not isinstance(e, Claimed | Released)
-            ]
-            blocks.append("\n".join(lines))
-        if len(blocks) == 1:
-            blocks.append("(no artifacts)")
-        return "\n\n".join(blocks)
-
-
 class Cli:
     """The `agentswarm` command line.
 
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
+        monitor CONFIG --root DIR [--port N]       a read-only web page of the project on localhost
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
         routing LEDGER                             what the router has learned: outcomes per model and band
@@ -270,6 +146,8 @@ class Cli:
                 return self.import_evalplus(args)
             case "import-commonmark":
                 return self.import_commonmark(args)
+            case "monitor":
+                return self.monitor(args)
             case "import-toml":
                 return self.import_toml(args)
             case "score":
@@ -408,6 +286,22 @@ class Cli:
             f"{summary.sections} sections: {summary.visible} examples in {summary.seed}, "
             f"{summary.held_out} held out in {summary.held_out_tests}"
         )
+        return 0
+
+    def monitor(self, args: argparse.Namespace) -> int:
+        """Serves the project's board as a web page on localhost until interrupted; it only reads."""
+        config = ProjectConfig.load(Path(args.config))
+        board = Path(args.root).expanduser() / "blackboard.sqlite"
+        if not board.is_file():
+            raise SystemExit(f"no project at {args.root}")
+        server = MonitorServer(config, board, port=args.port)
+        self._show(f"monitoring {config.project} at {server.url} (Ctrl-C to stop)")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
         return 0
 
     def import_toml(self, args: argparse.Namespace) -> int:
@@ -629,6 +523,10 @@ class Cli:
         commonmark.add_argument(
             "--text", help="spec.txt: the spec's text, put in the seed without its examples"
         )
+        monitor = commands.add_parser("monitor", help="a read-only web page of a project, on localhost")
+        monitor.add_argument("config", help="the project's YAML configuration")
+        monitor.add_argument("--root", required=True, help="directory holding the project")
+        monitor.add_argument("--port", type=int, default=8765, help="the port on 127.0.0.1 (default 8765)")
         toml = commands.add_parser("import-toml", help="the toml-test suite as a seed project")
         toml.add_argument("suite", help="a checkout of github.com/toml-lang/toml-test")
         toml.add_argument("--out", required=True, help="where the seed and the held-out tests go")

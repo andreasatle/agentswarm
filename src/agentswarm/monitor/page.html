@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentSwarm monitor</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e3e3e0;
+    --seen: #2f6fdb; --held: #c2410c; --done: #15803d; --merged: #65a30d; --working: #2f6fdb;
+    --split: #7c3aed; --escalated: #dc2626; --dropped: #9ca3af; --waiting: #a16207; --queued: #6b7280;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1d1d20; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
+      --seen: #6ea1ff; --held: #fb923c; --done: #4ade80; --merged: #a3e635; --working: #6ea1ff;
+      --split: #a78bfa; --escalated: #f87171; --dropped: #6b7280; --waiting: #facc15; --queued: #9ca3af;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
+  header { padding: 16px 20px 8px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--muted); max-width: 900px; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; padding: 12px 20px 24px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .kpis { display: flex; flex-wrap: wrap; gap: 22px; }
+  .kpi b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 12px; }
+  .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 6px; width: 180px; }
+  .bar i { display: block; height: 100%; background: var(--seen); }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .muted { color: var(--muted); }
+  .pipeline { display: flex; gap: 8px; }
+  .pipeline div { flex: 1; text-align: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  .pipeline b { display: block; font-size: 22px; }
+  .esc { color: var(--escalated); margin: 4px 0; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  input, select { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  ul.tree { list-style: none; margin: 0; padding-left: 16px; }
+  ul.tree.root { padding-left: 0; }
+  .node { padding: 3px 4px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  .node:hover { background: var(--line); }
+  .node .id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .node .task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .node .meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .toggle { width: 14px; color: var(--muted); }
+  #detail { position: fixed; top: 0; right: 0; width: min(640px, 100vw); height: 100vh; background: var(--panel);
+            border-left: 1px solid var(--line); padding: 16px; overflow: auto; display: none; box-shadow: -8px 0 24px rgba(0,0,0,.12); }
+  #detail.open { display: block; }
+  #detail ol { padding-left: 0; list-style: none; }
+  #detail li { padding: 4px 0; border-bottom: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+  #detail time { color: var(--muted); font-size: 12px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  .legend span { margin-right: 14px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">AgentSwarm</h1>
+  <p id="star"></p>
+</header>
+<main>
+  <section class="wide">
+    <h2>Overview</h2>
+    <div class="kpis" id="kpis"></div>
+  </section>
+  <section>
+    <h2>Definition of done over time</h2>
+    <div class="legend"><span><i class="dot" style="background:var(--seen)"></i>seen tests</span><span><i class="dot" style="background:var(--held)"></i>held out</span></div>
+    <svg id="chart" viewBox="0 0 420 180" width="100%"></svg>
+  </section>
+  <section>
+    <h2>Steps per level</h2>
+    <div class="pipeline" id="levels"></div>
+    <div id="escalations"></div>
+  </section>
+  <section>
+    <h2>Teams</h2>
+    <table id="teams"></table>
+  </section>
+  <section>
+    <h2>Models</h2>
+    <table id="models"></table>
+  </section>
+  <section class="wide">
+    <h2>The plan</h2>
+    <div class="controls">
+      <input id="search" placeholder="Filter by text or id">
+      <select id="status"><option value="">every state</option></select>
+      <button id="expand">Expand all</button><button id="collapse">Collapse all</button>
+    </div>
+    <ul class="tree root" id="tree"></ul>
+  </section>
+</main>
+<aside id="detail"></aside>
+<script>
+const STATES = ["working", "escalated", "queued", "waiting", "split", "merged", "done", "dropped"];
+const collapsed = new Set();
+let head = -1, last = null, opened = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const usd = (x) => "$" + (x ?? 0).toFixed(2);
+const pct = (x) => x == null ? "–" : Math.round(x * 100) + "%";
+const ago = (iso) => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000;
+  return s < 90 ? Math.round(s) + "s" : s < 5400 ? Math.round(s / 60) + "m" : Math.round(s / 3600) + "h"; };
+const dot = (status) => `<i class="dot" style="background:var(--${status})"></i>`;
+
+for (const s of STATES) $("status").insertAdjacentHTML("beforeend", `<option>${s}</option>`);
+
+function render(state) {
+  const o = state.overview;
+  document.title = `${o.project}: AgentSwarm monitor`;
+  $("title").textContent = o.project + (o.paused ? " (paused)" : "");
+  $("star").textContent = o.north_star;
+  const p = o.progress.at(-1) || {};
+  const budget = o.budget_per_day_usd;
+  $("kpis").innerHTML = `
+    <div class="kpi"><b>${pct(p.seen)}</b><span>seen tests pass</span></div>
+    <div class="kpi"><b>${pct(p.held_out)}</b><span>held-out tests pass</span></div>
+    <div class="kpi"><b>${usd(o.spent_today_usd)}</b><span>spent today${budget ? " of " + usd(budget) : ""}</span>
+      ${budget ? `<div class="bar"><i style="width:${Math.min(100, 100 * o.spent_today_usd / budget)}%"></i></div>` : ""}</div>
+    <div class="kpi"><b>${usd(o.spent_usd)}</b><span>in all (${usd(o.billed_usd)} billed, the rest estimated)</span></div>
+    <div class="kpi"><b>${state.nodes.filter((n) => n.status === "working").length}</b><span>steps being worked on</span></div>`;
+  chart(o.progress);
+  $("levels").innerHTML = Object.entries(o.levels).map(([level, n]) => `<div><b>${n}</b>${esc(level)}</div>`).join("");
+  $("escalations").innerHTML = o.escalations.map((e) => `<p class="esc">${esc(e)}</p>`).join("");
+  $("teams").innerHTML = `<tr><th>Team</th><th>Working on</th><th class="num">Commits</th><th class="num">Discarded</th><th class="num">Merged</th><th class="num">Spent</th></tr>` +
+    state.teams.map((t) => `<tr><td>${t.working_on ? dot("working") : dot("queued")}${esc(t.team)}</td>
+      <td>${t.working_on ? `<a href="#" data-id="${esc(t.working_on)}">${esc(t.working_on)}</a> <span class="muted">${ago(t.since)}</span>` : '<span class="muted">idle</span>'}</td>
+      <td class="num">${t.commits}</td><td class="num">${t.failures}</td><td class="num">${t.merged}</td><td class="num">${usd(t.spent_usd)}</td></tr>`).join("");
+  $("models").innerHTML = `<tr><th>Model</th><th class="num">Attempts</th><th class="num">Merged</th><th class="num">Spent</th><th class="num">Per merge</th></tr>` +
+    state.models.map((m) => `<tr><td>${esc(m.model)}</td><td class="num">${m.attempts}</td><td class="num">${m.merged}</td>
+      <td class="num">${usd(m.spent_usd)}</td><td class="num">${m.merged ? usd(m.spent_usd / m.merged) : "–"}</td></tr>`).join("");
+  tree(state.nodes);
+}
+
+function chart(points) {
+  const svg = $("chart"), w = 420, h = 180, pad = 28;
+  if (!points.length) { svg.innerHTML = `<text x="10" y="90">no scores yet: they come at the start and end of every run</text>`; return; }
+  const t0 = new Date(points[0].at), t1 = new Date(points.at(-1).at), span = Math.max(1, t1 - t0);
+  const x = (p) => pad + (w - 2 * pad) * (new Date(p.at) - t0) / span;
+  const y = (v) => h - pad - (h - 2 * pad) * v;
+  const line = (key, color) => {
+    const pts = points.filter((p) => p[key] != null);
+    return `<polyline fill="none" stroke="var(--${color})" stroke-width="2" points="${pts.map((p) => x(p) + "," + y(p[key])).join(" ")}"/>` +
+      pts.map((p) => `<circle cx="${x(p)}" cy="${y(p[key])}" r="2.5" fill="var(--${color})"/>`).join("");
+  };
+  const grid = [0, .25, .5, .75, 1].map((v) => `<line x1="${pad}" x2="${w - pad}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="2" y="${y(v) + 4}">${v * 100}%</text>`).join("");
+  svg.innerHTML = grid + line("seen", "seen") + line("held_out", "held") +
+    `<text x="${pad}" y="${h - 6}">${t0.toLocaleDateString()}</text><text x="${w - pad - 60}" y="${h - 6}">${t1.toLocaleDateString()}</text>`;
+}
+
+function tree(nodes) {
+  const query = $("search").value.toLowerCase(), wanted = $("status").value;
+  const kids = new Map();
+  for (const n of nodes) { const k = n.parent ?? ""; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(n); }
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const matches = (n) => (!wanted || n.status === wanted) && (!query || (n.id + " " + n.task).toLowerCase().includes(query));
+  const visible = (n) => matches(n) || (kids.get(n.id) || []).some(visible);
+  const filtering = query || wanted;
+  const item = (n) => {
+    const children = (kids.get(n.id) || []).filter(visible);
+    const open = filtering || !collapsed.has(n.id);
+    return `<li><div class="node" data-id="${esc(n.id)}">
+      <span class="toggle" data-toggle="${esc(n.id)}">${children.length ? (open ? "▾" : "▸") : ""}</span>
+      ${dot(n.status)}<span class="id">${esc(n.id)}</span><span class="task">${esc(n.task)}</span>
+      <span class="meta">${esc(n.status)}${n.team ? " · " + esc(n.team) : ""}${n.last_model ? " · " + esc(n.last_model) : ""}${n.attempts ? " · " + n.attempts + " tries" : ""}${n.spent_usd ? " · " + usd(n.spent_usd) : ""}</span></div>
+      ${children.length && open ? `<ul class="tree">${children.map(item).join("")}</ul>` : ""}</li>`;
+  };
+  const roots = nodes.filter((n) => !n.parent || !byId.has(n.parent)).filter(visible);
+  $("tree").innerHTML = roots.map(item).join("") || '<li class="muted">nothing matches</li>';
+}
+
+async function detail(id) {
+  opened = id;
+  const r = await fetch("/api/artifact/" + encodeURIComponent(id));
+  if (!r.ok) return;
+  const d = await r.json();
+  $("detail").innerHTML = `<button id="close">Close</button>
+    <h2 style="margin-top:12px">${esc(d.id)} · ${esc(d.level)}</h2><p>${esc(d.task)}</p>
+    <ol>${d.lines.map(([at, text]) => `<li><time>${new Date(at).toLocaleString()}</time>${esc(text)}</li>`).join("")}</ol>`;
+  $("detail").classList.add("open");
+  $("close").onclick = () => { opened = null; $("detail").classList.remove("open"); };
+}
+
+document.addEventListener("click", (e) => {
+  const toggle = e.target.closest("[data-toggle]");
+  if (toggle) { const id = toggle.dataset.toggle; collapsed.has(id) ? collapsed.delete(id) : collapsed.add(id); tree(last.nodes); return; }
+  const target = e.target.closest("[data-id]");
+  if (target) { e.preventDefault(); detail(target.dataset.id); }
+});
+$("search").oninput = () => last && tree(last.nodes);
+$("status").onchange = () => last && tree(last.nodes);
+$("expand").onclick = () => { collapsed.clear(); last && tree(last.nodes); };
+$("collapse").onclick = () => { last && last.nodes.forEach((n) => collapsed.add(n.id)); last && tree(last.nodes); };
+
+async function poll() {
+  try {
+    const r = await fetch("/api/state");
+    const state = await r.json();
+    last = state;
+    render(state);  // every time: claims expire and times move without new events
+    if (state.overview.head !== head) { head = state.overview.head; if (opened) detail(opened); }
+  } catch (err) { $("star").textContent = "can't reach the monitor: " + err; }
+  setTimeout(poll, 3000);
+}
+poll();
+</script>
+</body>
+</html>

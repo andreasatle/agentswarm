@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "monitor-toml",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "agentswarm", "monitor", "examples/toml/project.yaml", "--root", "/Users/andreasatle/agentswarm-runs/toml", "--port", "8765"],
+      "port": 8765
+    },
+    {
+      "name": "monitor-commonmark",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "agentswarm", "monitor", "examples/commonmark/switch-over-cascade.yaml", "--root", "/Users/andreasatle/agentswarm-runs/switch-over-3", "--port", "8766"],
+      "port": 8766
+    }
+  ]
+}
