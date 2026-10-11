@@ -12,7 +12,7 @@ Written 2026-10-07, after the user asked how to move forward without stagnating.
 
 What AgentSwarm already has from this list: a blackboard with claims (the lock files), git worktrees, independent acceptance tests the producer can't change, typed calls, spend tracking. What it lacks: **a real problem with an external verifier, failing tests as the unit of work, a regression ratchet on the level, the original goal given to every agent, and progress as a number.** Two days went into mechanisms tested on toy tasks; that is the stagnation to stop.
 
-## Stage 1: one real problem, end to end (now)
+## Stage 1: one real problem, end to end (89%, 2026-10-11)
 
 **The problem:** a CommonMark (Markdown to HTML) converter in pure Python, from an empty seed, judged by the official spec's 652 examples. A held-out fifth of the examples is never shown to any agent, to tell real progress from fitting the visible ones.
 
@@ -44,8 +44,9 @@ The research question, studied once the framework behaves well: against a single
 
 ## What changes now
 
-- Inventory-suite experiments, routing probes and baseline comparisons pause; their results stay recorded (phase-8-goldilocks.md) and feed stage 3.
-- The next work is stage 1: the CommonMark project setup, the ratchet, failing-test work items, and the original goal in every agent's context.
+- Inventory-suite experiments, routing probes and baseline comparisons pause; their results stay recorded (phase-8-goldilocks.md) and feed stage 3. No paid comparison runs: the router learns which model to use during real work (COLLABORATION.md, rule 6).
+- CommonMark goes on in the ordinary worklist loop, from 89% toward 100%.
+- Stage 3 starts with the second problem, TOML (`examples/toml/project.yaml`): the same framework, set up with a config, a seed and nothing else.
 
 ## Progress
 
@@ -72,3 +73,5 @@ The research question, studied once the framework behaves well: against a single
 **The planned restructuring, continued (2026-10-08/09).** With room to think, DeepSeek V4 Pro merged 3 of 5 planned steps without regressions (the new modules exist); Haiku 5.5 merged 1, reporting the rest honestly as incomplete ($1.85 for both). Splitting made progress where one item made none, but the last step, switching the whole converter to the new pipeline at once, fixed 16 and broke 54. So the switch-over goes one block type at a time, with the planner allowed a second level and routed builders (Haiku 5.5, Qwen3-Coder, DeepSeek). Its first run ($4.50, nothing merged) exposed a framework bug: children of a split waited for their earlier siblings, but grandchildren didn't wait for their parent's turn, so later sub-steps started on code that wasn't ready; and a sibling that was itself split never counted as done. Fixed (`waits_for` inherits the parent's wait; a split sibling is done when promoted as a whole). The router's outcomes are recorded at the end of each project round, so a run stopped mid-round records them when next opened (14 here).
 
 **The switch-over, second run ($2.32, nothing merged; OpenRouter credit ran out again).** With the order fixed, the traces show the real obstacle: builders read without editing. DeepSeek read files 34-67 times and searched 10-12 times per attempt, used all 60 calls, made no edit and claimed it had; Qwen and Haiku 5.5 did the same on these tasks. On a parser of 1,000+ lines over five files, orientation eats the whole budget. Two proven remedies, built: a repository map in the builder's first message (Aider's repo map: each file's size, and its functions and classes with their lines; `workspace/repomap.py`), and every tool result says about how many calls are left, with a nudge to make the edits and finish when five or fewer remain.
+
+**The restructuring is done: 43% to 89% (2026-10-10/11, $13.92).** The planned switch-over (19 steps, one block type at a time) finished, the old code path is deleted, and the converter passes 464 of 522 visible examples (89%) and 116 of 130 held out (89%). Most steps were merged by GPT-6.1 Sol (about $0.10-0.47 each), some by Sonnet 5.5; Haiku 5.5 and the local gemma4:26b merged almost nothing on these steps, and the router has recorded it. What made it work, all built in these two days after a best-practice review (docs/design/best-practice-review.md): routing by expected cost per success instead of a hand-written order; a cascade that picks again among the models not yet failed on a step; a step every model failed split by the planner (ADaPT), which finished the final switch; a ratchet that protects only the independent acceptance tests, after a 99% version of the final switch was rejected for 7 transitional tests its builder could neither let fail nor delete; passing but unfinished work kept for the next attempt; every run scored, with its cost per example gained (from about $0.07 to $0.01). Next: the remaining 11% in the ordinary worklist loop, and TOML as the second problem (stage 3; `examples/toml/project.yaml`, seed from `agentswarm import-toml`).

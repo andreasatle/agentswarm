@@ -9,7 +9,7 @@ Independent teams of agents (an executor, an integration tester, a red team, a p
 - [docs/MODELS.md](docs/MODELS.md): how models are configured, called and measured, and how Jev's answers are scaled.
 - [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md) and [docs/design/](docs/design/): the design and every decision made while building it; [docs/BACKLOG.md](docs/BACKLOG.md): what was postponed, and why.
 
-Status: every phase of the build plan is done (teams and levels, Jev acting where it has earned it, documents as a second domain, several projects at once), plus a hardening phase from an independent audit ([CODEX_AUDIT.md](CODEX_AUDIT.md)). One item is open: proving the active gate's false-promotion rate with more evaluation data.
+Status: every phase of the build plan is done (teams and levels, Jev acting where it has earned it, documents as a second domain, several projects at once), plus a hardening phase from an independent audit ([CODEX_AUDIT.md](CODEX_AUDIT.md)). The first real problem, a CommonMark converter built from an empty stub, passes 89% of the spec's examples and 89% of the held-out ones no agent has seen ([docs/ROADMAP.md](docs/ROADMAP.md)); a TOML parser is set up as the second ([examples/toml/project.yaml](examples/toml/project.yaml)). Models are chosen per step by measured cost per success; [docs/design/best-practice-review.md](docs/design/best-practice-review.md) holds every mechanism against the literature.
 
 ## Quick tutorial
 

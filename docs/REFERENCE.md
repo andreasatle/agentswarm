@@ -111,6 +111,8 @@ One YAML file per project, validated into `ProjectConfig` when loaded. Unknown k
 | `budgets` | see below | | |
 | `supervisor` | see below | | |
 | `jev` | see below | | |
+| `worklist` | none | | Failing tests of a ratchet check become work items: `{check, max_open, attempts_per_file, shown, only}` (`control/worklist.py`). |
+| `score` | none | | The definition of done as numbers: `{check, seen: "tests/acceptance/", held_out: [DIR]}`. Every run is scored at its start and end (a `Scored` event) and reports examples gained and the cost per example; `agentswarm score` records one by hand. |
 
 Validation rules: teams watch known levels; gates connect adjacent levels and name defined checks; teams name defined models and checks; `requires:` names teams watching the gate's lower level; the gate out of the lowest level can't require sign-offs; a judge sits only on the gate out of the lowest level (trains promote on sign-offs; backlog); `jev.fallback` names a defined model; a team sets `model` or `model_tiers`, not both.
 
@@ -120,8 +122,10 @@ Validation rules: teams watch known levels; gates connect adjacent levels and na
 | --- | --- | --- |
 | `model` | required | `"<provider>:<model>"`, e.g. `ollama:gemma4:e4b`, `openai:gpt-5`, `anthropic:claude-sonnet-4-6`. Built with LangChain's `init_chat_model`; install the provider's extra (`uv sync --extra ollama`). The model must make real tool calls. |
 | `temperature`, `max_tokens`, `base_url`, `timeout_s` | none | Passed only when set. `max_tokens` limits each reply's output; for Ollama it is passed as `num_predict`, the only name Ollama's model reads. |
-| `context_window` | Ollama: 32768 | Tokens the model reads at once (Ollama's `num_ctx`). Ollama's own default, 4096, silently drops the start of longer conversations. Refused for providers whose window is fixed. |
-| `usd_per_million` | none | `{input: 3.0, output: 15.0}`: the price used for spend and budgets. Unpriced models record $0 and are counted as unpriced. |
+| `context_window` | Ollama: 32768 | Tokens the model reads at once (Ollama's `num_ctx`). Ollama's own default, 4096, silently drops the start of longer conversations. Refused for providers whose window is fixed. Also used by the builders' trimming: past 60% of it, old tool results are cleared. |
+| `base_url`, `api_key_env` | none | Another host for the provider's API (OpenRouter: `https://openrouter.ai/api/v1`), and the name of the environment variable holding its key; `agentswarm openrouter-models` writes such entries with today's prices. |
+| `thinking` | none | A thinking model's reasoning on or off (Ollama). |
+| `usd_per_million` | none | `{input, output, cache_read, cache_write}`: the price used for spend, budgets, routing estimates and trimming. A provider that caches prompts (`openai`, `anthropic`, which includes OpenRouter) must name `cache_read` (equal to `input` without a discount), or the config is refused. Unpriced models record $0. Where the provider reports what it charged (OpenRouter), that is recorded instead (`billed`). |
 
 ### `checks.<name>`
 
@@ -131,6 +135,9 @@ Validation rules: teams watch known levels; gates connect adjacent levels and na
 | `timeout_s` | 600 | A timeout kills the whole process group (or the container). |
 | `kind` | `test_failure` | The finding kind a failure produces. |
 | `failure_exit_codes` | none | Exits meaning "ran and found a problem" (pytest: `[1]`). Any other non-zero exit, a timeout or a command that can't start is an *error*: it still blocks a gate, but is never evidence for an analyzer. Unset: every non-zero exit is a failure. |
+| `ratchet` | none | A level (pytest only): instead of "everything passes", the work must make more of that level's failing tests pass and break none that passed (`gating/ratchet.py`). |
+| `progress` | true | With a ratchet: whether a failing test must start passing; false for refactoring, where breaking nothing is enough. |
+| `protected` | `[]` | With a ratchet: path prefixes of the independent acceptance tests, which alone may not break or disappear; the producer's own tests may be rewritten or deleted, but none may fail. Empty: every test is protected. |
 
 ### `sandbox`
 
@@ -147,16 +154,21 @@ Validation rules: teams watch known levels; gates connect adjacent levels and na
 | --- | --- | --- |
 | `use` | required | A name in the team catalog (section 7); also the team's name. |
 | `watches` | required | Its level. |
-| `model` / `model_tiers` | none | One model, or tiers from cheap to strong (the executor moves up a tier per rejection). |
+| `model` / `model_tiers` | none | One model, or a set of models; with `routing` the router ranks them by measured cost per success, and their order counts only before there is data. |
 | `checks` | `[]` | Checks the team may run while working; analyzers run test files with the first. |
-| `max_model_calls` | 40 | Per action; the agent stops there. |
+| `max_model_calls` | 40 | Per action; the agent stops there. Each tool result says about how many calls are left. |
 | `constraints` | `[]` | Extra rules sent with every task. |
 | `relevance` | none | A relevance judge asked before working (analyzers). |
 | `max_depth` | 3 | Decomposer: how deep tasks may be split. |
-| `attempts` | 1 | Executors: independent attempts per action; a failing attempt is thrown away and the first that passes its checks is kept. |
+| `attempts` | 1 | Executors: independent attempts per action; a failing attempt is thrown away and the first that passes its checks is kept. Work that passes its checks but is reported unfinished is kept on the branch for the next attempt. The budget is checked between attempts. |
+| `climb` | false | Executors with several models: after a failed attempt, the router's best model not yet failed on this step (a cascade); failures of earlier runs count, until a person retries the step. |
+| `split_on_failure` | false | With `climb` and a decomposer: a step every model has failed goes back to the planner to be split (ADaPT), with the reason; escalated only past `max_depth`. |
+| `repairs` | 0 | Executors: when the checks fail, the work is kept and the model told what failed, up to this many rounds; each round is recorded (`Repaired`). |
+| `partial` | false | Executors: work that passes its checks is committed even if the model calls it incomplete (with a ratchet: some fixed and none broken is progress). |
+| `rounds` | 20 | The stateless builder: rounds of one typed answer each. |
 | `split_below` | none | Planners: split when Jev's p(fits) is at most this, instead of only when it is clearly low (0.2). |
 | `build_at_max_depth` | false | Planners: at `max_depth`, let the executor try a task that still seems too large instead of escalating it (for unattended runs; the gate catches what fails). |
-| `routing` | none | Executors: `{ledger: PATH, target: 0.8}`. Jev describes the task once (`CallProfile`); the router starts on the cheapest tier whose drawn success rate in the shared ledger meets the target (Thompson sampling), and records every attempt's outcome there. Without a ledger, or in shadow mode, it only logs what Jev said. |
+| `routing` | none | `{ledger: PATH, target: 0.8, half_life_calls: 200, explore_usd: none}`. Jev describes the task once (`CallProfile`); per difficulty band, the router draws each model's success rate from the shared ledger (Thompson sampling, older outcomes discounted by `half_life_calls`) and ranks the models whose draw meets `target` by expected cost per success (measured cost per attempt, from the price until measured, divided by the drawn rate), the rest by drawn rate. A model dearer than `explore_usd` per attempt starts no step until it has a few outcomes. Every attempt's outcome and cost goes to the ledger. Without a ledger, or in shadow mode, it only logs what Jev said. |
 
 ### `gates[]`
 
@@ -174,8 +186,9 @@ Validation rules: teams watch known levels; gates connect adjacent levels and na
 | Key | Default | Notes |
 | --- | --- | --- |
 | `budgets.max_rounds_per_artifact` | none | More commits than this escalates. |
-| `budgets.usd_per_day` | none | Spend for the current UTC day; when reached, teams start no new actions until the next day and the supervisor escalates once. A soft limit: gates and the fallback may still spend. |
-| `supervisor.stall_after_minutes` | 30 | No event on an artifact for this long escalates. |
+| `budgets.usd_per_day` | none | Spend for the current UTC day; when reached, teams start no new actions (and executors no new attempts) until the next day, and the supervisor escalates once. A soft limit: gates and the fallback may still spend. Machine-wide limits across every run are in `~/agentswarm-data/limits.yaml` (`agentswarm spend`). |
+| `budgets.reserve_usd` | 0 | What one action may cost: none starts with less than this left. |
+| `supervisor.stall_after_minutes` | 30 | No event on an artifact for this long, while a run is active, escalates; a step waiting for a sibling or for its turn is not stalled. |
 | `supervisor.max_rejections` | 3 | Rejections in a row since the last promotion. |
 | `supervisor.drift_every` | 5 | Ask about drift after every N merged changes. |
 | `jev.model` | `jev-latest` | Pin a version (`jev-1.13.0`) once thresholds are tuned. |
@@ -208,7 +221,13 @@ Every state change is one of these, appended to the log. "Change" marks events t
 | `SignedOff` | artifact, team, version | Sign-off for that version. | |
 | `Sized` | artifact, fits, children, decision | `fits=false` makes an umbrella. | yes |
 | `Paused` / `Resumed` | reason | Project-wide pause of teams that start work. | |
-| `Spent` | by, model, input_tokens, output_tokens, usd, priced | Project-wide spend (budgets, reports). | |
+| `Spent` | by, model, input_tokens, output_tokens, usd, priced, billed, cache_read_tokens, cache_write_tokens, model_calls, largest_input, artifact | Project-wide spend (budgets, reports); with an artifact, also in its history, so each attempt's cost can be read. | |
+| `Scored` | level, commit, seen, held_out, spent_usd | The definition of done as numbers, at the start and end of a run. | |
+| `Profiled`, `Routed` | artifact, difficulty, attributes / team, call_kind, model | What Jev said about a task, and the model a team's calls start on. | |
+| `AttemptFailed` | artifact, team, model, reason, changed_nothing, kept | A discarded attempt (a model's failure, for routing); `kept`: passing but unfinished work kept on the branch. | |
+| `Repaired` | artifact, team, model, passed | One repair round, settled as a `repair` outcome. | |
+| `Unbuildable` | artifact, team, reason | Every model of the cascade failed: back to the planner to be split. | yes |
+| `ToolsUsed`, `OutcomeRecorded` | | What an attempt's tools returned (sizes); a routed call's outcome written to the ledger. | |
 | `PromotionStarted` | branch, previous, target, promotions | A level branch is about to move (recorded first). | |
 | `PromotionSettled` | branch, moved | The move finished (with its promotions) or didn't happen. | |
 | `Promoted` | artifact, from_level, to_level, gate_decision, commit | New level; closes findings of the level left; clears approval; first one records the merge commit. | yes |
@@ -334,6 +353,11 @@ Mutation operators (on changed lines of changed non-test files, at most 12 per f
 | `agentswarm routing LEDGER` | What the router has learned: successes/runs and the believed success rate per kind of call, model and difficulty band. |
 | `agentswarm rate SUITE... --out FILE` | Jev rates every task's difficulty; resumable. |
 | `agentswarm probe EXPERIMENT --workdir DIR` | The atomic benchmark: one prompt and one answer per probe, no tools, scored by plain code (`produce`: hidden tests pass; `critique`: a test that fails on a planted bug and passes on the reference). Every model answers the same probes; resumable. See `examples/goldilocks/probe.yaml`. |
+| `agentswarm score CONFIG --root DIR` | Score the first shared level against the config's `score` (seen and held-out tests) and record it on the board. |
+| `agentswarm spend` | Today's spend of every run on this machine, per account, against the limits. |
+| `agentswarm openrouter-models ID...` | Model entries for OpenRouter models, with today's prices. |
+| `agentswarm import-commonmark SPEC --out DIR [--text SPEC_TXT]` | The CommonMark spec's examples as a seed (one protected test file per section) and a held-out fifth. |
+| `agentswarm import-toml SUITE --out DIR` | The toml-test suite's TOML 1.0.0 files as a seed and a held-out fifth per group. |
 | `agentswarm prompts` | Every model call and Jev question as the model sees it: instructions, a sample payload, tools, answer schema. Its output is [PROMPTS.md](PROMPTS.md). |
 
 A swarm file:
