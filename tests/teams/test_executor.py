@@ -322,6 +322,26 @@ class TestExecutorTeam:
         w.h.board.append([EscalationResolved(artifact=w.artifact.id, resolution=Resolution.RETRY)])
         assert team.failed_models(w.ctx()) == set()
 
+    async def test_passing_but_unfinished_work_is_kept_for_the_next_attempt(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        cheap = FakeWorker(
+            [
+                Steps.write(
+                    {"greeting.py": "def farewell(name): ...\n"}, "farewell done, docs left", complete=False
+                )
+            ]
+        )
+        strong = FakeWorker([Steps.write({"docs.md": "farewell(name)\n"}, "docs written")])
+        tiers = [Tier("cheap", cheap), Tier("strong", strong)]
+        team = ExecutorTeam(tiers, [Toolboxes.CHECK], Samples.RAW, attempts=2, climb=True)
+        failed, commit = Traces.drop(await team.act(w.ctx(), w.worktree))
+        assert isinstance(failed, AttemptFailed) and failed.kept
+        assert isinstance(commit, CommitPushed) and commit.model == "strong"
+        assert set(w.h.repository.files_at(w.artifact.branch)) == {"greeting.py", "docs.md"}  # built on it
+        told = strong.calls[0][1]
+        assert isinstance(told, ExecutorRequest)
+        assert "farewell done, docs left" in told.instruction.must_fix[-1].detail
+
     async def test_without_climbing_attempts_stay_on_one_tier(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         cheap = FakeWorker([Steps.write({"greeting.py": "def hello(): ...\n"}) for _ in range(2)])

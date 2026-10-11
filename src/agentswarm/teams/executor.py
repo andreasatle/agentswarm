@@ -435,10 +435,11 @@ You are the executor in a software team. Implement the task in `instruction.goal
         model, worker = self.next_tier(ctx, failed) if failed else self.tier_for(ctx, start)
         events: list[Event] = list(routed)
         number, nudged = 1, False
+        carried: str | None = None  # the summary of passing but unfinished work an attempt left
         while number <= self._attempts:
             last = number == self._attempts
             toolbox = WorktreeToolbox(worktree, self._checks, self._tests, self._step_budget)
-            kept = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox)
+            kept = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox, carried)
             if toolbox.calls:  # where the model's tokens went, for the board
                 used = ToolsUsed(
                     artifact=ctx.artifact.id, team=self.name, model=model, calls=tuple(toolbox.calls)
@@ -451,7 +452,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
             if not isinstance(kept, AttemptFailed):
                 events.extend(kept)
                 break
-            events.append(kept)  # thrown away: a failure of this model, for the outcome recorder
+            events.append(kept)  # thrown away (or kept unfinished): a failure of this model, for routing
+            if kept.kept:
+                carried = kept.reason
             if not SpendScope.allowed():
                 break  # out of budget: the step waits, and its cascade goes on from here next time
             if kept.changed_nothing and not nudged:
@@ -511,11 +514,12 @@ You are the executor in a software team. Implement the task in `instruction.goal
         last: bool,
         nudged: bool = False,  # the model said it was done without changing anything, and is told so
         toolbox: "WorktreeToolbox | None" = None,  # the attempt's tools; one is made when not given
+        carried: str | None = None,  # an earlier attempt's passing but unfinished work, kept: its summary
     ) -> list[Event] | AttemptFailed:
         """One attempt's events, or why an attempt before the last failed and was thrown away."""
         artifact = ctx.artifact
         toolbox = toolbox or WorktreeToolbox(worktree, self._checks, self._tests, self._step_budget)
-        request = self.request(ctx, worktree, nudged)
+        request = self.request(ctx, worktree, nudged, carried=carried)
         try:
             report = await self.work(worker, request, toolbox)
         except ProviderUnavailable as error:
@@ -554,6 +558,14 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 break
         protection = [AcceptanceRestored(artifact=artifact.id, paths=tuple(restored))] if restored else []
         complete = report.complete or (self._partial and checks.passed)
+        if checks.passed and not complete and not last:
+            # Passing but unfinished: kept on the branch (not announced to the gate), so the next attempt
+            # finishes it instead of starting over (2026-10-11: Sol's version of the final switch passed every
+            # check, said cleanup was left, and was thrown away).
+            worktree.commit(f"{artifact.id}: work in progress, kept for the next attempt: {report.summary}")
+            return self._failed(
+                ctx, model, f"reports incomplete, passing work kept: {report.summary}", kept=True
+            )
         if not (checks.passed and complete) and not last:
             worktree.discard_changes()
             why = "checks fail" if not checks.passed else f"reports incomplete: {report.summary}"
@@ -578,7 +590,12 @@ You are the executor in a software team. Implement the task in `instruction.goal
         return await worker.run(self.INSTRUCTIONS, request, ExecutorReport, toolbox)
 
     def _failed(
-        self, ctx: ArtifactContext, model: str | None, reason: str, changed_nothing: bool = False
+        self,
+        ctx: ArtifactContext,
+        model: str | None,
+        reason: str,
+        changed_nothing: bool = False,
+        kept: bool = False,
     ) -> AttemptFailed:
         return AttemptFailed(
             artifact=ctx.artifact.id,
@@ -586,6 +603,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
             model=model,
             reason=reason,
             changed_nothing=changed_nothing,
+            kept=kept,
         )
 
     def tier_index(self, ctx: ArtifactContext, start: int = 0) -> int:
@@ -652,6 +670,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
         "Your changes so far are kept in the project, but the checks still fail. Fix what they report, "
         "without starting over; tests that passed before must pass again."
     )
+    CARRIED = (
+        "An earlier attempt left work in the project that passes every check but is unfinished. It said: "
+        "{summary}. Finish the task from there, without starting over."
+    )
     NOTHING_CHANGED = (
         "Your last answer said the task was done, but no file in the project had changed. Make the changes "
         "with write_file, run run_checks, and answer only when they are made."
@@ -663,8 +685,19 @@ You are the executor in a software team. Implement the task in `instruction.goal
         worktree: Worktree,
         nudged: bool = False,
         failing: CheckReport | None = None,  # a repair: the checks the work so far still fails
+        carried: str | None = None,  # an earlier attempt's passing but unfinished work: its summary
     ) -> ExecutorRequest:
         must_fix = ctx.open_findings
+        if carried is not None:
+            left = Finding(
+                artifact=ctx.artifact.id,
+                level=self.watches,
+                team=self.name,
+                kind=FindingKind.INCOMPLETE,
+                severity=Severity.MAJOR,
+                detail=self.CARRIED.format(summary=carried),
+            )
+            must_fix = (*must_fix, left)
         if failing is not None:
             still = Finding(
                 artifact=ctx.artifact.id,

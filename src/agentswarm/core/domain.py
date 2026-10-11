@@ -441,6 +441,7 @@ class AttemptFailed(Frozen):
     changed_nothing: bool = (
         False  # it said it was done without changing a file: told so, it gets one more try
     )
+    kept: bool = False  # it passed the checks but was unfinished: kept on the branch for the next attempt
 
     @property
     def subject(self) -> ArtifactId:
