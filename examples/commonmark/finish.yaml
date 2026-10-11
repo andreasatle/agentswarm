@@ -1,0 +1,87 @@
+# CommonMark, the last 11% (2026-10-11): the restructuring is done (switch-over-cascade.yaml), so the swarm goes back
+# to its ordinary loop. The worklist turns each spec section with failing examples into an item; the ratchet merges
+# a change only if more examples pass and no acceptance test breaks. Same models, routing and cascade.
+#   uv run agentswarm run examples/commonmark/finish.yaml --root ~/agentswarm-runs/switch-over-3 --max-rounds 60
+project: commonmark
+domain: software
+north_star: >-
+  A CommonMark-compliant Markdown to HTML converter in pure Python: the package mdconv, whose to_html(markdown)
+  returns exactly the HTML the CommonMark spec's examples show. Done when every example passes.
+seed: ~/agentswarm-data/commonmark/seed-restructuring  # 43%, with the new modules from the first planned restructuring
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # Sonnet directly: through OpenRouter its hosts refuse the forced tool choice LangChain uses for typed answers.
+  planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  gemma26: {model: "ollama:gemma4:26b", temperature: 0, max_tokens: 16384, timeout_s: 900, context_window: 65536}  # 64k: 3 of its 4 failures on 2026-10-10 were a full 32k window; it runs 29-33% on CPU at any size
+  haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
+  qwen: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:qwen/qwen3-coder', usd_per_million: {cache_read: 0.1, input: 0.3, output: 1.0}}
+  deepseek: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, protected: [tests/acceptance/]}  # progress again: each change makes examples pass
+  # Product hygiene (best-practice review, fix 9): only the package, its tests and docs belong at the root.
+  # Builders left 16 debug scripts there; they are grandfathered (listed after `--`), so no other step is
+  # blamed for them, and any new stray file fails. cleanup-task.txt removed 11; the 5 that pytest collects as
+  # tests (test_*.py, *_test.py) stayed while the ratchet held every test; now only the acceptance tests are.
+  layout:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, sys
+        allowed, old = sys.argv[1:sys.argv.index("--")], set(sys.argv[sys.argv.index("--") + 1:])
+        stray = sorted(p.name for p in pathlib.Path(".").iterdir()
+                       if not p.name.startswith(".") and p.name not in allowed and p.name not in old)
+        for name in stray:
+            print(f"{name}: outside the project layout (only {', '.join(allowed)} belong at the root); delete it")
+        sys.exit(1 if stray else 0)
+      - mdconv
+      - tests
+      - docs
+      - --
+      - check_regex.py
+      - debug_ex121.py
+      - debug_failing.py
+      - debug_mdconv.py
+      - debug_run.py
+      - debug_script.py
+      - debug_single.py
+      - debug_test.py
+      - manual_test.py
+      - regex_check.py
+      - run_debug.py
+      - simple_test.py
+      - temp_debug.py
+      - test_ex93.py
+      - test_inline.py
+      - test_regex.py
+teams:
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 3, build_at_max_depth: true}  # 3: a step every model fails is split once more
+  - use: executor
+    watches: raw
+    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # the router ranks them by expected cost per success,
+    # measured (from prices until measured); this order counts only when nothing is known
+    attempts: 4  # local, Haiku, Sol, Sonnet: a step can climb the whole way in one run
+    climb: true  # after a failure, the router's best model not yet failed on the step
+    split_on_failure: true  # a step every model fails goes back to the planner (ADaPT), not to a person
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
+    checks: [spec, layout]
+    max_model_calls: 60
+    repairs: 2  # failing checks: keep the work, say what broke, try again (the first run threw away 150 passes)
+    partial: true  # some examples fixed and none broken is progress: the ratchet judges, not the model
+    constraints:
+      - Use only the Python standard library.
+      - Keep the code in the mdconv package, split into modules as it grows.
+      - The CommonMark spec is in docs/spec.md (its examples are your tests). Its appendix "A parsing strategy" says how a parser handles container blocks such as lists and block quotes; search and read the parts you need.
+score: {check: spec, held_out: [~/agentswarm-data/commonmark/held_out]}  # measured at the start and end of every run
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}  # a spec section with failing examples per item
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec, layout]}
+budgets: {usd_per_day: 9.0, reserve_usd: 0.3}  # 2026-10-11: $6.03 spent today, $3 for the run toward 100% (to approve)
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether to split; the split check stays in shadow
