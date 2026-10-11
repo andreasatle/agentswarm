@@ -111,6 +111,16 @@ class TestProtected:
         assert Progress(base=self.BASE, now=deleted).broken == {"tests/own.py::old_path"}
 
 
+class TestNothingLeft:
+    def test_with_every_test_passing_there_is_nothing_left_and_that_is_acceptable(self) -> None:
+        done = Outcomes(passed=frozenset({"tests/acceptance/t.py::a"}), failed=frozenset())
+        progress = Progress(base=done, now=done, protected=("tests/acceptance/",))
+        assert progress.nothing_left and progress.acceptable(progress=True) and not progress.moves_forward
+        assert "NOTHING LEFT" in progress.summary(Samples.EXPERIMENTAL, "c0ffee")
+        left = Outcomes(passed=frozenset(), failed=frozenset({"tests/acceptance/t.py::a"}))
+        assert not Progress(base=left, now=left).acceptable(progress=True)  # still work to do
+
+
 class TestRatchetCheck:
     def test_passes_progress_and_fails_standing_still_or_breaking(self, tmp_path: Path) -> None:
         s = Suite(tmp_path)

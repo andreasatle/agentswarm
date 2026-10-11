@@ -55,6 +55,11 @@ class CheckReport(Frozen):
     def passed(self) -> bool:
         return all(r.passed for r in self.results)
 
+    @property
+    def done(self) -> bool:
+        """Every check passes and one says there is nothing left to do: the step's goal is already met."""
+        return self.passed and any(r.done for r in self.results)
+
     def summary(self) -> str:
         if not self.results:
             return "no checks configured"
@@ -430,6 +435,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
         synced = self.sync(ctx, worktree)
         if synced is not None:
             return [*routed, synced]
+        if self._checks:  # a step whose goal is already met costs no model call
+            before = WorktreeToolbox(worktree, self._checks).check_report()
+            if before.done:
+                return [*routed, *self.nothing_to_do(ctx, worktree)]
         climbing = self._climb and self._tiers is not None
         failed = self.failed_models(ctx) if climbing else set[str]()
         model, worker = self.next_tier(ctx, failed) if failed else self.tier_for(ctx, start)
@@ -537,6 +546,8 @@ You are the executor in a software team. Implement the task in `instruction.goal
         protection: list[Event] = (
             [AcceptanceRestored(artifact=artifact.id, paths=tuple(restored))] if restored else []
         )
+        if not worktree.has_changes() and toolbox.check_report().done:
+            return [*protection, *self.nothing_to_do(ctx, worktree)]  # it said so, and the checks agree
         if not worktree.has_changes():
             failed = self._failed(
                 ctx, model, f"executor made no changes: {report.summary}", changed_nothing=True
@@ -612,6 +623,13 @@ You are the executor in a software team. Implement the task in `instruction.goal
             return 0
         rejections = sum(isinstance(e, Rejected) for e in ctx.history)
         return min(start + rejections, len(self._tiers) - 1)
+
+    def nothing_to_do(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+        """The step's goal is met already (an earlier step did it): an empty commit takes it to its gate."""
+        sha = worktree.commit(
+            f"{ctx.artifact.id}: nothing to change; its checks pass with nothing left to do"
+        )
+        return [CommitPushed(artifact=ctx.artifact.id, commit=sha)]
 
     def failed_models(self, ctx: ArtifactContext) -> set[str]:
         """The models that have failed this step: a discarded attempt, or a commit the gate rejected. A

@@ -41,6 +41,9 @@ class CheckResult(Frozen):
     name: str
     status: CheckStatus
     output: str  # the tail of stdout and stderr
+    done: bool = (
+        False  # the check's goal is met with nothing left to do (a progress ratchet with no failing test)
+    )
 
     @property
     def passed(self) -> bool:
@@ -167,7 +170,8 @@ class RatchetCheck:
         wanted = self._config.progress
         status = CheckStatus.PASSED if progress.acceptable(wanted) else CheckStatus.FAILED
         output = progress.summary(self._level, base, progress=wanted)
-        return CheckResult(name=self._name, status=status, output=output)
+        done = wanted and progress.nothing_left and status is CheckStatus.PASSED
+        return CheckResult(name=self._name, status=status, output=output, done=done)
 
     def outcomes(self, cwd: Path) -> Outcomes | None:
         """The suite's outcomes in `cwd`; None when it timed out or couldn't start."""

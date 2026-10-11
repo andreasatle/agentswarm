@@ -21,6 +21,7 @@ from agentswarm.core.domain import (
     ToolsUsed,
     Unbuildable,
 )
+from agentswarm.gating.checks import CheckResult, CheckStatus
 from agentswarm.llm.workers import FakeWorker, LangChainWorker, ProviderUnavailable, Toolbox, WorkerError
 from agentswarm.teams.executor import (
     ExecutorReport,
@@ -168,6 +169,16 @@ class TestFakeExecutor:
         (event,) = await FakeExecutor(Samples.RAW).act(w.ctx(), w.worktree)
         assert isinstance(event, CommitPushed)
         assert "fixed: Does not address every part of the task" in w.worktree.read("a-0001.md")
+
+
+class Satisfied:
+    """A check whose goal is met before any work: a progress ratchet with no failing test left."""
+
+    name = "spec"
+    kind = FindingKind.TEST_FAILURE
+
+    def run(self, cwd: Path) -> CheckResult:
+        return CheckResult(name=self.name, status=CheckStatus.PASSED, output="NOTHING LEFT", done=True)
 
 
 class TestExecutorTeam:
@@ -341,6 +352,14 @@ class TestExecutorTeam:
         told = strong.calls[0][1]
         assert isinstance(told, ExecutorRequest)
         assert "farewell done, docs left" in told.instruction.must_fix[-1].detail
+
+    async def test_a_step_whose_goal_is_already_met_costs_no_model_call(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        worker = FakeWorker([])
+        team = ExecutorTeam(worker, [Satisfied()], Samples.RAW)
+        (commit,) = Traces.drop(await team.act(w.ctx(), w.worktree))
+        assert isinstance(commit, CommitPushed) and commit.model is None
+        assert not worker.calls
 
     async def test_without_climbing_attempts_stay_on_one_tier(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)

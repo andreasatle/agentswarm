@@ -78,9 +78,18 @@ class Progress(BaseModel):
     def moves_forward(self) -> bool:
         return bool(self.fixed) and not self.broken and not self.added_failing
 
+    @property
+    def nothing_left(self) -> bool:
+        """No held test failed on the level, and none fails now: there is no progress left to make
+        (2026-10-11: one TOML step made every test pass, and four more steps then failed for want of any)."""
+        failing = (*self.base.failed, *self.now.failed)
+        return not any(self.guarded(t) for t in failing)
+
     def acceptable(self, progress: bool) -> bool:
-        """Moves forward; or, without progress asked (a refactor), breaks nothing and adds no failing test."""
-        return self.moves_forward if progress else not (self.broken or self.added_failing)
+        """Moves forward, or there is nothing left to fix; without progress asked (a refactor), breaks
+        nothing and adds no failing test."""
+        intact = not (self.broken or self.added_failing)
+        return (self.moves_forward or (self.nothing_left and intact)) if progress else intact
 
     def summary(self, level: Level, base: str, shown: int = 20, progress: bool = True) -> str:
         theirs = self.base.passed | self.base.failed
@@ -94,7 +103,9 @@ class Progress(BaseModel):
         if self.added_failing:
             own = "the producer's own tests: fix or delete them" if self.protected else "added by this work"
             lines.append(f"TESTS FAILING ({own}): " + ", ".join(sorted(self.added_failing)[:shown]))
-        if not self.fixed and progress:
+        if self.nothing_left:
+            lines.append("NOTHING LEFT: every test passes")
+        elif not self.fixed and progress:
             lines.append("NO PROGRESS: none of the level's failing tests passes yet")
         still = sorted(self.base.failed - self.now.passed)
         if still:
