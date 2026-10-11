@@ -27,8 +27,8 @@ Suggested order: 8 first (every later decision needs the measurement), then 3 an
 ## 1. Builder context
 
 - **Practice:** mask old tool outputs, keeping the last 10; as good as LLM summaries and simpler, halves cost on SWE-bench Verified (Lindenbauer et al., NeurIPS 2025). Anthropic: compaction, notes outside the context, sub-agents with clean contexts.
-- **We do:** the last 10 tool results kept, older ones replaced by a note, cleared in batches past 40k tokens (60% of a local model's window) so the prompt cache breaks rarely.
-- **Gap:** none known. Replaying our traces: 42% fewer tokens sent, 51% on long attempts; the saving in dollars is smaller (most re-sent tokens were cached) and is measured on the next run.
+- **We do (since 2026-10-11):** the last 10 tool results kept; older ones replaced by a note when the model's prices say it pays or a known window is 60% full, in batches that stay cleared, so the prompt cache breaks rarely.
+- **Gap:** found after this review: the first version cleared only about 20k tokens once (LangChain re-applies the edit from the full history each call), and the 42% saving reported for it was a replay error. Replaced by the price-based rule; replaying 41 attempts: input cost -12% at Sol's prices, -20% at Sonnet's, -44% without a cache discount (RESEARCH.md section 10).
 
 ## 2. Early stop for reading (fixed: removed)
 

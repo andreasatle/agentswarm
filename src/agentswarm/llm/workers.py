@@ -8,26 +8,24 @@ provider's native structured output or falls back to tool calling, so any provid
 works. `FakeWorker` follows a script and needs no model.
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, ClassVar, Protocol
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import (
-    AgentMiddleware,
-    ClearToolUsesEdit,
-    ContextEditingMiddleware,
-    ModelCallLimitMiddleware,
-)
+from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware
+from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain.agents.structured_output import StructuredOutputError
-from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain.tools import BaseTool
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AnyMessage, BaseMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ValidationError
 
+from agentswarm.core.config import Price
 from agentswarm.core.domain import Usage
 from agentswarm.llm.models import ChatModels
 
@@ -119,10 +117,12 @@ class LangChainWorker:
         max_model_calls: int = 40,
         meter: Meter | None = None,
         context_window: int | None = None,  # known for local models: history is trimmed well inside it
+        price: Price | None = None,  # decides whether clearing old tool results pays (`Trimming`)
     ) -> None:
         self._model = model
         self._max_model_calls = max_model_calls
         self._context_window = context_window
+        self._price = price
         self._meter = meter  # told the token usage of every run, so spend reaches the board
 
     async def run[T: BaseModel](
@@ -135,7 +135,7 @@ class LangChainWorker:
             response_format=output,
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
-                self.trimming(self._context_window),
+                Trimming(self._price, self._context_window, self._max_model_calls),
                 *self.caching(),
             ],
         )
@@ -203,27 +203,6 @@ class LangChainWorker:
         if self._meter is not None:
             self._meter(usage)
 
-    # Over 99% of the tokens a builder sends are its own history, mostly old file contents, re-sent on every
-    # call (CommonMark, 2026-10-09: 24M tokens in, 0.13M out). Past TRIM_AT tokens, all but the last
-    # TRIM_KEEP tool results are replaced by a note; at least TRIM_BY are cleared at once, so a prompt cache
-    # is broken rarely rather than on every call.
-    TRIM_AT: ClassVar[int] = 40_000
-    TRIM_BY: ClassVar[int] = 20_000
-    TRIM_KEEP: ClassVar[int] = 10  # as Lindenbauer et al. 2025 (RESEARCH.md section 10): their best window
-    TRIMMED = "[output cleared to keep the conversation short: call the tool again if you still need it]"
-
-    @classmethod
-    def trimming(cls, context_window: int | None = None) -> ContextEditingMiddleware[Any, Any]:
-        """A small window (a local model's) is trimmed at 60% of it, before Ollama would drop the start."""
-        trigger = cls.TRIM_AT if context_window is None else min(cls.TRIM_AT, int(context_window * 0.6))
-        edit = ClearToolUsesEdit(
-            trigger=trigger,
-            clear_at_least=min(cls.TRIM_BY, trigger // 2),
-            keep=cls.TRIM_KEEP,
-            placeholder=cls.TRIMMED,
-        )
-        return ContextEditingMiddleware(edits=[edit])
-
     @staticmethod
     def caching() -> list[AgentMiddleware[Any, Any]]:
         """Prompt caching for Anthropic models, so an agent's repeated history is billed at the cache price.
@@ -241,6 +220,85 @@ class LangChainWorker:
         if toolbox is None:
             return []
         return [StructuredTool.from_function(method) for method in toolbox.tools()]
+
+
+class Trimming(AgentMiddleware[Any, Any]):
+    """Clears old tool results from what a builder's model is sent, when the window needs it or it pays.
+
+    Every call re-sends the whole conversation, mostly old file contents. Replacing all but the last `KEEP`
+    tool results with a note (Lindenbauer et al., NeurIPS 2025; RESEARCH.md section 10) saves those tokens on
+    every later call; but with a prompt cache, already-sent tokens cost only the cached price, and a change
+    early in the conversation makes the next call pay the full price for everything after it. So, before each
+    call, from the model's own prices (nothing per provider):
+
+    - saving: calls left x tokens released x cached-input price
+    - cost:   tokens after the first changed message x (full price - cached price), once
+
+    Results are cleared when the saving is larger, or when the conversation passes `WINDOW_SHARE` of a known
+    window (a local model breaks when its window is full). An unpriced model is trimmed only for its window.
+    The edit isn't kept in the agent's state, so it is replayed from the history each call: the decisions
+    of earlier calls are made again, in order, so a cleared result stays cleared and the cache breaks only
+    when a new batch is cleared.
+    """
+
+    KEEP: ClassVar[int] = 10  # the most recent tool results, never cleared: Lindenbauer et al.'s best window
+    MIN_TOKENS: ClassVar[int] = 5_000  # a batch smaller than this isn't worth breaking a cache for
+    WINDOW_SHARE: ClassVar[float] = 0.6
+    TRIMMED = "[output cleared to keep the conversation short: call the tool again if you still need it]"
+
+    def __init__(self, price: Price | None, window: int | None, max_calls: int) -> None:
+        super().__init__()
+        self._price = price
+        self._window = window
+        self._max_calls = max_calls
+
+    def cleared(self, messages: Sequence[BaseMessage]) -> int:
+        """How many of the oldest tool results to clear: the decisions of every call so far, replayed."""
+        sizes = [count_tokens_approximately([m]) for m in messages]
+        tools = [i for i, m in enumerate(messages) if isinstance(m, ToolMessage)]
+        calls = [i for i, m in enumerate(messages) if isinstance(m, AIMessage)]
+        note = count_tokens_approximately([ToolMessage(content=self.TRIMMED, tool_call_id="x")])
+        cleared = 0
+        for made, end in enumerate([*calls, len(messages)]):  # each call saw the history before its reply
+            sent = [note if i in tools[:cleared] else n for i, n in enumerate(sizes[:end])]
+            seen = [t for t in tools if t < end]
+            batch = seen[cleared : max(len(seen) - self.KEEP, cleared)]
+            if batch and self.pays(sent, batch, note, self._max_calls - made):
+                cleared += len(batch)
+        return cleared
+
+    def pays(self, sent: Sequence[int], batch: Sequence[int], note: int, calls_left: int) -> bool:
+        released = sum(sent[i] - note for i in batch)
+        if released < self.MIN_TOKENS:
+            return False
+        if self._window is not None and sum(sent) > self.WINDOW_SHARE * self._window:
+            return True
+        if self._price is None:
+            return False  # costs nothing: only a window is a reason
+        read = self._price.cache_read if self._price.cache_read is not None else self._price.input
+        full = self._price.cache_write if self._price.cache_write is not None else self._price.input
+        resent = sum(sent[batch[0] :]) - released
+        return calls_left * released * read > resent * (full - read)
+
+    def trimmed(self, messages: Sequence[AnyMessage]) -> list[AnyMessage]:
+        old = {i for i, m in enumerate(messages) if isinstance(m, ToolMessage)}
+        first = sorted(old)[: self.cleared(messages)]
+        return [
+            m.model_copy(update={"content": self.TRIMMED, "artifact": None}) if i in first else m
+            for i, m in enumerate(messages)
+        ]
+
+    def wrap_model_call(
+        self, request: ModelRequest[Any], handler: Callable[[ModelRequest[Any]], ModelResponse[Any]]
+    ) -> ModelResponse[Any] | AIMessage:
+        return handler(request.override(messages=self.trimmed(request.messages)))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any] | AIMessage:
+        return await handler(request.override(messages=self.trimmed(request.messages)))
 
 
 class Tokens(BaseCallbackHandler):
@@ -340,7 +398,11 @@ class LangChainWorkers:
 
     def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
         return LangChainWorker(
-            self._models.get(model), max_model_calls, meter, self._models.context_window(model)
+            self._models.get(model),
+            max_model_calls,
+            meter,
+            self._models.context_window(model),
+            self._models.price(model),
         )
 
 

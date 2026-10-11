@@ -8,7 +8,7 @@ from typing import Any, ClassVar
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
-from agentswarm.core.config import ModelConfig
+from agentswarm.core.config import ModelConfig, Price
 
 
 class ModelUnavailable(Exception):
@@ -37,6 +37,10 @@ class ChatModels:
         if config is None:
             return None
         return config.context_window or self.DEFAULT_CONTEXT.get(config.provider)
+
+    def price(self, name: str) -> Price | None:
+        config = self._configs.get(name)
+        return config.usd_per_million if config is not None else None
 
     def _build(self, name: str) -> BaseChatModel:
         config = self._configs.get(name)

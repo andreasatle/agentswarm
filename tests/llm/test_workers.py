@@ -1,11 +1,12 @@
+import itertools
 from collections.abc import Callable, Sequence
 
 import pytest
-from langchain.agents.middleware import ClearToolUsesEdit
 from langchain.messages import AIMessage, ToolMessage
+from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
-from agentswarm.core.config import ModelConfig
+from agentswarm.core.config import ModelConfig, Price
 from agentswarm.llm.models import ChatModels, ModelUnavailable
 from agentswarm.llm.workers import (
     CutOff,
@@ -16,6 +17,7 @@ from agentswarm.llm.workers import (
     Stops,
     Tokens,
     Toolbox,
+    Trimming,
     WorkerError,
 )
 from tests.support.fakes import Replies
@@ -131,26 +133,6 @@ class TestLangChainWorker:
         usage = Tokens.of(message)
         assert (usage.input_tokens, usage.cache_read_tokens, usage.cache_write_tokens) == (1000, 900, 50)
 
-    async def test_old_tool_results_are_cleared_once_the_conversation_is_long(self) -> None:
-        replies = Replies()
-        for n in range(14):
-            replies.call("read_book", title=f"book {n}")
-        model = replies.call("Answer", summary="read").model()
-        await LangChainWorker(model).run("Read.", Payload(task="t"), Answer, Library())
-        results = [m for m in model.prompts[-1] if isinstance(m, ToolMessage)]
-        assert len(results) == 14
-        assert results[0].content == LangChainWorker.TRIMMED  # the oldest, cleared
-        assert all(str(m.content).startswith("book") for m in results[-LangChainWorker.TRIM_KEEP :])
-
-    def test_a_small_context_window_is_trimmed_well_inside_it(self) -> None:
-        def trigger(window: int | None) -> int:
-            (edit,) = LangChainWorker.trimming(window).edits
-            assert isinstance(edit, ClearToolUsesEdit)
-            return edit.trigger
-
-        assert trigger(None) == LangChainWorker.TRIM_AT
-        assert trigger(32_768) == 19_660
-
     def test_prompt_caching_is_on_when_the_anthropic_package_is_there(self) -> None:
         names = [type(m).__name__ for m in LangChainWorker.caching()]
         assert names == ["AnthropicPromptCachingMiddleware"]
@@ -159,6 +141,42 @@ class TestLangChainWorker:
         (tool,) = LangChainWorker.tools_of(Notebook())
         assert tool.name == "write_note"
         assert tool.description == "Write a note."
+
+
+class TestTrimming:
+    """Old tool results are cleared when the window needs it or the model's prices say it pays."""
+
+    @staticmethod
+    async def run(price: Price | None, window: int | None = None, calls: int = 40) -> list[list[BaseMessage]]:
+        replies = Replies()
+        for n in range(14):
+            replies.call("read_book", title=f"book {n}")
+        model = replies.call("Answer", summary="read").model()
+        worker = LangChainWorker(model, max_model_calls=calls, context_window=window, price=price)
+        await worker.run("Read.", Payload(task="t"), Answer, Library())
+        return model.prompts
+
+    @staticmethod
+    def cleared(prompt: list[BaseMessage]) -> list[int]:
+        results = [m for m in prompt if isinstance(m, ToolMessage)]
+        return [i for i, m in enumerate(results) if m.content == Trimming.TRIMMED]
+
+    async def test_without_a_cache_discount_all_but_the_last_ten_are_cleared(self) -> None:
+        prompts = await self.run(Price(input=1.0, output=1.0, cache_read=1.0))
+        assert self.cleared(prompts[-1]) == [0, 1, 2, 3]
+
+    async def test_with_cheap_cached_input_and_few_calls_left_nothing_is_cleared(self) -> None:
+        prompts = await self.run(Price(input=2.0, output=10.0, cache_read=0.1), calls=16)
+        assert self.cleared(prompts[-1]) == []
+
+    async def test_a_known_window_is_kept_well_inside_however_cheap_the_model(self) -> None:
+        assert self.cleared((await self.run(None))[-1]) == []  # free and no window: nothing to gain
+        assert self.cleared((await self.run(None, window=150_000))[-1]) == [0, 1, 2, 3]
+
+    async def test_a_cleared_result_stays_cleared_so_a_cache_breaks_only_per_batch(self) -> None:
+        prompts = await self.run(Price(input=1.0, output=1.0, cache_read=1.0))
+        sets = [set(self.cleared(p)) for p in prompts]
+        assert all(earlier <= later for earlier, later in itertools.pairwise(sets))
 
 
 class TestPrompts:
