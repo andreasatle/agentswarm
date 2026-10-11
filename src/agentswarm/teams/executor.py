@@ -603,6 +603,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
         committed: str | None = None
         for event in ctx.history:
             match event:
+                case EscalationResolved(resolution=Resolution.RETRY):
+                    failed.clear()  # a person sent it back: its cascade starts over
+                    committed = None
                 case AttemptFailed(team=team, model=str() as model) if team == self.name:
                     failed.add(model)
                 case CommitPushed(model=str() as model):

@@ -163,7 +163,7 @@ class RatchetCheck:
         now = self.outcomes(cwd)
         if now is None:
             return CheckResult(name=self._name, status=CheckStatus.ERROR, output="the tests didn't finish")
-        progress = Progress(base=before, now=now)
+        progress = Progress(base=before, now=now, protected=self._config.protected)
         wanted = self._config.progress
         status = CheckStatus.PASSED if progress.acceptable(wanted) else CheckStatus.FAILED
         output = progress.summary(self._level, base, progress=wanted)

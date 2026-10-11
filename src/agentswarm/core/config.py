@@ -136,6 +136,10 @@ class CheckConfig(Strict):
     # With a ratchet: whether the work must make a failing test pass. False for refactoring, which may change
     # no behaviour: then breaking nothing is enough.
     progress: bool = True
+    # With a ratchet: only tests under these paths (the independent acceptance tests) count as broken when
+    # they stop passing or disappear; the rest are the producer's own, which it may rewrite or delete, though
+    # none may fail. Empty: every test is protected.
+    protected: tuple[str, ...] = ()
 
 
 class Threshold(Strict):

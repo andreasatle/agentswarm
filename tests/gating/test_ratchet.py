@@ -77,6 +77,40 @@ class TestOutcomes:
         assert not own_failing.acceptable(progress=False)
 
 
+class TestProtected:
+    """Only the independent acceptance tests are held to the ratchet; the producer's own are its work."""
+
+    BASE = Outcomes(
+        passed=frozenset({"tests/acceptance/t.py::a", "tests/own.py::old_path"}),
+        failed=frozenset({"tests/acceptance/t.py::b"}),
+    )
+
+    def test_the_producers_own_tests_may_be_deleted_but_not_left_failing(self) -> None:
+        protected = ("tests/acceptance/",)
+        deleted = Outcomes(
+            passed=frozenset({"tests/acceptance/t.py::a", "tests/acceptance/t.py::b"}), failed=frozenset()
+        )
+        assert Progress(base=self.BASE, now=deleted, protected=protected).moves_forward
+        left = Outcomes(
+            passed=frozenset({"tests/acceptance/t.py::a", "tests/acceptance/t.py::b"}),
+            failed=frozenset({"tests/own.py::old_path"}),
+        )
+        failing = Progress(base=self.BASE, now=left, protected=protected)
+        assert failing.added_failing == {"tests/own.py::old_path"} and not failing.moves_forward
+        assert "the producer's own tests" in failing.summary(Samples.EXPERIMENTAL, "c0ffee")
+
+    def test_an_acceptance_test_still_may_not_disappear_or_break(self) -> None:
+        gone = Outcomes(passed=frozenset({"tests/acceptance/t.py::b"}), failed=frozenset())
+        progress = Progress(base=self.BASE, now=gone, protected=("tests/acceptance/",))
+        assert progress.broken == {"tests/acceptance/t.py::a"} and not progress.moves_forward
+
+    def test_without_protected_paths_every_test_is_held(self) -> None:
+        deleted = Outcomes(
+            passed=frozenset({"tests/acceptance/t.py::a", "tests/acceptance/t.py::b"}), failed=frozenset()
+        )
+        assert Progress(base=self.BASE, now=deleted).broken == {"tests/own.py::old_path"}
+
+
 class TestRatchetCheck:
     def test_passes_progress_and_fails_standing_still_or_breaking(self, tmp_path: Path) -> None:
         s = Suite(tmp_path)

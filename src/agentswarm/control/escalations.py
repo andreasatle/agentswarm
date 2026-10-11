@@ -9,7 +9,16 @@ from collections.abc import Sequence
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.board.blackboard import Blackboard
-from agentswarm.core.domain import ArtifactId, EscalationResolved, Level, Resolution, Resumed
+from agentswarm.core.domain import (
+    ArtifactId,
+    EscalationResolved,
+    Event,
+    Level,
+    Resolution,
+    Resumed,
+    Sized,
+    Unbuildable,
+)
 from agentswarm.judging.decisions import DecisionStore
 
 
@@ -62,9 +71,23 @@ class Escalations:
         ]
 
     def resolve(self, artifact: ArtifactId, resolution: Resolution, note: str = "") -> None:
-        if self._board.current().open_escalation(artifact) is None:
-            raise ValueError(f"{artifact} has no open escalation")
+        """Settles an open escalation, or a step every builder model failed before the planner splits it (a
+        person may retry it instead, e.g. when a framework rule, not the work, made it fail)."""
+        views = self._board.current()
+        if views.open_escalation(artifact) is None and not self.awaiting_split(views.history(artifact)):
+            raise ValueError(f"{artifact} has no open escalation and isn't waiting to be split")
         self._board.append([EscalationResolved(artifact=artifact, resolution=resolution, note=note)])
+
+    @staticmethod
+    def awaiting_split(history: Sequence[Event]) -> bool:
+        """Every builder model failed it, and neither the planner nor a person has answered yet."""
+        answers = [
+            e
+            for e in history
+            if isinstance(e, Sized | Unbuildable)
+            or (isinstance(e, EscalationResolved) and e.resolution is Resolution.RETRY)
+        ]
+        return bool(answers) and isinstance(answers[-1], Unbuildable)
 
     def resume(self, note: str = "") -> None:
         if not self._board.current().paused:

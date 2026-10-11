@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from agentswarm.control.escalations import Escalations
-from agentswarm.core.domain import ArtifactId, Escalated, Resolution, SignedOff
+from agentswarm.core.domain import ArtifactId, Escalated, Resolution, SignedOff, Sized, Unbuildable
+from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.executor import FakeExecutor
 from agentswarm.teams.runner import Relevance
 from tests.support.harness import Harness
@@ -35,6 +36,21 @@ class TestEscalations:
         q.queue.resolve(q.artifact.id, Resolution.RETRY, "try again")
         assert q.queue.open() == []
         assert executor.relevant(q.h.contexts.build(q.artifact.id)) is Relevance.YES
+
+    def test_a_person_may_retry_a_step_every_model_failed_instead_of_splitting_it(
+        self, tmp_path: Path
+    ) -> None:
+        h = Harness(tmp_path)
+        artifact = h.create()
+        queue = Escalations(h.board, h.decisions)
+        with pytest.raises(ValueError, match="isn't waiting to be split"):
+            queue.resolve(artifact.id, Resolution.RETRY)
+        back = Unbuildable(artifact=artifact.id, team=Samples.EXECUTOR, reason="a framework rule")
+        h.board.append([Sized(artifact=artifact.id, fits=True), back])
+        assert Decomposer.failed(h.contexts.build(artifact.id))
+        queue.resolve(artifact.id, Resolution.RETRY, "rejected by a framework rule, not the work")
+        assert not Decomposer.failed(h.contexts.build(artifact.id))  # the planner leaves it alone
+        assert FakeExecutor(Samples.RAW).relevant(h.contexts.build(artifact.id)) is Relevance.YES
 
     def test_accept_promotes_through_the_gate_without_asking_the_judge(self, tmp_path: Path) -> None:
         q = Queue(tmp_path, answers=[Judged.unsure()])  # the judge would escalate again

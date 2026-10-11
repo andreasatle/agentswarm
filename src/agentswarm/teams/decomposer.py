@@ -11,6 +11,7 @@ In shadow mode the questions are logged but every task is treated as fitting: no
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.board.artifacts import ArtifactFactory
+from agentswarm.control.escalations import Escalations
 from agentswarm.core.config import JevMode
 from agentswarm.core.domain import (
     ArtifactContext,
@@ -103,9 +104,9 @@ You are the planner. The task in the data is too large for one change by one tea
 
     @staticmethod
     def failed(ctx: ArtifactContext) -> bool:
-        """Every builder model failed it since it was last sized: split it after all (ADaPT)."""
-        decided = [e for e in ctx.history if isinstance(e, Sized | Unbuildable)]
-        return bool(decided) and isinstance(decided[-1], Unbuildable)
+        """Every builder model failed it since it was last sized: split it after all (ADaPT); unless a person
+        chose to retry it instead."""
+        return Escalations.awaiting_split(ctx.history)
 
     async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
         artifact = ctx.artifact

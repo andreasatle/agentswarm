@@ -8,6 +8,7 @@ from agentswarm.core.domain import (
     CommitPushed,
     DecisionId,
     Escalated,
+    EscalationResolved,
     Event,
     Finding,
     FindingAdded,
@@ -15,6 +16,7 @@ from agentswarm.core.domain import (
     Paused,
     Rejected,
     Repaired,
+    Resolution,
     Severity,
     ToolsUsed,
     Unbuildable,
@@ -308,6 +310,17 @@ class TestExecutorTeam:
         with SpendScope.on(w.artifact.id, allowed=lambda: False):
             (failed,) = Traces.drop(await team.act(w.ctx(), w.worktree))
         assert isinstance(failed, AttemptFailed) and not strong.calls  # no escalation: it resumes later
+
+    def test_a_persons_retry_starts_the_cascade_over(self, tmp_path: Path) -> None:
+        w = Workspace(tmp_path)
+        team = ExecutorTeam(
+            [Tier("cheap", FakeWorker([])), Tier("strong", FakeWorker([]))], [], Samples.RAW, climb=True
+        )
+        failed = AttemptFailed(artifact=w.artifact.id, team=team.name, model="cheap", reason="checks fail")
+        w.h.board.append([failed])
+        assert team.failed_models(w.ctx()) == {"cheap"}
+        w.h.board.append([EscalationResolved(artifact=w.artifact.id, resolution=Resolution.RETRY)])
+        assert team.failed_models(w.ctx()) == set()
 
     async def test_without_climbing_attempts_stay_on_one_tier(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
