@@ -17,6 +17,7 @@ from agentswarm.llm.workers import (
     Stops,
     Tokens,
     Toolbox,
+    ToolChoice,
     Trimming,
     WorkerError,
 )
@@ -118,6 +119,11 @@ class TestLangChainWorker:
             assert Stops.at_limit(AIMessage(content="", response_metadata=metadata))
         assert not Stops.at_limit(AIMessage(content="", response_metadata={"done_reason": "stop"}))
         assert not Stops.at_limit(None)
+
+    def test_a_refused_forced_tool_call_is_recognized(self) -> None:
+        refusal = ValueError('tool_choice: type "tool" and "any" are not supported for this model.')
+        assert ToolChoice.refused(refusal)
+        assert not ToolChoice.refused(ValueError("rate limit exceeded"))
 
     def test_cached_input_is_counted_apart(self) -> None:
         details = {"cache_read": 900, "cache_creation": 50}

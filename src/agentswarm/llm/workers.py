@@ -14,7 +14,7 @@ from typing import Any, ClassVar, Protocol
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain.agents.structured_output import StructuredOutputError
+from langchain.agents.structured_output import StructuredOutputError, ToolStrategy
 from langchain.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain.tools import BaseTool
 from langchain_core.callbacks import BaseCallbackHandler
@@ -52,6 +52,14 @@ class ProviderUnavailable(WorkerError):
             return status in cls.REFUSED or status >= 500
         name = type(error).__name__
         return "Connection" in name or "Timeout" in name
+
+
+class ToolChoice:
+    """Whether a provider refused to be made to call a tool: how `ToolStrategy` asks for the answer."""
+
+    @staticmethod
+    def refused(error: Exception) -> bool:
+        return "tool_choice" in str(error)
 
 
 class InvalidAnswer(WorkerError):
@@ -123,27 +131,23 @@ class LangChainWorker:
         self._max_model_calls = max_model_calls
         self._context_window = context_window
         self._price = price
+        self._native = False  # the provider's native typed answer, once it refused a forced tool call
         self._meter = meter  # told the token usage of every run, so spend reaches the board
 
     async def run[T: BaseModel](
         self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
     ) -> T:
-        agent = create_agent(
-            self._model,
-            tools=self.tools_of(toolbox),
-            system_prompt=Prompts.system(instructions),
-            response_format=output,
-            middleware=[
-                ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
-                Trimming(self._price, self._context_window, self._max_model_calls),
-                *self.caching(),
-            ],
-        )
         tokens = Tokens()
         try:
-            state = await agent.ainvoke(
-                {"messages": [HumanMessage(Prompts.data(payload))]}, config={"callbacks": [tokens]}
-            )
+            try:
+                state = await self._invoke(instructions, payload, output, toolbox, tokens)
+            except Exception as error:
+                if self._native or not ToolChoice.refused(error):
+                    raise
+                self._native = (
+                    True  # this model takes no forced tool call: its native typed answer, from now on
+                )
+                state = await self._invoke(instructions, payload, output, toolbox, tokens)
         except StructuredOutputError as error:  # an answer that doesn't fit the schema, after retries
             raise InvalidAnswer(f"{type(error).__name__}: {error}") from error
         except Exception as error:  # provider failures surface as many types
@@ -167,6 +171,34 @@ class LangChainWorker:
             raise type(error)(f"{account}; final answer: {error}") from error
         except Exception as error:
             raise WorkerError(f"{account}; final answer failed: {type(error).__name__}: {error}") from error
+
+    async def _invoke[T: BaseModel](
+        self,
+        instructions: str,
+        payload: BaseModel,
+        output: type[T],
+        toolbox: Toolbox | None,
+        tokens: "Tokens",
+    ) -> dict[str, Any]:
+        agent = create_agent(
+            self._model,
+            tools=self.tools_of(toolbox),
+            system_prompt=Prompts.system(instructions),
+            # The answer as a tool call, asked again when it doesn't fit the schema (`handle_errors`). A
+            # provider's native structured output has no retry: GPT-6.1 Sol twice did the work and returned
+            # an empty answer, losing the attempt (2026-10-10). Every model here needs tool calling anyway,
+            # but some refuse to be made to call one (Sonnet 5.5): those keep their native typed answer.
+            response_format=output if self._native else ToolStrategy(output),
+            middleware=[
+                ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
+                Trimming(self._price, self._context_window, self._max_model_calls),
+                *self.caching(),
+            ],
+        )
+        state = await agent.ainvoke(
+            {"messages": [HumanMessage(Prompts.data(payload))]}, config={"callbacks": [tokens]}
+        )
+        return dict(state)
 
     FINAL_ANSWER = (
         "Stop working now. Give your final answer in the required structured format, based on the work above."
