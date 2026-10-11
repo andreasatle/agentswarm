@@ -73,6 +73,7 @@ from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.score import Progress, Scoreboard
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
+from agentswarm.evaluation.toml import TomlImport
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.audit import GateAudit
 from agentswarm.judging.calibration import CalibrationReport
@@ -202,6 +203,7 @@ class Cli:
         probe EXPERIMENT --workdir DIR             one prompt, one answer: models scored on single calls
         import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
         import-commonmark SPEC --out DIR           the CommonMark spec as a seed project and held-out tests
+        import-toml SUITE --out DIR                the toml-test suite (TOML 1.0.0) as a seed, some held out
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         spend                                      today's spend of every run, per account, against the limits
@@ -268,6 +270,8 @@ class Cli:
                 return self.import_evalplus(args)
             case "import-commonmark":
                 return self.import_commonmark(args)
+            case "import-toml":
+                return self.import_toml(args)
             case "score":
                 return self.score(args)
             case "openrouter-models":
@@ -402,6 +406,15 @@ class Cli:
         summary = CommonMarkImport(Path(args.spec).expanduser(), Path(args.out).expanduser(), prose).write()
         self._show(
             f"{summary.sections} sections: {summary.visible} examples in {summary.seed}, "
+            f"{summary.held_out} held out in {summary.held_out_tests}"
+        )
+        return 0
+
+    def import_toml(self, args: argparse.Namespace) -> int:
+        """The toml-test suite's TOML 1.0.0 files as a seed project, every fifth per group held out."""
+        summary = TomlImport(Path(args.suite).expanduser(), Path(args.out).expanduser()).write()
+        self._show(
+            f"{summary.groups} groups: {summary.visible} tests in {summary.seed}, "
             f"{summary.held_out} held out in {summary.held_out_tests}"
         )
         return 0
@@ -616,6 +629,9 @@ class Cli:
         commonmark.add_argument(
             "--text", help="spec.txt: the spec's text, put in the seed without its examples"
         )
+        toml = commands.add_parser("import-toml", help="the toml-test suite as a seed project")
+        toml.add_argument("suite", help="a checkout of github.com/toml-lang/toml-test")
+        toml.add_argument("--out", required=True, help="where the seed and the held-out tests go")
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")

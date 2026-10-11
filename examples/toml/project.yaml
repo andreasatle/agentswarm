@@ -1,0 +1,83 @@
+# Stage 3 of docs/ROADMAP.md: a second real problem, set up with a config, a seed and nothing else, to see whether
+# what finished CommonMark carries over. A TOML 1.0.0 parser in pure Python, from a stub, judged by the official
+# toml-test suite (valid files and their expected values, invalid files to reject), which the agents see as
+# tests/acceptance/ and can't change; every fifth file of each group is held out and never shown to any agent.
+#   git clone --depth 1 --branch v2.2.0 https://github.com/toml-lang/toml-test ~/agentswarm-data/toml/toml-test
+#   uv run agentswarm import-toml ~/agentswarm-data/toml/toml-test --out ~/agentswarm-data/toml/out
+#   uv run agentswarm run examples/toml/project.yaml --root ~/agentswarm-runs/toml --max-rounds 60
+# The suite decides how the work is split: the worklist turns each test file with failures into an item, one at
+# a time; the ratchet gate merges a change only if more tests pass and no acceptance test breaks.
+project: toml
+domain: software
+north_star: >-
+  A TOML 1.0.0 parser in pure Python: the package tomlparse, whose loads(document) returns the same Python values
+  as the standard library's tomllib and raises TOMLDecodeError for every invalid document. Done when every test
+  of the official toml-test suite passes.
+seed: ~/agentswarm-data/toml/out/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # The same models as CommonMark's last runs; the router ranks them by measured cost per success.
+  planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  gemma26: {model: "ollama:gemma4:26b", temperature: 0, max_tokens: 16384, timeout_s: 900, context_window: 65536}
+  haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, protected: [tests/acceptance/]}
+  # Python's standard library has a TOML parser; using it (or any other) would solve the task without doing it.
+  own-parser:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, re, sys
+        banned = re.compile(r"^\s*(import|from)\s+(tomllib|tomli|tomlkit|toml|pytoml|rtoml|qtoml)\b", re.M)
+        found = [str(p) for p in pathlib.Path("tomlparse").rglob("*.py") if banned.search(p.read_text())]
+        for path in found:
+            print(f"{path}: imports a TOML library; write the parser yourself, with the standard library otherwise")
+        sys.exit(1 if found else 0)
+  layout:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, sys
+        allowed = sys.argv[1:]
+        stray = sorted(p.name for p in pathlib.Path(".").iterdir() if not p.name.startswith(".") and p.name not in allowed)
+        for name in stray:
+            print(f"{name}: outside the project layout (only {', '.join(allowed)} belong at the root); delete it")
+        sys.exit(1 if stray else 0)
+      - tomlparse
+      - tests
+      - docs
+teams:
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}
+  - use: executor
+    watches: raw
+    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # ranked by the router; this order counts only before data
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
+    checks: [spec, own-parser, layout]
+    max_model_calls: 60
+    attempts: 4
+    climb: true  # after a failure, the router's best model not yet failed on the step
+    split_on_failure: true  # a step every model fails goes back to the planner (ADaPT), not to a person
+    repairs: 2
+    partial: true  # some tests fixed and none broken is progress: the ratchet judges, not the model
+    constraints:
+      - Use only the Python standard library, and no TOML library from it or anywhere else (tomllib included).
+      - Keep the code in the tomlparse package, split into modules as it grows.
+      - The TOML 1.0.0 spec is in docs/toml-v1.0.0.md; the tests in tests/acceptance/ are the definition of done.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
+score: {check: spec, held_out: [~/agentswarm-data/toml/out/held_out]}  # measured at the start and end of every run
+budgets: {usd_per_day: 3.0, reserve_usd: 0.3}  # set per approved run
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether to split and profiles difficulty for routing
