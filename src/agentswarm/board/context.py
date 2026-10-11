@@ -30,4 +30,5 @@ class ContextBuilder:
             waits_for=views.waits_for(id),
             closes=closes,
             parent_acceptance=written[0] if written else None,
+            completes=views.completes(id),
         )

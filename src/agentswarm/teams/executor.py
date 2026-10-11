@@ -34,7 +34,7 @@ from agentswarm.core.domain import (
     ToolsUsed,
     Unbuildable,
 )
-from agentswarm.gating.checks import CheckResult, CommandCheck, HardCheck
+from agentswarm.gating.checks import CheckResult, CommandCheck, HardCheck, Parts
 from agentswarm.llm.workers import ProviderUnavailable, Worker, WorkerError
 from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.routing import RoutedTiers, Router, Tier
@@ -436,7 +436,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
         if synced is not None:
             return [*routed, synced]
         if self._checks:  # a step whose goal is already met costs no model call
-            before = WorktreeToolbox(worktree, self._checks).check_report()
+            before = WorktreeToolbox(worktree, Parts.checks(self._checks, ctx)).check_report()
             if before.done:
                 return [*routed, *self.nothing_to_do(ctx, worktree)]
         climbing = self._climb and self._tiers is not None
@@ -447,7 +447,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
         carried: str | None = None  # the summary of passing but unfinished work an attempt left
         while number <= self._attempts:
             last = number == self._attempts
-            toolbox = WorktreeToolbox(worktree, self._checks, self._tests, self._step_budget)
+            toolbox = WorktreeToolbox(
+                worktree, Parts.checks(self._checks, ctx), self._tests, self._step_budget
+            )
             kept = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox, carried)
             if toolbox.calls:  # where the model's tokens went, for the board
                 used = ToolsUsed(
@@ -527,7 +529,9 @@ You are the executor in a software team. Implement the task in `instruction.goal
     ) -> list[Event] | AttemptFailed:
         """One attempt's events, or why an attempt before the last failed and was thrown away."""
         artifact = ctx.artifact
-        toolbox = toolbox or WorktreeToolbox(worktree, self._checks, self._tests, self._step_budget)
+        toolbox = toolbox or WorktreeToolbox(
+            worktree, Parts.checks(self._checks, ctx), self._tests, self._step_budget
+        )
         request = self.request(ctx, worktree, nudged, carried=carried)
         try:
             report = await self.work(worker, request, toolbox)

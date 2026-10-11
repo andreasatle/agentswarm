@@ -80,4 +80,4 @@ worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
 score: {check: spec, held_out: [~/agentswarm-data/toml/out/held_out]}  # measured at the start and end of every run
 budgets: {usd_per_day: 3.0, reserve_usd: 0.3}  # set per approved run
 supervisor: {stall_after_minutes: 60}
-jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether to split and profiles difficulty for routing
+jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs

@@ -23,7 +23,7 @@ from agentswarm.core.domain import (
     Severity,
     TeamName,
 )
-from agentswarm.gating.checks import CheckSet, HardCheck
+from agentswarm.gating.checks import CheckSet, HardCheck, Parts
 from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.decisions import Decision
 from agentswarm.judging.judgement import Judgement
@@ -90,7 +90,7 @@ class Gate:
 
     def run_checks(self, cwd: Path, ctx: ArtifactContext) -> tuple[Finding, ...]:
         """Run the hard checks in order and stop at the first failure, which becomes a blocker finding."""
-        for check in self._checks:
+        for check in Parts.checks(self._checks, ctx):
             result = check.run(cwd)
             if not result.passed:
                 return (self._finding(ctx, check.kind, f"{result.name} failed:\n{result.output}"),)

@@ -601,6 +601,10 @@ class ArtifactContext(Frozen):
     # written, which become the last child's own, so the whole is checked against the original task.
     closes: ArtifactId | None = None
     parent_acceptance: AcceptanceWritten | None = None
+    # It completes a task a person or the worklist created: the task itself, or the last step of every split
+    # above it. Only such a step must move a progress ratchet forward; the other steps of a split are building
+    # blocks, which must break nothing (gating/checks.py, `Parts`).
+    completes: bool = True
 
 
 class Instruction(Frozen):

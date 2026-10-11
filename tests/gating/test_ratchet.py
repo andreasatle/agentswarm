@@ -4,8 +4,8 @@ from pathlib import Path
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.config import CheckConfig, WorklistConfig
-from agentswarm.core.domain import Escalated, Paused
-from agentswarm.gating.checks import CheckStatus, RatchetCheck
+from agentswarm.core.domain import ArtifactCreated, ArtifactId, Escalated, Paused, Sized
+from agentswarm.gating.checks import CheckStatus, Parts, RatchetCheck
 from agentswarm.gating.ratchet import Outcomes, Progress
 from agentswarm.workspace.sandbox import LocalSandbox
 from tests.support.harness import Harness
@@ -119,6 +119,41 @@ class TestNothingLeft:
         assert "NOTHING LEFT" in progress.summary(Samples.EXPERIMENTAL, "c0ffee")
         left = Outcomes(passed=frozenset(), failed=frozenset({"tests/acceptance/t.py::a"}))
         assert not Progress(base=left, now=left).acceptable(progress=True)  # still work to do
+
+
+class TestParts:
+    """Only a step that completes its task must make progress; the others must break nothing."""
+
+    def tree(self, tmp_path: Path) -> tuple[Harness, dict[str, ArtifactId]]:
+        h = Harness(tmp_path)
+        task = h.create(task="make the link tests pass")
+        factory = ArtifactFactory(h.board, Harness.LADDER)
+        parts = [factory.child(task, i, f"part {i}", Samples.EXECUTOR) for i in (1, 2)]
+        h.board.append([ArtifactCreated(artifact=p) for p in parts])
+        h.board.append([Sized(artifact=task.id, fits=False, children=tuple(p.id for p in parts))])
+        inner = [factory.child(parts[1], i, f"piece {i}", Samples.EXECUTOR) for i in (1, 2)]
+        h.board.append([ArtifactCreated(artifact=p) for p in inner])
+        h.board.append([Sized(artifact=parts[1].id, fits=False, children=tuple(p.id for p in inner))])
+        ids = {"task": task.id, "first": parts[0].id, "inner_first": inner[0].id, "inner_last": inner[1].id}
+        return h, ids
+
+    def test_only_the_task_and_the_last_step_at_every_level_complete_it(self, tmp_path: Path) -> None:
+        h, ids = self.tree(tmp_path)
+        views = h.board.current()
+        assert {name: views.completes(i) for name, i in ids.items()} == {
+            "task": True,
+            "first": False,
+            "inner_first": False,
+            "inner_last": True,  # the last of the last: it completes the task
+        }
+
+    def test_a_building_block_is_judged_like_a_refactor(self, tmp_path: Path) -> None:
+        h, ids = self.tree(tmp_path)
+        ratchet = RatchetCheck("spec", PYTEST, Samples.EXPERIMENTAL, LocalSandbox())
+        (lenient,) = Parts.checks([ratchet], h.contexts.build(ids["first"]))
+        (strict,) = Parts.checks([ratchet], h.contexts.build(ids["inner_last"]))
+        assert isinstance(lenient, RatchetCheck) and lenient is not ratchet
+        assert strict is ratchet
 
 
 class TestRatchetCheck:

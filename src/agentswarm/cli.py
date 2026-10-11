@@ -95,6 +95,7 @@ class Cli:
         swarm SWARM [--task PROJECT=TEXT]...       several projects at once, sharing one scheduler
         escalations CONFIG --root DIR              open escalations, with the decisions behind them
         resolve CONFIG --root DIR ARTIFACT --retry|--accept|--drop [--note TEXT]
+        drop CONFIG --root DIR ARTIFACT            retire a task and every step split from it
         resume CONFIG --root DIR [--note TEXT]     lift a drift pause
 
     A `.env` file in the working directory is loaded first (e.g. TYPESAFE_API_KEY for Jev).
@@ -170,7 +171,7 @@ class Cli:
                 return self.audit(args)
             case "label":
                 return self.label(args)
-            case "escalations" | "resolve" | "resume":
+            case "escalations" | "resolve" | "resume" | "drop":
                 return self.escalations(args)
             case "swarm":
                 return self.swarm(args)
@@ -486,6 +487,9 @@ class Cli:
                     case "resume":
                         queue.resume(args.note)
                         self._show("resumed")
+                    case "drop":
+                        dropped = queue.drop(ArtifactId(args.artifact), args.note)
+                        self._show(f"dropped {len(dropped)}: {', '.join(dropped)}")
                     case _:
                         self._show(Escalations.render(queue.open(), board.current().paused))
             except ValueError as error:
@@ -615,16 +619,18 @@ class Cli:
         escalations = commands.add_parser("escalations", help="list open escalations")
         resolve = commands.add_parser("resolve", help="resolve an escalation")
         resume = commands.add_parser("resume", help="lift a drift pause")
-        for command in (escalations, resolve, resume):
+        drop = commands.add_parser("drop", help="retire a task and every step split from it")
+        for command in (escalations, resolve, resume, drop):
             command.add_argument("config", help="the project's YAML configuration")
             command.add_argument("--root", required=True, help="directory holding the project")
         resolve.add_argument("artifact", help="the escalated artifact, e.g. a-0003")
+        drop.add_argument("artifact", help="the task, e.g. a-0032; its split steps go with it")
         choice = resolve.add_mutually_exclusive_group(required=True)
         for resolution in Resolution:
             choice.add_argument(
                 f"--{resolution.value}", dest="resolution", action="store_const", const=resolution.value
             )
-        for command in (resolve, resume):
+        for command in (resolve, resume, drop):
             command.add_argument("--note", default="", help="why, for the record")
         return parser
 

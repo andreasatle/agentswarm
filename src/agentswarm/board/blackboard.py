@@ -275,6 +275,17 @@ class BoardViews:
         children = self.children(artifact.parent)
         return artifact.parent if children and children[-1].id == id else None
 
+    def completes(self, id: ArtifactId) -> bool:
+        """Whether it completes the task at the top of its splits: the task itself, or the last child of
+        every split between it and that task. Fix artifacts complete their own task."""
+        current = id
+        while self._artifacts[current].parent is not None and self._artifacts[current].fixes is None:
+            parent = self.closes(current)
+            if parent is None:
+                return False
+            current = parent
+        return True
+
     def depth(self, id: ArtifactId) -> int:
         """How many decompositions above this artifact: 0 for a task a person created."""
         depth, artifact = 0, self._artifacts[id]

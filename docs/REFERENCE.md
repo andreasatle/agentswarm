@@ -162,7 +162,7 @@ Validation rules: teams watch known levels; gates connect adjacent levels and na
 | `max_depth` | 3 | Decomposer: how deep tasks may be split. |
 | `attempts` | 1 | Executors: independent attempts per action; a failing attempt is thrown away and the first that passes its checks is kept. Work that passes its checks but is reported unfinished is kept on the branch for the next attempt. The budget is checked between attempts. |
 | `climb` | false | Executors with several models: after a failed attempt, the router's best model not yet failed on this step (a cascade); failures of earlier runs count, until a person retries the step. |
-| `split_on_failure` | false | With `climb` and a decomposer: a step every model has failed goes back to the planner to be split (ADaPT), with the reason; escalated only past `max_depth`. |
+| `split_on_failure` | false | With `climb` and a decomposer: a step every model has failed goes back to the planner to be split (ADaPT), with the reason; escalated only past `max_depth`. With a progress ratchet, only a step that completes its task (the last step at every level of splitting) must make a test pass; the others must break nothing. To try first and split only on failure, leave `size:*` out of `jev.active`. |
 | `repairs` | 0 | Executors: when the checks fail, the work is kept and the model told what failed, up to this many rounds; each round is recorded (`Repaired`). |
 | `partial` | false | Executors: work that passes its checks is committed even if the model calls it incomplete (with a ratchet: some fixed and none broken is progress). |
 | `rounds` | 20 | The stateless builder: rounds of one typed answer each. |
@@ -346,6 +346,7 @@ Mutation operators (on changed lines of changed non-test files, at most 12 per f
 | `agentswarm escalations CONFIG --root DIR` | Open escalations with the decisions behind them. |
 | `agentswarm resolve CONFIG --root DIR ARTIFACT --retry\|--accept\|--drop [--note TEXT]` | Resolve one. |
 | `agentswarm resume CONFIG --root DIR [--note TEXT]` | Lift a drift pause. |
+| `agentswarm drop CONFIG --root DIR ARTIFACT [--note TEXT]` | Retire a task and every step split from it that hasn't moved up a level, escalated or still queued. |
 | `agentswarm evaluate SUITE --workdir DIR [--variant V]... [--active P]...` | Run a suite; print calibration (and the audit with `--active`). |
 | `agentswarm calibrate DECISIONS` | Calibration report. |
 | `agentswarm tune DECISIONS [--precision P] [--min-support N]` | Threshold recommendations. |

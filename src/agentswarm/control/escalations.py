@@ -78,6 +78,22 @@ class Escalations:
             raise ValueError(f"{artifact} has no open escalation and isn't waiting to be split")
         self._board.append([EscalationResolved(artifact=artifact, resolution=resolution, note=note)])
 
+    def drop(self, artifact: ArtifactId, note: str = "") -> list[ArtifactId]:
+        """A person retires a task and every step split from it, escalated or still queued, that hasn't moved
+        up a level (2026-10-11: an over-eager split left 50 steps that would each have failed)."""
+        views = self._board.current()
+        dropped: list[ArtifactId] = []
+        pending = [views.artifact(artifact)]
+        while pending:
+            current = pending.pop()
+            if not views.dropped(current.id) and current.level == views.artifact(artifact).level:
+                dropped.append(current.id)
+            pending.extend(views.children(current.id))
+        self._board.append(
+            [EscalationResolved(artifact=id, resolution=Resolution.DROP, note=note) for id in dropped]
+        )
+        return dropped
+
     @staticmethod
     def awaiting_split(history: Sequence[Event]) -> bool:
         """Every builder model failed it, and neither the planner nor a person has answered yet."""

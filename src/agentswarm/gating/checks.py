@@ -11,7 +11,7 @@ from typing import ClassVar, Protocol
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import CheckConfig
-from agentswarm.core.domain import FindingKind, Level
+from agentswarm.core.domain import ArtifactContext, FindingKind, Level
 from agentswarm.gating.ratchet import Outcomes, Progress
 from agentswarm.workspace.git import Git, GitError
 from agentswarm.workspace.sandbox import Sandbox, SandboxResult
@@ -126,6 +126,19 @@ class CheckSet:
         return CommandCheck(name, self._configs[name], self._sandbox)
 
 
+class Parts:
+    """The steps of a split are building blocks. A step that doesn't complete its task (its last step, at
+    every level of splitting) can't be expected to make a test pass on its own, so a progress ratchet asks
+    of it only that it break nothing (2026-10-11: a CommonMark item split three levels deep failed its first
+    tiny step on every model, for want of a newly passing test, though nothing broke)."""
+
+    @staticmethod
+    def checks(checks: Sequence["HardCheck"], ctx: ArtifactContext) -> tuple["HardCheck", ...]:
+        if ctx.completes:
+            return tuple(checks)
+        return tuple(c.without_progress() if isinstance(c, RatchetCheck) else c for c in checks)
+
+
 class RatchetCheck:
     """A hard check that passes when the work moves the level's test suite forward without breaking any test.
 
@@ -144,6 +157,20 @@ class RatchetCheck:
         self._sandbox = sandbox
         self._git = git or Git()
         self._known: dict[str, Outcomes] = {}  # the level's outcomes, per commit
+
+    def without_progress(self) -> "RatchetCheck":
+        """The same check judging a refactor: breaking nothing is enough (it shares the level's outcomes)."""
+        if not self._config.progress:
+            return self
+        lenient = RatchetCheck(
+            self._name,
+            self._config.model_copy(update={"progress": False}),
+            self._level,
+            self._sandbox,
+            self._git,
+        )
+        lenient._known = self._known
+        return lenient
 
     @property
     def name(self) -> str:

@@ -84,4 +84,4 @@ gates:
   - {from: raw, to: experimental, hard_checks: [spec, layout]}
 budgets: {usd_per_day: 9.0, reserve_usd: 0.3}  # 2026-10-11: $6.03 spent today, $3 for the run toward 100% (to approve)
 supervisor: {stall_after_minutes: 60}
-jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether to split; the split check stays in shadow
+jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs

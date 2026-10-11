@@ -2,8 +2,17 @@ from pathlib import Path
 
 import pytest
 
+from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.control.escalations import Escalations
-from agentswarm.core.domain import ArtifactId, Escalated, Resolution, SignedOff, Sized, Unbuildable
+from agentswarm.core.domain import (
+    ArtifactCreated,
+    ArtifactId,
+    Escalated,
+    Resolution,
+    SignedOff,
+    Sized,
+    Unbuildable,
+)
 from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.executor import FakeExecutor
 from agentswarm.teams.runner import Relevance
@@ -51,6 +60,16 @@ class TestEscalations:
         queue.resolve(artifact.id, Resolution.RETRY, "rejected by a framework rule, not the work")
         assert not Decomposer.failed(h.contexts.build(artifact.id))  # the planner leaves it alone
         assert FakeExecutor(Samples.RAW).relevant(h.contexts.build(artifact.id)) is Relevance.YES
+
+    def test_drop_retires_a_task_and_every_step_split_from_it(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+        task = h.create()
+        factory = ArtifactFactory(h.board, Harness.LADDER)
+        parts = [factory.child(task, i, f"part {i}", Samples.EXECUTOR) for i in (1, 2)]
+        h.board.append([ArtifactCreated(artifact=p) for p in parts])
+        dropped = Escalations(h.board, h.decisions).drop(task.id, "split too eagerly")
+        assert sorted(dropped) == sorted([task.id, *(p.id for p in parts)])
+        assert not any(h.board.current().active(i) for i in dropped)
 
     def test_accept_promotes_through_the_gate_without_asking_the_judge(self, tmp_path: Path) -> None:
         q = Queue(tmp_path, answers=[Judged.unsure()])  # the judge would escalate again
