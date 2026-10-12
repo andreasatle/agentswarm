@@ -2,6 +2,12 @@
 
 What changed in AgentSwarm, latest first. Each entry says the problem that called for it, what was built, and what it means for the swarm.
 
+## 2026-10-12: YAML 1.2: 100% visible, 97% held out
+
+- **Problem:** jq showed builders writing only what the visible tests demand. YAML, with a notoriously intricate spec, was the next test of that.
+- **Solution:** the official yaml-test-suite (402 cases, every fifth held out), the spec given to the agents without its examples, and one added instruction: hidden tests check what the visible ones don't, so implement each rule as the spec states it.
+- **Implication:** 563 of 563 visible and 115 of 118 held-out tests in one run, for $1.69: a complete YAML 1.2 parser in 901 lines. The gap between seen and unseen shrank from 13 points to 3.
+
 ## 2026-10-12: jq, a language: 100% visible, 87% held out
 
 - **Problem:** the first two problems were formats; a harder test was an interpreter for a programming language, jq, judged by jq's own 675 tests (every fifth held out, all checked against the real jq first).
