@@ -82,6 +82,6 @@ score: {check: spec, held_out: [~/agentswarm-data/commonmark/held_out]}  # measu
 worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}  # a spec section with failing examples per item
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, layout]}
-budgets: {usd_per_day: 9.0, reserve_usd: 0.3}  # 2026-10-11: $6.03 spent today, $3 for the run toward 100% (to approve)
+budgets: {usd_per_day: 3.0, reserve_usd: 0.3}  # 2026-10-12 (UTC): $3 for the rerun toward 100% after d3003cf (approved)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs
