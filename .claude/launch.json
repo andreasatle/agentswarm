@@ -8,6 +8,7 @@
         "run", "agentswarm", "monitor",
         "--project", "examples/toml/project.yaml=/Users/andreasatle/agentswarm-runs/toml",
         "--project", "examples/commonmark/switch-over-cascade.yaml=/Users/andreasatle/agentswarm-runs/switch-over-3",
+        "--project", "examples/jq/project.yaml=/Users/andreasatle/agentswarm-runs/jq",
         "--port", "8765"
       ],
       "port": 8765
