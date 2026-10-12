@@ -83,7 +83,7 @@ class Cli:
         probe EXPERIMENT --workdir DIR             one prompt, one answer: models scored on single calls
         import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
         import-commonmark SPEC --out DIR           the CommonMark spec as a seed project and held-out tests
-        import-toml SUITE --out DIR                the toml-test suite (TOML 1.0.0) as a seed, some held out
+        import-toml SUITE --out DIR [--hide-all]   the toml-test suite (TOML 1.0.0) as a seed, some held out
         import-jq SOURCE --out DIR                 jq's own tests as a seed for an interpreter, some held out
         import-yaml SUITE --out DIR [--spec MD]    the yaml-test-suite (YAML 1.2) as a seed, some held out
         import-html5 DIR --out DIR [--spec MD]     html5lib's tree-construction tests as a seed, some held out
@@ -336,7 +336,9 @@ class Cli:
 
     def import_toml(self, args: argparse.Namespace) -> int:
         """The toml-test suite's TOML 1.0.0 files as a seed project, every fifth per group held out."""
-        summary = TomlImport(Path(args.suite).expanduser(), Path(args.out).expanduser()).write()
+        summary = TomlImport(
+            Path(args.suite).expanduser(), Path(args.out).expanduser(), args.hide_all
+        ).write()
         self._show(summary.render())
         return 0
 
@@ -585,6 +587,11 @@ class Cli:
         toml = commands.add_parser("import-toml", help="the toml-test suite as a seed project")
         toml.add_argument("suite", help="a checkout of github.com/toml-lang/toml-test")
         toml.add_argument("--out", required=True, help="where the seed and the held-out tests go")
+        toml.add_argument(
+            "--hide-all",
+            action="store_true",
+            help="hold out every test: the spec and no labels (self-supervised)",
+        )
         jq = commands.add_parser("import-jq", help="jq's own tests as a seed project")
         jq.add_argument("source", help="a checkout of github.com/jqlang/jq at a release tag")
         jq.add_argument("--out", required=True, help="where the seed and the held-out tests go")

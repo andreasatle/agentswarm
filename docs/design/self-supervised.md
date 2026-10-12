@@ -1,4 +1,4 @@
-# Self-supervised development: design (draft for review, 2026-10-12)
+# Self-supervised development: design (built 2026-10-12; for review)
 
 ## The question
 
@@ -44,6 +44,14 @@ Why TOML: a direct comparison with a known supervised result, so the only thing 
 5. **Score, hidden.** At the start and end of every run, as now; the hidden failures are never shown to any agent or used to steer the work.
 
 6. **Stage 2, only if needed: differential testing.** If the hidden score shows the swarm agreeing with itself while wrong, two builder teams on different model families write the parser separately, a comparer runs both on generated documents, and each disagreement becomes a finding settled by the referee against the spec. Built only on evidence from stage 1.
+
+## Decisions made during implementation
+
+- **The referee rules inside the builder's attempt,** not as a separate team: the builder's typed answer names the disputed tests, and the executor asks the referee before it runs the checks again. Independence comes from the referee's model family, not from a separate process, and nothing has to wait for another team.
+- **An upheld dispute skips the test** (`@pytest.mark.skip` with the ruling as the reason, in a commit of its own) instead of sending it back to the check writer to rewrite. Simplest first; a rewrite step can follow if skipped tests leave gaps the hidden score shows.
+- **Plain code rejects a dispute without a model call** when the test isn't an acceptance test or the quote isn't the spec's own words (whitespace aside), so a builder can't invent a rule.
+- **Each test is disputed once;** at most 3 disputes are ruled per answer.
+- **Model families:** Sonnet plans and writes the checks, Sol (and the local Gemma) builds, DeepSeek referees (examples/toml-self/project.yaml).
 
 ## What gets built
 

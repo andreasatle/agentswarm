@@ -163,9 +163,15 @@ def test_invalid(name: str, document: bytes) -> None:
         loads(document)
 '''
 
-    def __init__(self, suite: Path, out: Path) -> None:
+    def __init__(self, suite: Path, out: Path, hide_all: bool = False) -> None:
         super().__init__(out)
         self._suite = suite  # a checkout of toml-test
+        self._hide_all = (
+            hide_all  # every test held out: the agents get the spec and no labels (self-supervised)
+        )
+
+    def held(self, position: int, case: TomlCase) -> bool:
+        return self._hide_all or super().held(position, case)
 
     def cases(self) -> list[TomlCase]:
         listed = (self._suite / self.LIST).read_text().split()

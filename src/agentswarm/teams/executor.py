@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from typing import ClassVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.board.spend import SpendScope
 from agentswarm.core.domain import (
@@ -14,6 +14,7 @@ from agentswarm.core.domain import (
     AcceptanceWritten,
     ArtifactContext,
     AttemptFailed,
+    CheckDisputed,
     CommitPushed,
     Escalated,
     EscalationResolved,
@@ -37,6 +38,7 @@ from agentswarm.core.domain import (
 from agentswarm.gating.checks import CheckResult, CommandCheck, HardCheck, Parts
 from agentswarm.llm.workers import ProviderUnavailable, Worker, WorkerError
 from agentswarm.teams.acceptance import AcceptanceTester
+from agentswarm.teams.referee import Dispute, Referee
 from agentswarm.teams.routing import RoutedTiers, Router, Tier
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.files import UnsafePath
@@ -159,6 +161,8 @@ class WorktreeToolbox:
         self.seen: set[tuple[str, str, str]] = set()  # read-only calls made since the last change
         self.repeats = 0
         self.repairs: list[bool] = []  # each repair round of the attempt: whether the checks passed after it
+        self.rulings: list[CheckDisputed] = []  # the referee's rulings on tests the builder disputed
+        self.ruled: set[str] = set()  # tests ruled on already: each is disputed once (shared across attempts)
 
     FINISH_AT: ClassVar[int] = 5  # with this few calls left, the model is told to make its edits and finish
 
@@ -292,6 +296,11 @@ class ExecutorReport(Frozen):
 
     summary: str  # one line: what was changed; used as the commit message
     complete: bool  # whether the model believes every part of the task is done
+    # Projects with a referee: acceptance tests the model believes contradict the spec (ignored elsewhere)
+    disputes: tuple[Dispute, ...] = Field(
+        default=(),
+        description="acceptance tests that contradict the project's spec, if it names one; usually empty",
+    )
 
 
 class Executor(ABC):
@@ -408,7 +417,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
         partial: bool = False,  # passing work is committed even if the model calls it incomplete
         step_budget: int
         | None = None,  # the model's calls per run (max_model_calls), counted down in results
+        referee: Referee
+        | None = None,  # rules on acceptance tests the model disputes (projects without labels)
     ) -> None:
+        self._referee = referee
         self._step_budget = step_budget
         self._tests = tests
         self._repairs = repairs
@@ -445,12 +457,15 @@ You are the executor in a software team. Implement the task in `instruction.goal
         events: list[Event] = list(routed)
         number, nudged = 1, False
         carried: str | None = None  # the summary of passing but unfinished work an attempt left
+        ruled = {e.test for e in ctx.history if isinstance(e, CheckDisputed)}
         while number <= self._attempts:
             last = number == self._attempts
             toolbox = WorktreeToolbox(
                 worktree, Parts.checks(self._checks, ctx), self._tests, self._step_budget
             )
+            toolbox.ruled = ruled
             kept = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox, carried)
+            events.extend(toolbox.rulings)
             if toolbox.calls:  # where the model's tokens went, for the board
                 used = ToolsUsed(
                     artifact=ctx.artifact.id, team=self.name, model=model, calls=tuple(toolbox.calls)
@@ -547,6 +562,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
             failed = self._failed(ctx, model, f"executor failed: {error}")
             return [failed, *self._escalate(ctx, worktree, failed.reason)]
         restored = worktree.restore(AcceptanceTester.FOLDER)  # the producer can't change its acceptance tests
+        await self.settle(ctx, worktree, report, model, toolbox)
         protection: list[Event] = (
             [AcceptanceRestored(artifact=artifact.id, paths=tuple(restored))] if restored else []
         )
@@ -567,6 +583,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
             except WorkerError:
                 break
             restored = [*restored, *worktree.restore(AcceptanceTester.FOLDER)]
+            await self.settle(ctx, worktree, report, model, toolbox)
             checks = toolbox.check_report()
             toolbox.repairs.append(checks.passed)
             if checks.passed:
@@ -594,6 +611,29 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 Escalated(artifact=artifact.id, reason=f"executor reports incomplete: {report.summary}")
             )
         return events
+
+    async def settle(
+        self,
+        ctx: ArtifactContext,
+        worktree: Worktree,
+        report: ExecutorReport,
+        model: str | None,
+        toolbox: WorktreeToolbox,
+    ) -> None:
+        """The referee rules on the tests the model disputed (each once); an upheld one is skipped from now.
+
+        Called after the acceptance tests are put back, so a skip is committed onto the tests as written.
+        """
+        if self._referee is None:
+            return
+        for dispute in report.disputes[: Referee.MAX_PER_ANSWER]:
+            path, _, rest = dispute.test.partition("::")
+            if f"{path}::{rest.split('[', 1)[0]}" in toolbox.ruled:
+                continue
+            ruling = await self._referee.rule(worktree, ctx.artifact.id, dispute, model)
+            if ruling is not None:
+                toolbox.ruled.add(ruling.test)
+                toolbox.rulings.append(ruling)
 
     async def work(
         self, worker: Worker, request: ExecutorRequest, toolbox: WorktreeToolbox

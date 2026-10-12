@@ -78,6 +78,11 @@ class TestProjectConfig:
             {"teams": [{"use": "executor", "watches": "raw"}, {"use": "executor", "watches": "raw"}]},
             {"gates": [{"from": "raw", "to": "experimental", "requires": ["executor"]}]},
             {"teams": [{"use": "executor", "watches": "raw", "model_tiers": ["missing"]}]},
+            {"teams": [{"use": "executor", "watches": "raw", "referee": "missing", "spec": ["docs/s.md"]}]},
+            {
+                "models": {"m": {"model": "ollama:m"}},
+                "teams": [{"use": "executor", "watches": "raw", "referee": "m"}],
+            },
             {
                 "levels": ["raw", "experimental", "candidate"],
                 "gates": [{"from": "experimental", "to": "candidate", "requires": ["nobody"]}],
@@ -99,6 +104,8 @@ class TestProjectConfig:
             "duplicate-team",
             "sign-offs-at-the-lowest-gate",
             "undefined-model-tier",
+            "undefined-referee",
+            "referee-without-spec",
             "required-team-not-watching",
             "judge-above-the-lowest-level",
         ],

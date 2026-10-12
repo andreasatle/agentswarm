@@ -8,6 +8,7 @@ from agentswarm.core.domain import (
     AcceptanceWritten,
     ArtifactCreated,
     AttemptFailed,
+    CheckDisputed,
     Claimed,
     CommitPushed,
     Escalated,
@@ -99,6 +100,9 @@ class Report:
                 return f"acceptance tests by {event.team}: {', '.join(f.path for f in event.files)}"
             case AcceptanceRestored():
                 return f"acceptance tests restored after the producer changed them: {', '.join(event.paths)}"
+            case CheckDisputed():
+                verdict = "upheld, test skipped" if event.upheld else "rejected, test stands"
+                return f"{event.model or 'builder'} disputed {event.test}: {verdict} ({event.ruling})"
             case PromotionStarted():
                 return f"moving {event.branch} to {event.target[:10]}"
             case PromotionSettled():

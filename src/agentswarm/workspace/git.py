@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Self
 
@@ -139,6 +140,11 @@ class Worktree:
         """Commit every change in the worktree and return the new commit's sha."""
         self._run("add", "--all")
         self._run("commit", "--quiet", "--allow-empty", "-m", message)
+        return self.head()
+
+    def commit_paths(self, message: str, paths: Sequence[str]) -> str:
+        """Commit only these tracked files, leaving every other change in the worktree uncommitted."""
+        self._run("commit", "--quiet", "-m", message, "--", *paths)
         return self.head()
 
     def head(self) -> str:

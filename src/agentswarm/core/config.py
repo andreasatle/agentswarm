@@ -260,6 +260,19 @@ class TeamConfig(Strict):
     relevance: str | None = None  # a Jev relevance judge asked before working (analyzer teams)
     max_depth: int = Field(default=3, ge=1)  # decomposition: how deep tasks may be split
     routing: RoutingConfig | None = None  # executors: Jev describes the task, the router picks the tier
+    # executors, projects without labels: a model (another family than builder and check writer) that rules
+    # when the builder disputes an acceptance test, against the spec files named in `spec`
+    referee: str | None = None
+    spec: tuple[str, ...] = ()  # with a referee: the spec, as files in the project (e.g. docs/toml.md)
+    # acceptance testers, projects without labels: checks that need no hand-computed answers (round trips,
+    # equivalent inputs, rules the spec states) instead of exact expected values
+    derived: bool = False
+
+    @model_validator(mode="after")
+    def referee_needs_spec(self) -> Self:
+        if self.referee is not None and not self.spec:
+            raise ValueError("a referee needs `spec`: the files a disputed test is judged against")
+        return self
 
 
 class SupervisorConfig(Strict):
@@ -417,7 +430,7 @@ class ProjectConfig(Strict):
                 raise ValueError(f"jev.fallback names undefined model {self.jev.fallback!r}")
             if team.model is not None and team.model_tiers:
                 raise ValueError(f"team {team.use!r}: set `model` or `model_tiers`, not both")
-            for model in (team.model, *team.model_tiers):
+            for model in (team.model, *team.model_tiers, team.referee):
                 if model is not None and model not in self.models:
                     raise ValueError(f"team {team.use!r} uses undefined model {model!r}")
             for name in team.checks:

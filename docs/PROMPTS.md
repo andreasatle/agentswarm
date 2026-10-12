@@ -39,6 +39,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Judge fallback: a model answering Jev's questions](#judge-fallback-a-model-answering-jevs-questions) | (`LLMDecider`) | `LLMAnswers` |
 | [Probe: produce in one answer (benchmark)](#probe-produce-in-one-answer-benchmark) | (`Producing`) | `ProduceAnswer` |
 | [Acceptance tester: tests written before the work (also its benchmark probe)](#acceptance-tester-tests-written-before-the-work-also-its-benchmark-probe) | `acceptance_tester` | `AcceptAnswer` |
+| [Referee: rules on an acceptance test the builder disputes (projects without labels)](#referee-rules-on-an-acceptance-test-the-builder-disputes-projects-without-labels) | (`Referee`) | `RulingAnswer` |
 | [Probe: critique in one answer (benchmark)](#probe-critique-in-one-answer-benchmark) | (`Critiquing`) | `CritiqueAnswer` |
 | [Jev questions](#jev-questions) | gates, relevance filters, planners, router | answers |
 
@@ -170,12 +171,55 @@ class ExecutorReport(Frozen):
 
     summary: str  # one line: what was changed; used as the commit message
     complete: bool  # whether the model believes every part of the task is done
+    # Projects with a referee: acceptance tests the model believes contradict the spec (ignored elsewhere)
+    disputes: tuple[Dispute, ...] = Field(
+        default=(),
+        description="acceptance tests that contradict the project's spec, if it names one; usually empty",
+    )
+
+
+class Dispute(Frozen):
+    """An acceptance test the builder believes contradicts the spec."""
+
+    test: str = Field(description="the test's pytest id: tests/acceptance/<file>.py::<test function>")
+    quote: str = Field(description="the spec's exact words the test contradicts, copied from the spec file")
+    reason: str = Field(description="how the test contradicts that passage")
 ```
 
 <details><summary>JSON schema</summary>
 
 ```json
 {
+  "$defs": {
+    "Dispute": {
+      "additionalProperties": false,
+      "description": "An acceptance test the builder believes contradicts the spec.",
+      "properties": {
+        "test": {
+          "description": "the test's pytest id: tests/acceptance/<file>.py::<test function>",
+          "title": "Test",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the spec's exact words the test contradicts, copied from the spec file",
+          "title": "Quote",
+          "type": "string"
+        },
+        "reason": {
+          "description": "how the test contradicts that passage",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "test",
+        "quote",
+        "reason"
+      ],
+      "title": "Dispute",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "description": "What the model returns when it has finished working.",
   "properties": {
@@ -186,6 +230,15 @@ class ExecutorReport(Frozen):
     "complete": {
       "title": "Complete",
       "type": "boolean"
+    },
+    "disputes": {
+      "default": [],
+      "description": "acceptance tests that contradict the project's spec, if it names one; usually empty",
+      "items": {
+        "$ref": "#/$defs/Dispute"
+      },
+      "title": "Disputes",
+      "type": "array"
     }
   },
   "required": [
@@ -1238,6 +1291,33 @@ single answer. The data holds the task and every file of the project as it is no
 - Do not test anything the task doesn't ask for, and do not implement the feature.
 ```
 
+### AcceptanceTester
+
+`agentswarm.teams.acceptance.AcceptanceTester`: Writes the acceptance tests of each new leaf artifact at the lowest level, before the executor starts.
+
+Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting.
+
+```text
+You write the checks for one step of a project that has a specification but no tests with known answers,
+before anyone implements the step, in a single answer. The data holds the step and every file of the
+project, the specification included.
+
+- Write one complete pytest file of checks that need no expected values worked out by hand:
+  - round trips: build values in the test, write them in the project's format with a small writer you
+    include in the test file, read them back with the project's code, and compare with the values you built;
+  - equivalences: inputs the specification says mean the same (other whitespace or comments, other quoting,
+    another but equivalent layout) must give the same result;
+  - rules the specification states for every input: what must be rejected, which types results have.
+  Quote the specification's words in a comment above each test.
+- Where the specification itself shows an input and its result, check exactly that, quoting the passage.
+- Generate many inputs with random.Random and a fixed seed, so a failure can be reproduced. Use only the
+  standard library and pytest.
+- Check only what this step covers, through the project's public interface, importing it the way the
+  project's own tests do. The test runs from the project root.
+- The checks must fail now, because the step isn't done yet, and pass once it is done correctly.
+- Do not implement the step.
+```
+
 ### User message (sample)
 
 ```text
@@ -1319,6 +1399,96 @@ class AcceptAnswer(Frozen):
 `AcceptanceTester`: Writes the acceptance tests of each new leaf artifact at the lowest level, before the executor starts.
 
 Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting.
+
+## Referee: rules on an acceptance test the builder disputes (projects without labels)
+
+### Referee
+
+`agentswarm.teams.referee.Referee`
+
+```text
+You are the referee between a builder and the checks someone else wrote for its work, in a project that has a
+specification but no tests with known answers. The builder says one test contradicts the specification and
+quotes the passage. Rule on that test alone, from the specification, in a single answer.
+
+- Read the passage and the test (its file holds the helpers it uses). Decide what the specification requires
+  for the input the test checks, and whether the test demands exactly that.
+- Uphold the dispute only if the test demands something the specification contradicts or doesn't require.
+  If the test is right, or the specification is unclear, the test stands.
+- Don't judge the builder's code: it isn't shown, and doesn't matter here.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "test": "tests/acceptance/test_a_0001.py::test_greet",
+  "test_file": "from greeter import greet\n\n\ndef test_greet():\n    assert greet('Ada') == 'Hi, Ada!'\n",
+  "quote": "greet(name) returns 'Hello, <name>!'",
+  "passage": "# Greeter greet(name) returns 'Hello, <name>!' for any name.",
+  "reason": "the spec says Hello, the test demands Hi"
+}
+</data>
+```
+
+### Payload types
+
+```python
+class RulingRequest(Frozen):
+    """The payload a referee receives."""
+
+    test: str  # the disputed test's pytest id
+    test_file: str  # the whole test file, helpers included
+    quote: str
+    passage: str  # the spec around the quote, whitespace collapsed
+    reason: str  # the builder's argument
+```
+
+### Answer
+
+```python
+class RulingAnswer(Frozen):
+    """Your ruling on one disputed test."""
+
+    upheld: bool = Field(
+        description="true if the test contradicts the spec and must go; false if it is right"
+    )
+    reason: str = Field(description="one or two sentences, citing the spec")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your ruling on one disputed test.",
+  "properties": {
+    "upheld": {
+      "description": "true if the test contradicts the spec and must go; false if it is right",
+      "title": "Upheld",
+      "type": "boolean"
+    },
+    "reason": {
+      "description": "one or two sentences, citing the spec",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "upheld",
+    "reason"
+  ],
+  "title": "RulingAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Referee`: 
 
 ## Probe: critique in one answer (benchmark)
 

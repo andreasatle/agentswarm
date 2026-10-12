@@ -61,6 +61,7 @@ from agentswarm.teams.analyzer import (
 from agentswarm.teams.decomposer import Decomposer, Split, SplitRequest
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, ExecutorTeam, WorktreeToolbox
+from agentswarm.teams.referee import Referee, RulingAnswer, RulingRequest
 from agentswarm.teams.stateless import BuildState, BuildStep, Outcome, StatelessBuilder
 
 type ToolboxClass = type[WorktreeToolbox] | type[AnalysisToolbox] | type[ReadingToolbox]
@@ -173,6 +174,17 @@ class SampleData:
     def accept(cls) -> AcceptRequest:
         request = cls.produce()
         return AcceptRequest(north_star=request.north_star, task=request.task, files=request.files)
+
+    @classmethod
+    def ruling(cls) -> RulingRequest:
+        test = "from greeter import greet\n\n\ndef test_greet():\n    assert greet('Ada') == 'Hi, Ada!'\n"
+        return RulingRequest(
+            test="tests/acceptance/test_a_0001.py::test_greet",
+            test_file=test,
+            quote="greet(name) returns 'Hello, <name>!'",
+            passage="# Greeter greet(name) returns 'Hello, <name>!' for any name.",
+            reason="the spec says Hello, the test demands Hi",
+        )
 
     @classmethod
     def critique(cls) -> CritiqueRequest:
@@ -289,10 +301,21 @@ class PromptCatalogue:
             ),
             CallFamily(
                 "Acceptance tester: tests written before the work (also its benchmark probe)",
-                (Caller("acceptance_tester", AcceptanceTester, AcceptanceTester.INSTRUCTIONS),),
+                (
+                    Caller("acceptance_tester", AcceptanceTester, AcceptanceTester.INSTRUCTIONS),
+                    Caller("", AcceptanceTester, AcceptanceTester.DERIVED),  # `derived: true`: no labels
+                ),
                 AcceptanceTester,
                 SampleData.accept(),
                 AcceptAnswer,
+                None,
+            ),
+            CallFamily(
+                "Referee: rules on an acceptance test the builder disputes (projects without labels)",
+                (Caller("", Referee, Referee.INSTRUCTIONS),),
+                Referee,
+                SampleData.ruling(),
+                RulingAnswer,
                 None,
             ),
             CallFamily(

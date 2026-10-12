@@ -24,6 +24,7 @@ from agentswarm.teams.analyzer import (
 from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
+from agentswarm.teams.referee import Referee
 from agentswarm.teams.relevance import RelevanceFilter
 from agentswarm.teams.routing import RoutedTiers, Router, RoutingLedger
 from agentswarm.teams.runner import Team
@@ -123,6 +124,14 @@ class TeamResources:
             raise ValueError(f"team {team.use!r} needs a model; set `model:` in its configuration")
         return self._workers.worker(model, team.max_model_calls, self._meter(team, model))
 
+    def referee_for(self, team: TeamConfig) -> Referee | None:
+        """The referee an executor's disputed tests go to, metered as its own team; None without one."""
+        if team.referee is None:
+            return None
+        meter = self._meters("referee", team.referee) if self._meters is not None else None
+        worker = self._workers.worker(team.referee, team.max_model_calls, meter)
+        return Referee(worker, self._model_ids.get(team.referee, team.referee), team.spec)
+
     def _meter(self, team: TeamConfig, model: str) -> Meter | None:
         return self._meters(team.use, model) if self._meters is not None else None
 
@@ -173,6 +182,7 @@ class TeamCatalog:
                 repairs=team.repairs,
                 partial=team.partial,
                 step_budget=team.max_model_calls,
+                referee=resources.referee_for(team),
             ),
         )
         catalog.register(
@@ -265,6 +275,7 @@ class TeamCatalog:
             requires_sizing=resources.plans(),
             name=TeamName(team.use),
             routing=resources.routing_for(team, CallKind.ACCEPT),
+            derived=team.derived,
         )
 
     @staticmethod

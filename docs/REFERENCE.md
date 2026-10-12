@@ -163,6 +163,9 @@ Validation rules: teams watch known levels; gates connect adjacent levels and na
 | `attempts` | 1 | Executors: independent attempts per action; a failing attempt is thrown away and the first that passes its checks is kept. Work that passes its checks but is reported unfinished is kept on the branch for the next attempt. The budget is checked between attempts. |
 | `climb` | false | Executors with several models: after a failed attempt, the router's best model not yet failed on this step (a cascade); failures of earlier runs count, until a person retries the step. |
 | `split_on_failure` | false | With `climb` and a decomposer: a step every model has failed goes back to the planner to be split (ADaPT), with the reason; escalated only past `max_depth`. With a progress ratchet, only a step that completes its task (the last step at every level of splitting) must make a test pass; the others must break nothing. To try first and split only on failure, leave `size:*` out of `jev.active`. |
+| `referee` | none | Executors, projects without labels: a model (of another family than the builder and the check writer) that rules when the builder disputes an acceptance test in its answer (`disputes`, quoting the spec). Plain code first checks that the test is an acceptance test and the quote is the spec's own words; an upheld dispute skips the test in a commit of its own. Every ruling is a `check_disputed` event. Needs `spec`. |
+| `spec` | none | With `referee`: the spec's files in the project, which a disputed test is judged against. |
+| `derived` | false | Acceptance testers, projects without labels: checks that need no hand-computed answers (round trips with a writer in the test, equivalent inputs, rules the spec states), with a fixed random seed. |
 | `repairs` | 0 | Executors: when the checks fail, the work is kept and the model told what failed, up to this many rounds; each round is recorded (`Repaired`). |
 | `partial` | false | Executors: work that passes its checks is committed even if the model calls it incomplete (with a ratchet: some fixed and none broken is progress). |
 | `rounds` | 20 | The stateless builder: rounds of one typed answer each. |
@@ -359,7 +362,7 @@ Mutation operators (on changed lines of changed non-test files, at most 12 per f
 | `agentswarm spend` | Today's spend of every run on this machine, per account, against the limits. |
 | `agentswarm openrouter-models ID...` | Model entries for OpenRouter models, with today's prices. |
 | `agentswarm import-commonmark SPEC --out DIR [--text SPEC_TXT]` | The CommonMark spec's examples as a seed (one protected test file per section) and a held-out fifth. |
-| `agentswarm import-toml SUITE --out DIR` | The toml-test suite's TOML 1.0.0 files as a seed and a held-out fifth per group. |
+| `agentswarm import-toml SUITE --out DIR [--hide-all]` | The toml-test suite's TOML 1.0.0 files as a seed and a held-out fifth per group; with `--hide-all`, every test is held out (a project without labels). |
 | `agentswarm prompts` | Every model call and Jev question as the model sees it: instructions, a sample payload, tools, answer schema. Its output is [PROMPTS.md](PROMPTS.md). |
 
 A swarm file:

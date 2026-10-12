@@ -13,6 +13,7 @@ from agentswarm.core.domain import (
     ArtifactCreated,
     ArtifactId,
     AttemptFailed,
+    CheckDisputed,
     Claim,
     Claimed,
     CommitPushed,
@@ -150,6 +151,7 @@ class BoardViews:
                 | ToolsUsed()
                 | AcceptanceWritten()
                 | AcceptanceRestored()
+                | CheckDisputed()
                 | Unbuildable()
                 | Repaired()
             ):

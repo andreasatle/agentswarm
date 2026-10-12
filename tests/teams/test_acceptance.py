@@ -160,3 +160,22 @@ class TestAcceptanceFiles:
             )
         result = a.runner.run_on(worktree.path, [AcceptanceTester.FOLDER])
         assert result.status is CheckStatus.PASSED, result.output
+
+
+class TestDerivedChecks:
+    async def test_projects_without_labels_get_checks_without_hand_computed_answers(
+        self, tmp_path: Path
+    ) -> None:
+        a = Accepting(tmp_path)
+        seen: list[str] = []
+
+        class Recording(FakeWorker):
+            async def run[T: BaseModel](
+                self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
+            ) -> T:
+                seen.append(instructions)
+                return await super().run(instructions, payload, output, toolbox)
+
+        team = AcceptanceTester(Samples.RAW, Recording([a.answer(GOOD)]), a.runner, derived=True)
+        await a.act(team)
+        assert seen == [AcceptanceTester.DERIVED] and "round trips" in seen[0]

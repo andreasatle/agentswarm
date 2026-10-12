@@ -78,6 +78,28 @@ single answer. The data holds the task and every file of the project as it is no
 - The tests must fail now, because the feature doesn't exist yet, and pass once it is done correctly.
 - Do not test anything the task doesn't ask for, and do not implement the feature."""
 
+    # Projects without labels (docs/design/self-supervised.md): models get hand-computed expected values wrong
+    # often, the more so for the inputs most likely to find bugs, so these checks need none.
+    DERIVED = """\
+You write the checks for one step of a project that has a specification but no tests with known answers,
+before anyone implements the step, in a single answer. The data holds the step and every file of the
+project, the specification included.
+
+- Write one complete pytest file of checks that need no expected values worked out by hand:
+  - round trips: build values in the test, write them in the project's format with a small writer you
+    include in the test file, read them back with the project's code, and compare with the values you built;
+  - equivalences: inputs the specification says mean the same (other whitespace or comments, other quoting,
+    another but equivalent layout) must give the same result;
+  - rules the specification states for every input: what must be rejected, which types results have.
+  Quote the specification's words in a comment above each test.
+- Where the specification itself shows an input and its result, check exactly that, quoting the passage.
+- Generate many inputs with random.Random and a fixed seed, so a failure can be reproduced. Use only the
+  standard library and pytest.
+- Check only what this step covers, through the project's public interface, importing it the way the
+  project's own tests do. The test runs from the project root.
+- The checks must fail now, because the step isn't done yet, and pass once it is done correctly.
+- Do not implement the step."""
+
     def __init__(
         self,
         watches: Level,
@@ -86,7 +108,9 @@ single answer. The data holds the task and every file of the project as it is no
         requires_sizing: bool = False,
         name: TeamName = TeamName("acceptance_tester"),
         routing: RoutedTiers | None = None,  # instead of `worker`: tiers, and a router to start on one
+        derived: bool = False,  # checks without hand-computed answers (DERIVED), for projects without labels
     ) -> None:
+        self._instructions = self.DERIVED if derived else self.INSTRUCTIONS
         self._routing = routing
         self._watches = watches
         self._worker = worker
@@ -168,7 +192,7 @@ single answer. The data holds the task and every file of the project as it is no
         start, routed = self._routing.start(ctx, worktree.head()) if self._routing is not None else (0, [])
         for number in range(self.TRIES):
             try:
-                answer = await self.worker(start + number).run(self.INSTRUCTIONS, request, AcceptAnswer)
+                answer = await self.worker(start + number).run(self._instructions, request, AcceptAnswer)
             except ProviderUnavailable as error:
                 return [*routed, Paused(reason=f"the model provider is unavailable: {error}")]
             except WorkerError as error:

@@ -188,6 +188,29 @@ class AcceptanceWritten(Frozen):
         return self.artifact
 
 
+class CheckDisputed(Frozen):
+    """A builder said an acceptance test contradicts the spec, and a referee ruled on it.
+
+    Upheld: the test is skipped from then on, with the ruling as the reason (self-supervised projects, where
+    the tests are model-written and some are wrong). Rejected: the test stands. Either way it is on the board,
+    so how often model-written checks are wrong is measured.
+    """
+
+    kind: Literal["check_disputed"] = "check_disputed"
+    artifact: ArtifactId
+    test: str  # pytest id of the disputed test: tests/acceptance/test_x.py::test_name
+    quote: str  # the spec's words the builder says the test contradicts
+    reason: str  # the builder's argument
+    model: str | None = None  # the builder's model
+    referee: str | None = None  # the referee's model; None when plain code ruled (a quote not in the spec)
+    upheld: bool
+    ruling: str
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class AcceptanceRestored(Frozen):
     """The producer had changed acceptance tests; they were put back before its work was committed."""
 
@@ -552,6 +575,7 @@ type Event = Annotated[
     | Sized
     | AcceptanceWritten
     | AcceptanceRestored
+    | CheckDisputed
     | Paused
     | Resumed
     | Spent

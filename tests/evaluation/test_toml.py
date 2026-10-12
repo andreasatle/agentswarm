@@ -47,3 +47,9 @@ class TestTomlImport:
         for path in (summary.seed / "tests" / "acceptance").glob("*.py"):
             compile(path.read_text(), str(path), "exec")
         assert "return {}" in (summary.seed / "tomlparse" / "__init__.py").read_text()  # starts near 0%
+
+    def test_hide_all_holds_out_every_test(self, tmp_path: Path) -> None:
+        summary = TomlImport(Suite(tmp_path / "suite").root, tmp_path / "out", hide_all=True).write()
+        assert (summary.visible, summary.held_out) == (0, 8)
+        assert not list((summary.seed / "tests" / "acceptance").glob("test_*.py"))
+        assert (summary.seed / "tests" / "acceptance" / "_tagged.py").exists()  # the held-out tests import it
