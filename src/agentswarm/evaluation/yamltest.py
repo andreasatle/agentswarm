@@ -95,6 +95,58 @@ class YamlSuite:
         )
 
 
+class YamlSpec:
+    """The YAML 1.2.2 spec (Markdown, from github.com/yaml/yaml-spec) without its examples, which are tests.
+
+    An example is a bold "**Example #. Title**" (on one or two lines), code blocks, comments and an optional
+    legend; the grammar's productions are code blocks too, starting with "[#]", and stay.
+    """
+
+    HEADING = "**Example #."
+    PRODUCTION = "[#]"
+
+    def __init__(self, path: Path) -> None:
+        self._lines = path.read_text().split("\n")
+
+    def text(self) -> str:
+        """The spec with every example replaced by a note that it was left out."""
+        kept: list[str] = []
+        n = 0
+        while n < len(self._lines):
+            line = self._lines[n]
+            if line.startswith(self.HEADING):
+                title = [line]
+                while not title[-1].rstrip().endswith("**"):  # a title can wrap onto the next line
+                    n += 1
+                    title.append(self._lines[n])
+                heading = " ".join(t.strip() for t in title).strip("*").removesuffix(".")
+                kept.append(f"*{heading}: left out (the examples are tests).*")
+                n = self.after_example(n + 1)
+                continue
+            kept.append(line)
+            n += 1
+        return "\n".join(kept)
+
+    def examples(self) -> int:
+        return sum(line.startswith(self.HEADING) for line in self._lines)
+
+    def after_example(self, n: int) -> int:
+        """The first line after an example's code blocks and legend."""
+        lines = self._lines
+        while n < len(lines):
+            line = lines[n]
+            if line.startswith("```") and not lines[n + 1].startswith(self.PRODUCTION):
+                n += 1
+                while not lines[n].startswith("```"):
+                    n += 1
+                n += 1
+            elif not line.strip() or line == "**Legend:**" or line.startswith(("* [", "<!--")):
+                n += 1
+            else:
+                return n
+        return n
+
+
 class YamlImport:
     PACKAGE = "yamlpy"
     HELD_OUT_EVERY: ClassVar[int] = 5  # within each group, the fifth, tenth, ... case is held out
@@ -244,9 +296,10 @@ gives
 ```
 """
 
-    def __init__(self, suite: Path, out: Path) -> None:
+    def __init__(self, suite: Path, out: Path, spec: Path | None = None) -> None:
         self._suite = suite  # the suite's data release, e.g. the data-2022-01-17 tag
         self._out = out
+        self._spec = spec  # the 1.2.2 spec's Markdown, given to the agents without its examples
 
     def groups(self) -> list[YamlGroup]:
         cases = YamlSuite(self._suite).cases()
@@ -282,6 +335,8 @@ gives
         (acceptance / "__init__.py").write_text("")
         (acceptance / "_json.py").write_text(self.JSON)
         (seed / "docs" / "event-notation.md").write_text(self.NOTATION)
+        if self._spec is not None:
+            (seed / "docs" / "yaml-1.2.2.md").write_text(YamlSpec(self._spec).text())
         visible = held = 0
         for index, group in enumerate(groups, 1):
             shown = [c for n, c in enumerate(group.cases, 1) if n % self.HELD_OUT_EVERY]

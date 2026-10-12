@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agentswarm.evaluation.yamltest import YamlImport, YamlSuite
+from agentswarm.evaluation.yamltest import YamlImport, YamlSpec, YamlSuite
 
 
 class Suite:
@@ -60,3 +60,19 @@ class TestYamlImport:
         for path in acceptance.glob("*.py"):
             compile(path.read_text(), str(path), "exec")
         assert "return []" in (summary.seed / "yamlpy" / "__init__.py").read_text()  # starts near 0%
+
+
+class TestYamlSpec:
+    def test_examples_are_left_out_and_productions_kept(self, tmp_path: Path) -> None:
+        spec = tmp_path / "spec.md"
+        spec.write_text(
+            "Text before.\n\n"
+            "**Example #. Invalid Byte\nOrder Mark**\n\n```\n- bad\n```\n<!-- note -->\n\n"
+            "```\nERROR:\n bad\n```\n"
+            "**Legend:**\n* [c-byte-order-mark] <!-- 1:1 -->\n\n"
+            "Text after.\n\n```\n[#] c-byte-order-mark ::= xFEFF\n```\n"
+        )
+        text = YamlSpec(spec).text()
+        assert "*Example #. Invalid Byte Order Mark: left out (the examples are tests).*" in text
+        assert "- bad" not in text and "ERROR" not in text and "Legend" not in text
+        assert "Text before." in text and "Text after." in text and "[#] c-byte-order-mark" in text

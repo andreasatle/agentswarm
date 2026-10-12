@@ -4,7 +4,9 @@
 # each group is held out and never shown to any agent. Checked first: an oracle passes all 681 tests through the
 # generated files, and PyYAML (YAML 1.1) passes 210 of the 279 value tests, failing only where 1.1 differs.
 #   git clone --depth 1 --branch data-2022-01-17 https://github.com/yaml/yaml-test-suite ~/agentswarm-data/yaml/yaml-test-suite
-#   uv run agentswarm import-yaml ~/agentswarm-data/yaml/yaml-test-suite --out ~/agentswarm-data/yaml/out
+#   curl -sL -o ~/agentswarm-data/yaml/yaml-1.2.2-spec.md https://raw.githubusercontent.com/yaml/yaml-spec/1.2.2/spec/1.2.2/spec.md
+#   uv run agentswarm import-yaml ~/agentswarm-data/yaml/yaml-test-suite --out ~/agentswarm-data/yaml/out \
+#     --spec ~/agentswarm-data/yaml/yaml-1.2.2-spec.md   # the spec for the agents, its 132 examples left out
 #   uv run agentswarm run examples/yaml/project.yaml --root ~/agentswarm-runs/yaml --max-rounds 60
 # The tests decide how the work is split: the worklist turns each test file with failures into an item, one at
 # a time; the ratchet gate merges a change only if more tests pass and no acceptance test breaks.
@@ -74,12 +76,12 @@ teams:
     constraints:
       - Use only the Python standard library; no YAML library, and no subprocess.
       - Keep the code in the yamlpy package, split into modules as it grows (for example a reader, a scanner, a parser that gives the events, and a composer that builds the values).
-      - The event notation is in docs/event-notation.md; the tests in tests/acceptance/ are the definition of done.
+      - The YAML 1.2.2 spec is in docs/yaml-1.2.2.md (its examples left out; search and read the parts you need), the event notation in docs/event-notation.md; the tests in tests/acceptance/ are the definition of done.
       - Hidden tests check what the visible ones don't, so implement each rule fully, the way the YAML 1.2 spec states it, not only the cases a visible test shows.
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
 worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
 score: {check: spec, held_out: [~/agentswarm-data/yaml/out/held_out]}  # measured at the start and end of every run
-budgets: {usd_per_day: 3.0, reserve_usd: 0.3}  # set per approved run
+budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-12 (UTC): $5 for the first run, ~1% toward 100% (approved)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs
