@@ -1,0 +1,85 @@
+# Stage 3 of docs/ROADMAP.md: the fourth real problem, a YAML 1.2 parser in pure Python from a stub, judged by the
+# official yaml-test-suite (402 cases: each input's parser events, its values as JSON where JSON holds them, or a
+# mark that it must be rejected), which the agents see as tests/acceptance/ and can't change; every fifth case of
+# each group is held out and never shown to any agent. Checked first: an oracle passes all 681 tests through the
+# generated files, and PyYAML (YAML 1.1) passes 210 of the 279 value tests, failing only where 1.1 differs.
+#   git clone --depth 1 --branch data-2022-01-17 https://github.com/yaml/yaml-test-suite ~/agentswarm-data/yaml/yaml-test-suite
+#   uv run agentswarm import-yaml ~/agentswarm-data/yaml/yaml-test-suite --out ~/agentswarm-data/yaml/out
+#   uv run agentswarm run examples/yaml/project.yaml --root ~/agentswarm-runs/yaml --max-rounds 60
+# The tests decide how the work is split: the worklist turns each test file with failures into an item, one at
+# a time; the ratchet gate merges a change only if more tests pass and no acceptance test breaks.
+project: yaml
+domain: software
+north_star: >-
+  A YAML 1.2 parser in pure Python: the package yamlpy, whose events(text) gives the parser's events in the
+  yaml-test-suite's notation, whose load_all(text) gives every document as plain values (the core schema), and
+  which raises YAMLError for every input the suite rejects. Done when every test of the suite passes.
+seed: ~/agentswarm-data/yaml/out/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # The same models as CommonMark's last runs; the router ranks them by measured cost per success.
+  planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  gemma26: {model: "ollama:gemma4:26b", temperature: 0, max_tokens: 16384, timeout_s: 900, context_window: 65536}
+  haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, protected: [tests/acceptance/]}
+  # A YAML library would solve the task without doing it (the sandbox has none).
+  own-parser:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, re, sys
+        banned = re.compile(r"^\s*(import|from)\s+(yaml|ruamel|strictyaml|oyaml|yamlcore|subprocess)\b", re.M)
+        found = [str(p) for p in pathlib.Path("yamlpy").rglob("*.py") if banned.search(p.read_text())]
+        for path in found:
+            print(f"{path}: imports a YAML library or subprocess; write the parser yourself in pure Python")
+        sys.exit(1 if found else 0)
+  layout:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, sys
+        allowed = sys.argv[1:]
+        stray = sorted(p.name for p in pathlib.Path(".").iterdir() if not p.name.startswith(".") and p.name not in allowed)
+        for name in stray:
+            print(f"{name}: outside the project layout (only {', '.join(allowed)} belong at the root); delete it")
+        sys.exit(1 if stray else 0)
+      - yamlpy
+      - tests
+      - docs
+teams:
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}
+  - use: executor
+    watches: raw
+    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # ranked by the router; this order counts only before data
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
+    checks: [spec, own-parser, layout]
+    max_model_calls: 60
+    attempts: 4
+    climb: true  # after a failure, the router's best model not yet failed on the step
+    split_on_failure: true  # a step every model fails goes back to the planner (ADaPT), not to a person
+    repairs: 2
+    partial: true  # some tests fixed and none broken is progress: the ratchet judges, not the model
+    constraints:
+      - Use only the Python standard library; no YAML library, and no subprocess.
+      - Keep the code in the yamlpy package, split into modules as it grows (for example a reader, a scanner, a parser that gives the events, and a composer that builds the values).
+      - The event notation is in docs/event-notation.md; the tests in tests/acceptance/ are the definition of done.
+      - Hidden tests check what the visible ones don't, so implement each rule fully, the way the YAML 1.2 spec states it, not only the cases a visible test shows.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
+score: {check: spec, held_out: [~/agentswarm-data/yaml/out/held_out]}  # measured at the start and end of every run
+budgets: {usd_per_day: 3.0, reserve_usd: 0.3}  # set per approved run
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs

@@ -47,6 +47,7 @@ from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.score import Progress, Scoreboard
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
 from agentswarm.evaluation.toml import TomlImport
+from agentswarm.evaluation.yamltest import YamlImport
 from agentswarm.jev.client import JevClient
 from agentswarm.judging.audit import GateAudit
 from agentswarm.judging.calibration import CalibrationReport
@@ -83,6 +84,7 @@ class Cli:
         import-commonmark SPEC --out DIR           the CommonMark spec as a seed project and held-out tests
         import-toml SUITE --out DIR                the toml-test suite (TOML 1.0.0) as a seed, some held out
         import-jq SOURCE --out DIR                 jq's own tests as a seed for an interpreter, some held out
+        import-yaml SUITE --out DIR                the yaml-test-suite (YAML 1.2) as a seed, some held out
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         spend                                      today's spend of every run, per account, against the limits
@@ -156,6 +158,8 @@ class Cli:
                 return self.import_toml(args)
             case "import-jq":
                 return self.import_jq(args)
+            case "import-yaml":
+                return self.import_yaml(args)
             case "score":
                 return self.score(args)
             case "openrouter-models":
@@ -343,6 +347,15 @@ class Cli:
         summary = JqImport(Path(args.source).expanduser(), Path(args.out).expanduser()).write()
         self._show(
             f"{summary.groups} groups: {summary.visible} tests in {summary.seed}, "
+            f"{summary.held_out} held out in {summary.held_out_tests}"
+        )
+        return 0
+
+    def import_yaml(self, args: argparse.Namespace) -> int:
+        """The yaml-test-suite's data release as a seed project, every fifth case per group held out."""
+        summary = YamlImport(Path(args.suite).expanduser(), Path(args.out).expanduser()).write()
+        self._show(
+            f"{summary.groups} groups of {summary.cases} cases: {summary.visible} tests in {summary.seed}, "
             f"{summary.held_out} held out in {summary.held_out_tests}"
         )
         return 0
@@ -574,6 +587,9 @@ class Cli:
         jq = commands.add_parser("import-jq", help="jq's own tests as a seed project")
         jq.add_argument("source", help="a checkout of github.com/jqlang/jq at a release tag")
         jq.add_argument("--out", required=True, help="where the seed and the held-out tests go")
+        yml = commands.add_parser("import-yaml", help="the yaml-test-suite as a seed project")
+        yml.add_argument("suite", help="a checkout of github.com/yaml/yaml-test-suite at a data-* tag")
+        yml.add_argument("--out", required=True, help="where the seed and the held-out tests go")
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")
