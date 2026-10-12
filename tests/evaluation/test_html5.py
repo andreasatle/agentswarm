@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agentswarm.evaluation.html5 import Html5Import, Html5TestFile
+from agentswarm.evaluation.html5 import Html5Import, Html5TestFile, SpecText
 
 README = """Tree Construction Tests
 
@@ -58,3 +58,20 @@ class TestHtml5Import:
         assert "a dump of the tree" in dump and "<p>One<p>Two" not in dump  # our example, not a test
         for path in acceptance.glob("*.py"):
             compile(path.read_text(), str(path), "exec")
+
+
+class TestSpecText:
+    def test_headings_paragraphs_and_what_is_left_out(self) -> None:
+        html = (
+            "<script>x()</script><h4 id=tokenization>Tokenization</h4><p>Consume the next character.<p>Then"
+            "<div class=example><pre>&lt;b>1&lt;p>2&lt;/b></pre></div><pre>state ::= data</pre>"
+            "<h4 id=an-introduction-to-error-handling-and-strange-cases-in-the-parser>Strange cases</h4>"
+            "<p>Consider <code>&lt;table>&lt;b></code><ul class=domTree><li>html</ul>"
+            "<h5 id=inner>Still left out</h5><p>Inner."
+            "<h4 id=the-end>The end</h4><p>Done."
+        )
+        text = SpecText.convert(html)
+        assert "#### Tokenization\n\nConsume the next character.\n\nThen" in text
+        assert "```\nstate ::= data\n```" in text and "<b>1" not in text  # examples go, other <pre> stays
+        assert "Strange" not in text and "<table>" not in text and "Inner" not in text and "x()" not in text
+        assert "#### The end\n\nDone." in text

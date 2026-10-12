@@ -5,7 +5,9 @@
 # group is held out and never shown to any agent. Checked first: an oracle passes all 1,958 through the generated
 # files, the stub passes none, and the framework counts every one.
 #   (the .dat files and README.md of that folder, at wpt commit b638c093, in ~/agentswarm-data/html5/tree-construction)
-#   uv run agentswarm import-html5 ~/agentswarm-data/html5/tree-construction --out ~/agentswarm-data/html5/out
+#   curl -sL -o ~/agentswarm-data/html5/spec/parsing.html https://html.spec.whatwg.org/multipage/parsing.html  (2026-10-12)
+#   uv run agentswarm import-html5 ~/agentswarm-data/html5/tree-construction --out ~/agentswarm-data/html5/out \
+#     --spec ~/agentswarm-data/html5/spec/parsing.html   # the parsing chapter as text, examples and worked cases left out
 #   uv run agentswarm run examples/html5/project.yaml --root ~/agentswarm-runs/html5 --max-rounds 200
 # The tests decide how the work is split: the worklist turns each test file with failures into an item, one at
 # a time; the ratchet gate merges a change only if more tests pass and no acceptance test breaks.
@@ -77,12 +79,12 @@ teams:
     constraints:
       - Use only the Python standard library; no HTML parser (html.parser included), and no subprocess. html.entities may be used for the named character references.
       - Keep the code in the htmlparse package, split into modules as it grows (for example the input stream, the tokenizer's states, the tree builder's insertion modes, the DOM nodes and the dump).
-      - The tree-dump format is in docs/tree-dump.md; the tests in tests/acceptance/ are the definition of done. Follow the HTML standard's parsing algorithms (tokenizer states, insertion modes, the adoption agency algorithm, foster parenting, foreign content), not rules guessed from the tests.
+      - The standard's parsing chapter is in docs/html-parsing.md (search and read the parts you need), the tree-dump format in docs/tree-dump.md; the tests in tests/acceptance/ are the definition of done. Follow the HTML standard's parsing algorithms (tokenizer states, insertion modes, the adoption agency algorithm, foster parenting, foreign content), not rules guessed from the tests.
       - Hidden tests check what the visible ones don't, so implement each rule fully, the way the HTML standard states it, not only the cases a visible test shows.
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
 worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
 score: {check: spec, held_out: [~/agentswarm-data/html5/out/held_out]}  # measured at the start and end of every run
-budgets: {usd_per_day: 3.0, reserve_usd: 0.3}  # set per approved run
+budgets: {usd_per_day: 13.5, reserve_usd: 0.3}  # 2026-10-12 (UTC): $15 for the first run (approved), $13.50 of it today (the machine's daily room); the rest after midnight UTC
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs

@@ -16,6 +16,7 @@ starts near 0%.
 
 import re
 from collections.abc import Mapping, Sequence
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import ClassVar
 
@@ -77,6 +78,87 @@ class Html5TestFile:
         )
 
 
+class SpecText(HTMLParser):
+    """The standard's parsing chapter (html.spec.whatwg.org/multipage/parsing.html) as Markdown-like text.
+
+    Headings become #-headings, blocks become paragraphs, <pre> keeps its lines. Left out: the examples (some
+    are tests' inputs), DOM-tree pictures, the non-normative section of worked strange cases (SKIP_SECTIONS),
+    browser-support boxes, scripts, styles and navigation. An end tag closes everything
+    opened inside its element, since the spec leaves out optional end tags.
+    """
+
+    SKIP_CLASSES: ClassVar[frozenset[str]] = frozenset({"example", "mdn-anno", "status", "domTree"})
+    # Non-normative sections whose worked cases are tests' inputs with their trees: left out, heading to the
+    # next heading of the same or a higher level. The normative algorithms elsewhere say all they show.
+    SKIP_SECTIONS: ClassVar[frozenset[str]] = frozenset(
+        {"an-introduction-to-error-handling-and-strange-cases-in-the-parser"}
+    )
+    SKIP_TAGS: ClassVar[frozenset[str]] = frozenset({"script", "style", "nav", "head"})
+    BLOCKS: ClassVar[frozenset[str]] = frozenset(
+        {"p", "li", "dt", "dd", "tr", "div", "section", "table", "ol", "ul", "dl", "blockquote", "figcaption"}
+    )
+    VOID: ClassVar[frozenset[str]] = frozenset({"br", "img", "hr", "meta", "link", "input", "wbr", "source"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._out: list[str] = []
+        self._open: list[tuple[str, bool]] = []  # open elements: tag, and whether it is skipped
+        self._pre = 0
+        self._section: int | None = None  # the heading level of a section being left out
+
+    @classmethod
+    def convert(cls, html: str) -> str:
+        parser = cls()
+        parser.feed(html)
+        parser.close()
+        text = re.sub(r"[ \t]+\n", "\n", "".join(parser._out))
+        return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
+
+    def skipping(self) -> bool:
+        return self._section is not None or any(skip for _, skip in self._open)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        heading = re.fullmatch(r"h([1-6])", tag)
+        if heading:
+            level = int(heading.group(1))
+            if self._section is not None and level <= self._section:
+                self._section = None
+            if dict(attrs).get("id") in self.SKIP_SECTIONS:
+                self._section = level
+        classes = set((dict(attrs).get("class") or "").split())
+        skip = tag in self.SKIP_TAGS or bool(classes & self.SKIP_CLASSES)
+        if tag not in self.VOID:
+            self._open.append((tag, skip))
+        if self.skipping():
+            return
+        if heading:
+            self._out.append("\n\n" + "#" * int(tag[1]) + " ")
+        elif tag == "pre":
+            self._pre += 1
+            self._out.append("\n\n```\n")
+        elif tag in self.BLOCKS or tag == "br":
+            self._out.append("\n\n" if tag != "br" else "\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.VOID:
+            return
+        was_skipping = self.skipping()
+        if any(t == tag for t, _ in self._open):  # end tags the spec omits (</p>, </li>) close here too
+            while self._open.pop()[0] != tag:
+                pass
+        if was_skipping:
+            return
+        if tag == "pre":
+            self._pre -= 1
+            self._out.append("\n```\n\n")
+        elif re.fullmatch(r"h[1-6]", tag) or tag in self.BLOCKS:
+            self._out.append("\n\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.skipping():
+            self._out.append(data if self._pre else re.sub(r"\s+", " ", data))
+
+
 class Html5Import(SeedImport[Html5Case]):
     PACKAGE = "htmlparse"
     PREFIX: ClassVar[str] = "test_html5"
@@ -124,7 +206,9 @@ def test_fragment(name: str, html: str, context: str, scripting: bool, tree: str
     def __init__(self, tests: Path, out: Path, spec: Path | None = None) -> None:
         super().__init__(out)
         self._tests = tests  # the folder of .dat files
-        self._spec = spec  # the standard's parsing chapter as text, if given
+        self._spec = (
+            spec  # the standard's parsing chapter (HTML), given to the agents as text without examples
+        )
 
     def groups(self) -> list[SeedGroup[Html5Case]]:
         """One per file (numbered ones in number order, then the rest by name), cut into parts of 40."""
@@ -147,7 +231,7 @@ def test_fragment(name: str, html: str, context: str, scripting: bool, tree: str
             "docs/tree-dump.md": self.dump_format(),
         }
         if self._spec is not None:
-            files["docs/html-parsing.md"] = self._spec.read_text()
+            files["docs/html-parsing.md"] = SpecText.convert(self._spec.read_text())
         return files
 
     EXAMPLE: ClassVar[str] = """For example, `parse("<title>Notes</title><p class=x>Hi")` gives
