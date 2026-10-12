@@ -40,6 +40,7 @@ from agentswarm.evaluation.compare import (
 from agentswarm.evaluation.difficulty import DifficultyRater, DifficultyRatings
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
+from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -81,6 +82,7 @@ class Cli:
         import-evalplus FILE --format F --out DIR  an EvalPlus benchmark as a task suite, references checked
         import-commonmark SPEC --out DIR           the CommonMark spec as a seed project and held-out tests
         import-toml SUITE --out DIR                the toml-test suite (TOML 1.0.0) as a seed, some held out
+        import-jq SOURCE --out DIR                 jq's own tests as a seed for an interpreter, some held out
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         spend                                      today's spend of every run, per account, against the limits
@@ -152,6 +154,8 @@ class Cli:
                 return self.monitor(args)
             case "import-toml":
                 return self.import_toml(args)
+            case "import-jq":
+                return self.import_jq(args)
             case "score":
                 return self.score(args)
             case "openrouter-models":
@@ -328,6 +332,15 @@ class Cli:
     def import_toml(self, args: argparse.Namespace) -> int:
         """The toml-test suite's TOML 1.0.0 files as a seed project, every fifth per group held out."""
         summary = TomlImport(Path(args.suite).expanduser(), Path(args.out).expanduser()).write()
+        self._show(
+            f"{summary.groups} groups: {summary.visible} tests in {summary.seed}, "
+            f"{summary.held_out} held out in {summary.held_out_tests}"
+        )
+        return 0
+
+    def import_jq(self, args: argparse.Namespace) -> int:
+        """jq's own tests and the manual's examples as a seed project, every fifth per group held out."""
+        summary = JqImport(Path(args.source).expanduser(), Path(args.out).expanduser()).write()
         self._show(
             f"{summary.groups} groups: {summary.visible} tests in {summary.seed}, "
             f"{summary.held_out} held out in {summary.held_out_tests}"
@@ -558,6 +571,9 @@ class Cli:
         toml = commands.add_parser("import-toml", help="the toml-test suite as a seed project")
         toml.add_argument("suite", help="a checkout of github.com/toml-lang/toml-test")
         toml.add_argument("--out", required=True, help="where the seed and the held-out tests go")
+        jq = commands.add_parser("import-jq", help="jq's own tests as a seed project")
+        jq.add_argument("source", help="a checkout of github.com/jqlang/jq at a release tag")
+        jq.add_argument("--out", required=True, help="where the seed and the held-out tests go")
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")
