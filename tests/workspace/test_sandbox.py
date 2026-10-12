@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from agentswarm.core.config import SandboxConfig, SandboxKind
-from agentswarm.workspace.sandbox import DockerSandbox, LocalSandbox, Process, Sandboxes
+from agentswarm.workspace.sandbox import DockerSandbox, LocalSandbox, Process, Sandboxes, SandboxUnavailable
 
 
 class TestLocalSandbox:
@@ -80,6 +80,11 @@ class TestDockerSandbox:
     def test_network_can_be_enabled_explicitly(self, tmp_path: Path) -> None:
         command = DockerSandbox(SandboxConfig(network=True)).command(["true"], tmp_path, "box")
         assert "--network bridge" in " ".join(command)
+
+    def test_stops_when_no_daemon_answers(self, tmp_path: Path) -> None:
+        sandbox = DockerSandbox(SandboxConfig(), docker="no-such-docker")
+        with pytest.raises(SandboxUnavailable, match="start Docker"):
+            sandbox.run(["pytest"], tmp_path, 10)
 
     @pytest.mark.docker
     def test_runs_in_a_container_without_network(self, docker_workdir: Path) -> None:

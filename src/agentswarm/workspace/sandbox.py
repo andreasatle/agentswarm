@@ -140,6 +140,10 @@ class LocalSandbox:
             return Process.run(command, copy, self._env | {"HOME": str(copy)}, timeout_s)
 
 
+class SandboxUnavailable(RuntimeError):
+    """The configured sandbox can't run anything: without it every check would look failed, so a run stops."""
+
+
 class DockerSandbox:
     """Runs each command in a fresh, throwaway container with a copy of the worktree mounted at /work."""
 
@@ -148,6 +152,7 @@ class DockerSandbox:
     def __init__(self, config: SandboxConfig, docker: str = "docker") -> None:
         self._config = config
         self._docker = docker
+        self._answered = False  # the daemon is asked once, before the first command
 
     @classmethod
     def available(cls, docker: str = "docker") -> bool:
@@ -165,6 +170,12 @@ class DockerSandbox:
     CONTROL_TIMEOUT_S = 30.0  # for docker's own commands (info, kill)
 
     def run(self, command: Sequence[str], cwd: Path, timeout_s: float) -> SandboxResult:
+        if not self._answered:
+            if not self.available(self._docker):
+                raise SandboxUnavailable(
+                    f"no Docker daemon answers `{self._docker} info`: start Docker first"
+                )
+            self._answered = True
         name = f"agentswarm-{uuid.uuid4().hex[:12]}"
         with RunCopy(cwd) as copy:
             # Stopping the client doesn't stop the container: on timeout, kill it (--rm then removes it).
