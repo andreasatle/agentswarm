@@ -2,6 +2,7 @@
 
 Independent teams of agents (an executor, an integration tester, a red team, a planner, ...) move work up a ladder of maturity levels, from a branch per task to production, through gates. Teams never call each other: each watches one level of a shared, append-only blackboard and reacts to its state, so there is nothing to deadlock. **Language models produce, Jev decides, plain code controls**, and every one of Jev's decisions is logged and scored against what turned out to be true.
 
+- [docs/OVERVIEW.md](docs/OVERVIEW.md): the broad picture: the parts, a run from start to finish, how agents get their instructions.
 - [tutorial/](tutorial/): the system one layer at a time, with a script to run for every step.
 - [docs/REFERENCE.md](docs/REFERENCE.md): every config key, event, team, judge, report and command.
 - [docs/PROMPTS.md](docs/PROMPTS.md): every prompt a model or Jev sees, generated from the code.
