@@ -2,6 +2,12 @@
 
 What changed in AgentSwarm, latest first. Each entry says the problem that called for it, what was built, and what it means for the swarm.
 
+## 2026-10-12: jq, a language: 100% visible, 87% held out
+
+- **Problem:** the first two problems were formats; a harder test was an interpreter for a programming language, jq, judged by jq's own 675 tests (every fifth held out, all checked against the real jq first).
+- **Solution:** the same framework with a new config and importer; the input reaches the interpreter as JSON text, as jq reads it.
+- **Implication:** 550 of 550 visible tests in one run, for $4.14, but 109 of 125 held out. The gap is the first sign of fitting the visible tests: no special cases, but functions the manual documents and no visible test calls were never written. Next problems will get work items from the spec as well as from the tests.
+
 ## 2026-10-12: CommonMark done, 100%
 
 - **Problem:** the Markdown converter stood at 89%; what was left was mostly link reference definitions, which the links and images depend on.
