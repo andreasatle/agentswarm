@@ -13,12 +13,13 @@ values (YAML's core schema), and both raise `YAMLError` for input the suite reje
 everything and finds nothing, so it starts near 0%.
 """
 
-import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
+
+from agentswarm.evaluation.seed import SeedGroup, SeedImport
 
 
 class YamlCase(BaseModel):
@@ -33,24 +34,6 @@ class YamlCase(BaseModel):
     values: str | None  # the documents as a JSON stream, where JSON can hold them
     rejected: bool
     tags: tuple[str, ...]
-
-
-class YamlGroup(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    name: str  # fits a Python module name, e.g. "anchor" or "rejected_2"
-    cases: tuple[YamlCase, ...]
-
-
-class YamlImportSummary(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    groups: int
-    cases: int
-    visible: int  # tests: a valid case has one for its events and, where JSON holds it, one for its values
-    held_out: int
-    seed: Path
-    held_out_tests: Path
 
 
 class YamlSuite:
@@ -147,9 +130,9 @@ class YamlSpec:
         return n
 
 
-class YamlImport:
+class YamlImport(SeedImport[YamlCase]):
     PACKAGE = "yamlpy"
-    HELD_OUT_EVERY: ClassVar[int] = 5  # within each group, the fifth, tenth, ... case is held out
+    PREFIX: ClassVar[str] = "test_yaml"
     MAX_CASES: ClassVar[int] = 30  # a larger group is cut into several test files, a work item each
     # A case's group: its first tag in this list, most specific first; a case with none of them is "other".
     SPECIFIC: ClassVar[tuple[str, ...]] = (
@@ -297,67 +280,36 @@ gives
 """
 
     def __init__(self, suite: Path, out: Path, spec: Path | None = None) -> None:
+        super().__init__(out)
         self._suite = suite  # the suite's data release, e.g. the data-2022-01-17 tag
-        self._out = out
         self._spec = spec  # the 1.2.2 spec's Markdown, given to the agents without its examples
 
-    def groups(self) -> list[YamlGroup]:
+    def groups(self) -> list[SeedGroup[YamlCase]]:
         cases = YamlSuite(self._suite).cases()
-        found: list[YamlGroup] = []
+        found: list[SeedGroup[YamlCase]] = []
         for kind in self.ORDER:
-            found += self.cut(kind, [c for c in cases if not c.rejected and self.kind(c) == kind])
-        rejected = [c for kind in self.ORDER for c in cases if c.rejected and self.kind(c) == kind]
-        return found + self.cut("rejected", rejected)  # a few of each kind: one sequence, in the same order
+            mine = [[c] for c in cases if not c.rejected and self.kind(c) == kind]
+            found += self.cut(kind, mine, self.MAX_CASES)
+        rejected = [[c] for kind in self.ORDER for c in cases if c.rejected and self.kind(c) == kind]
+        return found + self.cut("rejected", rejected, self.MAX_CASES)  # a few of each kind: one sequence
 
     @classmethod
     def kind(cls, case: YamlCase) -> str:
         return next((t for t in cls.SPECIFIC if t in case.tags), "other")
 
-    @classmethod
-    def cut(cls, title: str, cases: Sequence[YamlCase]) -> list[YamlGroup]:
-        slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
-        parts = [cases[n : n + cls.MAX_CASES] for n in range(0, len(cases), cls.MAX_CASES)]
-        if len(parts) <= 1:
-            return [YamlGroup(name=slug, cases=tuple(p)) for p in parts]
-        return [YamlGroup(name=f"{slug}_{n}", cases=tuple(p)) for n, p in enumerate(parts, 1)]
-
-    def write(self) -> YamlImportSummary:
-        groups = self.groups()
-        seed = self._out / "seed"
-        hidden = self._out / "held_out"
-        acceptance = seed / "tests" / "acceptance"
-        (seed / self.PACKAGE).mkdir(parents=True, exist_ok=True)
-        acceptance.mkdir(parents=True, exist_ok=True)
-        (seed / "docs").mkdir(exist_ok=True)
-        hidden.mkdir(parents=True, exist_ok=True)
-        (seed / self.PACKAGE / "__init__.py").write_text(self.STUB)
-        (seed / "tests" / "__init__.py").write_text("")
-        (acceptance / "__init__.py").write_text("")
-        (acceptance / "_json.py").write_text(self.JSON)
-        (seed / "docs" / "event-notation.md").write_text(self.NOTATION)
+    def files(self) -> Mapping[str, str]:
+        files = {
+            f"{self.PACKAGE}/__init__.py": self.STUB,
+            "tests/__init__.py": "",
+            "tests/acceptance/__init__.py": "",
+            "tests/acceptance/_json.py": self.JSON,
+            "docs/event-notation.md": self.NOTATION,
+        }
         if self._spec is not None:
-            (seed / "docs" / "yaml-1.2.2.md").write_text(YamlSpec(self._spec).text())
-        visible = held = 0
-        for index, group in enumerate(groups, 1):
-            shown = [c for n, c in enumerate(group.cases, 1) if n % self.HELD_OUT_EVERY]
-            kept = [c for n, c in enumerate(group.cases, 1) if not n % self.HELD_OUT_EVERY]
-            name = f"{index:02d}_{group.name}"
-            if shown:
-                (acceptance / f"test_yaml_{name}.py").write_text(self.test(group.name, shown))
-            if kept:
-                (hidden / f"test_held_out_{name}.py").write_text(self.test(group.name, kept))
-            visible, held = visible + self.count(shown), held + self.count(kept)
-        return YamlImportSummary(
-            groups=len(groups),
-            cases=sum(len(g.cases) for g in groups),
-            visible=visible,
-            held_out=held,
-            seed=seed,
-            held_out_tests=hidden,
-        )
+            files["docs/yaml-1.2.2.md"] = YamlSpec(self._spec).text()
+        return files
 
-    @staticmethod
-    def count(cases: Sequence[YamlCase]) -> int:
+    def count(self, cases: Sequence[YamlCase]) -> int:
         return sum(1 if c.rejected else 1 + (c.values is not None) for c in cases)
 
     def test(self, title: str, cases: Sequence[YamlCase]) -> str:

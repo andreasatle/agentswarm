@@ -13,11 +13,13 @@ everything (returns {}), so it starts near 0%: one that rejected everything woul
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
+
+from agentswarm.evaluation.seed import SeedGroup, SeedImport
 
 
 class TomlCase(BaseModel):
@@ -40,22 +42,12 @@ class TomlCase(BaseModel):
         return f"{kind}_{re.sub(r'[^a-z0-9]+', '_', (folders[0] if folders else 'misc').lower())}"
 
 
-class TomlImportSummary(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    groups: int
-    visible: int
-    held_out: int
-    seed: Path
-    held_out_tests: Path
-
-
-class TomlImport:
+class TomlImport(SeedImport[TomlCase]):
     PACKAGE = "tomlparse"
+    PREFIX: ClassVar[str] = "test_toml"
     LIST: ClassVar[str] = "tests/files-toml-1.0.0"  # the suite's list of its TOML 1.0.0 files
     SPEC: ClassVar[str] = "specs/v1.0.0.md"
     DOC: ClassVar[str] = "docs/toml-v1.0.0.md"
-    HELD_OUT_EVERY: ClassVar[int] = 5  # within each group, the fifth, tenth, ... file (sorted) is held out
 
     STUB = '''"""A TOML 1.0.0 parser in pure Python, with the standard library's `tomllib` interface."""
 
@@ -172,8 +164,8 @@ def test_invalid(name: str, document: bytes) -> None:
 '''
 
     def __init__(self, suite: Path, out: Path) -> None:
+        super().__init__(out)
         self._suite = suite  # a checkout of toml-test
-        self._out = out
 
     def cases(self) -> list[TomlCase]:
         listed = (self._suite / self.LIST).read_text().split()
@@ -188,38 +180,24 @@ def test_invalid(name: str, document: bytes) -> None:
             for name in names
         ]
 
-    def write(self) -> TomlImportSummary:
+    def groups(self) -> list[SeedGroup[TomlCase]]:
+        """One per kind and folder, valid ones first; within each, the files sorted by name."""
         cases = self.cases()
-        groups = sorted({c.group for c in cases}, key=lambda g: (not g.startswith("valid_"), g))
-        seed = self._out / "seed"
-        hidden = self._out / "held_out"
-        (seed / self.PACKAGE).mkdir(parents=True, exist_ok=True)
-        (seed / "tests" / "acceptance").mkdir(parents=True, exist_ok=True)
-        (seed / "docs").mkdir(exist_ok=True)
-        hidden.mkdir(parents=True, exist_ok=True)
-        (seed / self.PACKAGE / "__init__.py").write_text(self.STUB)
-        (seed / "tests" / "__init__.py").write_text("")
-        (seed / "tests" / "acceptance" / "__init__.py").write_text("")
-        (seed / "tests" / "acceptance" / "_tagged.py").write_text(self.TAGGED)
-        (seed / self.DOC).write_text((self._suite / self.SPEC).read_text())
-        visible = held = 0
-        for index, group in enumerate(groups, 1):
-            mine = [c for c in cases if c.group == group]
-            shown = [c for n, c in enumerate(mine, 1) if n % self.HELD_OUT_EVERY]
-            kept = [c for n, c in enumerate(mine, 1) if not n % self.HELD_OUT_EVERY]
-            name = f"{index:02d}_{group}"
-            if shown:
-                (seed / "tests" / "acceptance" / f"test_toml_{name}.py").write_text(self.test(group, shown))
-            if kept:
-                (hidden / f"test_held_out_{name}.py").write_text(self.test(group, kept))
-            visible, held = visible + len(shown), held + len(kept)
-        return TomlImportSummary(
-            groups=len(groups), visible=visible, held_out=held, seed=seed, held_out_tests=hidden
-        )
+        names = sorted({c.group for c in cases}, key=lambda g: (not g.startswith("valid_"), g))
+        return [SeedGroup(name=g, title=g, cases=tuple(c for c in cases if c.group == g)) for g in names]
 
-    def test(self, group: str, cases: Sequence[TomlCase]) -> str:
+    def files(self) -> Mapping[str, str]:
+        return {
+            f"{self.PACKAGE}/__init__.py": self.STUB,
+            "tests/__init__.py": "",
+            "tests/acceptance/__init__.py": "",
+            "tests/acceptance/_tagged.py": self.TAGGED,
+            self.DOC: (self._suite / self.SPEC).read_text(),
+        }
+
+    def test(self, title: str, cases: Sequence[TomlCase]) -> str:
         if cases[0].valid:
             rows = "".join(f"\n    ({c.name!r}, {c.toml!r}, {c.expected!r})," for c in cases)
-            return self.VALID.format(group=group, cases=f"[{rows}\n]")
+            return self.VALID.format(group=title, cases=f"[{rows}\n]")
         rows = "".join(f"\n    ({c.name!r}, {c.toml!r})," for c in cases)
-        return self.INVALID.format(group=group, cases=f"[{rows}\n]")
+        return self.INVALID.format(group=title, cases=f"[{rows}\n]")

@@ -70,12 +70,3 @@ class TestJqImport:
         for path in acceptance.glob("*.py"):
             compile(path.read_text(), str(path), "exec")
         assert "return iter(())" in (summary.seed / "jqpy" / "__init__.py").read_text()  # starts near 0%
-
-    def test_large_sections_are_cut_without_splitting_an_entry(self) -> None:
-        source = JqTestFile(Path("unused"))
-        unit = [source.case([".", "1", "1"], f"x:{n}") for n in range(30)]
-        groups = JqImport.cut("Builtin functions", [unit[:25], unit[25:], unit[:20]])
-        assert [(g.name, len(g.cases)) for g in groups] == [
-            ("builtin_functions_1", 30),
-            ("builtin_functions_2", 20),
-        ]

@@ -17,12 +17,14 @@ environment. The stub accepts every program and outputs nothing, so it starts ne
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar
 
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
+
+from agentswarm.evaluation.seed import SeedGroup, SeedImport
 
 
 class JqCase(BaseModel):
@@ -38,25 +40,6 @@ class JqCase(BaseModel):
     @property
     def rejected(self) -> bool:
         return self.outputs is None
-
-
-class JqGroup(BaseModel):
-    """The cases of one test file, in their source's order."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    name: str  # fits a Python module name, e.g. "jq_paths_2"
-    cases: tuple[JqCase, ...]
-
-
-class JqImportSummary(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    groups: int
-    visible: int
-    held_out: int
-    seed: Path
-    held_out_tests: Path
 
 
 class JqTestFile:
@@ -196,15 +179,15 @@ class JqManual:
         return "\n\n".join(p.strip() for p in parts if p.strip()) + "\n"
 
 
-class JqImport:
+class JqImport(SeedImport[JqCase]):
     PACKAGE = "jqpy"
+    PREFIX: ClassVar[str] = "test_jq"
     TESTS: ClassVar[tuple[str, ...]] = ("tests/jq.test",)
     EXTRA: ClassVar[tuple[str, ...]] = ("tests/base64.test",)  # one group each, after the manual
     MANUAL: ClassVar[str] = "docs/content/manual/manual.yml"
     DOC: ClassVar[str] = "docs/jq-manual.md"
     # Programs that need more than the language: jq's module files and search path, or the environment.
     LEFT_OUT: ClassVar[re.Pattern[str]] = re.compile(r"\b(import|include|modulemeta)\b|\$ENV\b|\benv\b")
-    HELD_OUT_EVERY: ClassVar[int] = 5  # within each group, the fifth, tenth, ... case is held out
     MAX_CASES: ClassVar[int] = 40  # larger sections are cut into several test files, a work item each
 
     STUB = '''"""A jq interpreter in pure Python."""
@@ -325,72 +308,47 @@ def test_rejected(name: str, program: str) -> None:
 """
 
     def __init__(self, source: Path, out: Path) -> None:
+        super().__init__(out)
         self._source = source  # a checkout of github.com/jqlang/jq
-        self._out = out
 
-    def groups(self) -> list[JqGroup]:
+    def groups(self) -> list[SeedGroup[JqCase]]:
         return [g for g in (self.kept(g) for g in self.all_groups()) if g.cases]
 
     @classmethod
-    def kept(cls, group: JqGroup) -> JqGroup:
+    def kept(cls, group: SeedGroup[JqCase]) -> SeedGroup[JqCase]:
         return group.model_copy(
             update={"cases": tuple(c for c in group.cases if not cls.LEFT_OUT.search(c.program))}
         )
 
-    def all_groups(self) -> list[JqGroup]:
-        found: list[JqGroup] = []
+    def all_groups(self) -> list[SeedGroup[JqCase]]:
+        found: list[SeedGroup[JqCase]] = []
         for path in self.TESTS:
             for title, cases in JqTestFile(self._source / path).sections():
-                found += self.cut(title, [[c] for c in cases])
+                found += self.cut(self.short(title), [[c] for c in cases], self.MAX_CASES)
         for title, entries in JqManual(self._source / self.MANUAL).sections():
-            found += self.cut(f"manual {title}", entries)
+            found += self.cut(self.short(f"manual {title}"), entries, self.MAX_CASES)
         for path in self.EXTRA:
             for _, cases in JqTestFile(self._source / path).sections():
-                found += self.cut(Path(path).stem, [[c] for c in cases])
+                found += self.cut(Path(path).stem, [[c] for c in cases], self.MAX_CASES)
         return found
 
     @classmethod
-    def cut(cls, title: str, units: Sequence[Sequence[JqCase]]) -> list[JqGroup]:
-        """Groups of at most MAX_CASES cases, never splitting a unit (a manual entry's examples)."""
-        parts: list[list[JqCase]] = [[]]
-        for unit in units:
-            if parts[-1] and len(parts[-1]) + len(unit) > cls.MAX_CASES:
-                parts.append([])
-            parts[-1] += unit
-        slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")[:40].strip("_")
-        if len(parts) == 1:
-            return [JqGroup(name=slug, cases=tuple(parts[0]))]
-        return [JqGroup(name=f"{slug}_{n}", cases=tuple(p)) for n, p in enumerate(parts, 1)]
+    def short(cls, title: str) -> str:
+        """jq.test's section titles are sentences: the first 40 characters name a file."""
+        return cls.slug(title)[:40].strip("_")
 
-    def write(self) -> JqImportSummary:
-        groups = self.groups()
-        seed = self._out / "seed"
-        hidden = self._out / "held_out"
-        acceptance = seed / "tests" / "acceptance"
-        (seed / self.PACKAGE).mkdir(parents=True, exist_ok=True)
-        acceptance.mkdir(parents=True, exist_ok=True)
-        (seed / "docs").mkdir(exist_ok=True)
-        hidden.mkdir(parents=True, exist_ok=True)
-        (seed / self.PACKAGE / "__init__.py").write_text(self.STUB)
-        (seed / "tests" / "__init__.py").write_text("")
-        (acceptance / "__init__.py").write_text("")
-        (acceptance / "_json.py").write_text(self.JSON)
-        (acceptance / "conftest.py").write_text(self.CONFTEST)
-        (hidden / "conftest.py").write_text(self.CONFTEST)
-        (seed / self.DOC).write_text(JqManual(self._source / self.MANUAL).text())
-        visible = held = 0
-        for index, group in enumerate(groups, 1):
-            shown = [c for n, c in enumerate(group.cases, 1) if n % self.HELD_OUT_EVERY]
-            kept = [c for n, c in enumerate(group.cases, 1) if not n % self.HELD_OUT_EVERY]
-            name = f"{index:02d}_{group.name}"
-            if shown:
-                (acceptance / f"test_jq_{name}.py").write_text(self.test(group.name, shown))
-            if kept:
-                (hidden / f"test_held_out_{name}.py").write_text(self.test(group.name, kept))
-            visible, held = visible + len(shown), held + len(kept)
-        return JqImportSummary(
-            groups=len(groups), visible=visible, held_out=held, seed=seed, held_out_tests=hidden
-        )
+    def files(self) -> Mapping[str, str]:
+        return {
+            f"{self.PACKAGE}/__init__.py": self.STUB,
+            "tests/__init__.py": "",
+            "tests/acceptance/__init__.py": "",
+            "tests/acceptance/_json.py": self.JSON,
+            "tests/acceptance/conftest.py": self.CONFTEST,
+            self.DOC: JqManual(self._source / self.MANUAL).text(),
+        }
+
+    def extra(self) -> Mapping[str, str]:
+        return {"conftest.py": self.CONFTEST}
 
     def test(self, title: str, cases: Sequence[JqCase]) -> str:
         text = self.HEAD.format(title=title, package=self.PACKAGE)

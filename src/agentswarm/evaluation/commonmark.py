@@ -7,12 +7,13 @@ from fitting the visible examples. The examples are the spec's own (CC-BY-SA 4.0
 """
 
 import json
-import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
+
+from agentswarm.evaluation.seed import SeedGroup, SeedImport
 
 
 class SpecExample(BaseModel):
@@ -24,19 +25,9 @@ class SpecExample(BaseModel):
     section: str
 
 
-class ImportSummary(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    sections: int
-    visible: int
-    held_out: int
-    seed: Path
-    held_out_tests: Path
-
-
-class CommonMarkImport:
+class CommonMarkImport(SeedImport[SpecExample]):
     PACKAGE = "mdconv"
-    HELD_OUT_EVERY: ClassVar[int] = 5  # example numbers divisible by this are held out
+    PREFIX: ClassVar[str] = "test_spec"
     # The order a CommonMark parser is usually built in, which the worklist follows (files are numbered by
     # it): paragraphs and the other blocks first, then inlines; the spec's "preliminaries" (tabs, and how
     # blocks and inlines take precedence) need most of the rest to work, so they come last. Sections not
@@ -94,8 +85,8 @@ def test_example(number: int, markdown: str, html: str) -> None:
     DOC: ClassVar[str] = "docs/spec.md"
 
     def __init__(self, spec: Path, out: Path, prose: Path | None = None) -> None:
+        super().__init__(out)
         self._spec = spec
-        self._out = out
         self._prose = prose  # spec.txt: the spec's text, given to the agents without its examples
 
     @classmethod
@@ -123,40 +114,32 @@ def test_example(number: int, markdown: str, html: str) -> None:
     def examples(self) -> list[SpecExample]:
         return TypeAdapter(list[SpecExample]).validate_python(json.loads(self._spec.read_text()))
 
-    @staticmethod
-    def slug(section: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "_", section.lower()).strip("_")
-
-    def write(self) -> ImportSummary:
+    def groups(self) -> list[SeedGroup[SpecExample]]:
+        """One per spec section, in BUILD_ORDER."""
         examples = self.examples()
         in_spec = list(dict.fromkeys(e.section for e in examples))
         sections = [s for s in self.BUILD_ORDER if s in in_spec] + [
             s for s in in_spec if s not in self.BUILD_ORDER
         ]
-        seed = self._out / "seed"
-        hidden = self._out / "held_out"
-        (seed / self.PACKAGE).mkdir(parents=True, exist_ok=True)
-        (seed / "tests" / "acceptance").mkdir(parents=True, exist_ok=True)
-        hidden.mkdir(parents=True, exist_ok=True)
-        (seed / self.PACKAGE / "__init__.py").write_text(self.STUB)
-        if self._prose is not None:
-            (seed / "docs").mkdir(exist_ok=True)
-            (seed / self.DOC).write_text(self.without_examples(self._prose.read_text()))
-        visible = held = 0
-        for index, section in enumerate(sections, 1):
-            name = f"{index:02d}_{self.slug(section)}"
-            mine = [e for e in examples if e.section == section]
-            shown = [e for e in mine if e.example % self.HELD_OUT_EVERY]
-            kept = [e for e in mine if not e.example % self.HELD_OUT_EVERY]
-            if shown:
-                (seed / "tests" / "acceptance" / f"test_spec_{name}.py").write_text(self.test(section, shown))
-            if kept:
-                (hidden / f"test_held_out_{name}.py").write_text(self.test(section, kept))
-            visible, held = visible + len(shown), held + len(kept)
-        return ImportSummary(
-            sections=len(sections), visible=visible, held_out=held, seed=seed, held_out_tests=hidden
-        )
+        return [
+            SeedGroup(
+                name=self.slug(section),
+                title=section,
+                cases=tuple(e for e in examples if e.section == section),
+            )
+            for section in sections
+        ]
 
-    def test(self, section: str, examples: Sequence[SpecExample]) -> str:
-        rows = "".join(f"\n    ({e.example}, {e.markdown!r}, {e.html!r})," for e in examples)
-        return self.TEST.format(section=section, examples=f"[{rows}\n]")
+    def held(self, position: int, case: SpecExample) -> bool:
+        """Example numbers divisible by HELD_OUT_EVERY are held out (the spec's numbering, not the place)."""
+        return case.example % self.HELD_OUT_EVERY == 0
+
+    def files(self) -> Mapping[str, str]:
+        files = {f"{self.PACKAGE}/__init__.py": self.STUB}
+        if self._prose is not None:
+            files[self.DOC] = self.without_examples(self._prose.read_text())
+        return files
+
+    def test(self, title: str, cases: Sequence[SpecExample]) -> str:
+        rows = "".join(f"\n    ({e.example}, {e.markdown!r}, {e.html!r})," for e in cases)
+        return self.TEST.format(section=title, examples=f"[{rows}\n]")

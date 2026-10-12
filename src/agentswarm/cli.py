@@ -292,10 +292,7 @@ class Cli:
         """The CommonMark spec's examples as a seed project, every fifth held out (ROADMAP.md, stage 1)."""
         prose = Path(args.text).expanduser() if args.text else None
         summary = CommonMarkImport(Path(args.spec).expanduser(), Path(args.out).expanduser(), prose).write()
-        self._show(
-            f"{summary.sections} sections: {summary.visible} examples in {summary.seed}, "
-            f"{summary.held_out} held out in {summary.held_out_tests}"
-        )
+        self._show(summary.render("examples"))
         return 0
 
     def monitor(self, args: argparse.Namespace) -> int:
@@ -336,29 +333,20 @@ class Cli:
     def import_toml(self, args: argparse.Namespace) -> int:
         """The toml-test suite's TOML 1.0.0 files as a seed project, every fifth per group held out."""
         summary = TomlImport(Path(args.suite).expanduser(), Path(args.out).expanduser()).write()
-        self._show(
-            f"{summary.groups} groups: {summary.visible} tests in {summary.seed}, "
-            f"{summary.held_out} held out in {summary.held_out_tests}"
-        )
+        self._show(summary.render())
         return 0
 
     def import_jq(self, args: argparse.Namespace) -> int:
         """jq's own tests and the manual's examples as a seed project, every fifth per group held out."""
         summary = JqImport(Path(args.source).expanduser(), Path(args.out).expanduser()).write()
-        self._show(
-            f"{summary.groups} groups: {summary.visible} tests in {summary.seed}, "
-            f"{summary.held_out} held out in {summary.held_out_tests}"
-        )
+        self._show(summary.render())
         return 0
 
     def import_yaml(self, args: argparse.Namespace) -> int:
         """The yaml-test-suite's data release as a seed project, every fifth case per group held out."""
         spec = Path(args.spec).expanduser() if args.spec else None
         summary = YamlImport(Path(args.suite).expanduser(), Path(args.out).expanduser(), spec).write()
-        self._show(
-            f"{summary.groups} groups of {summary.cases} cases: {summary.visible} tests in {summary.seed}, "
-            f"{summary.held_out} held out in {summary.held_out_tests}"
-        )
+        self._show(summary.render())
         return 0
 
     def score(self, args: argparse.Namespace) -> int:

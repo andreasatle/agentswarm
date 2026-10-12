@@ -43,7 +43,7 @@ class TestCommonMarkImport:
         spec = tmp_path / "spec.json"
         spec.write_text(json.dumps(SPEC))
         summary = CommonMarkImport(spec, tmp_path / "out").write()
-        assert (summary.sections, summary.visible, summary.held_out) == (3, 4, 1)
+        assert (summary.groups, summary.visible, summary.held_out) == (3, 4, 1)
         tests = sorted(p.name for p in (summary.seed / "tests" / "acceptance").iterdir())
         assert tests == [  # blocks before inlines, tabs last, whatever the spec's order
             "test_spec_01_blank_lines.py",
