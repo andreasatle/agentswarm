@@ -30,7 +30,7 @@ class JqCase(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    name: str  # where it comes from, e.g. "jq.test:123" or "manual:Basic filters:4"
+    name: str  # where it comes from, no spaces: "jq.test:123" or "manual:object-identifier-index-foo:1"
     program: str
     given: str = "null"  # the input, as JSON text
     outputs: tuple[str, ...] | None  # JSON texts; None: the program must not compile
@@ -167,7 +167,7 @@ class JqManual:
             entries = [
                 [
                     JqCase(
-                        name=f"manual:{entry.title}:{k}",
+                        name=f"manual:{self.slug(entry.title)}:{k}",
                         program=example.program,
                         given=example.input,
                         outputs=tuple(example.output),
@@ -180,6 +180,11 @@ class JqManual:
             if entries:
                 found.append((section.title, entries))
         return found
+
+    @staticmethod
+    def slug(title: str) -> str:
+        """A title fit for a test's name: pytest's report ends a name at its first space."""
+        return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
 
     def text(self) -> str:
         """The manual as Markdown, every example left out."""

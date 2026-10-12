@@ -63,6 +63,8 @@ class TestJqImport:
         assert sorted(p.name for p in summary.held_out_tests.glob("test_*.py")) == [
             "test_held_out_01_simple_values.py"
         ]
+        names = (acceptance / "test_jq_03_manual_basic_filters.py").read_text()
+        assert "'manual:object-identifier-index-foo:1'" in names  # pytest's report ends a name at a space
         manual = (summary.seed / "docs" / "jq-manual.md").read_text()
         assert "## Basic filters" in manual and "Gets a field." in manual and '{"a": 1}' not in manual
         for path in acceptance.glob("*.py"):
