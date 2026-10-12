@@ -53,12 +53,15 @@ class TestLocalSandbox:
         assert [p.name for p in tmp_path.iterdir()] == ["worktree"]  # the copy is gone
 
     def test_keeps_only_the_start_and_end_of_long_output(self, tmp_path: Path) -> None:
-        script = "print('START' + 'x' * 400_000 + 'END')"
+        script = f"print('START' + 'x' * {2 * Process.KEEP + 400_000} + 'END')"
         result = LocalSandbox().run([sys.executable, "-c", script], tmp_path, 30)
         assert result.output.startswith("START")
         assert result.output.rstrip().endswith("END")
         assert "bytes of output omitted" in result.output
         assert len(result.output) < 2 * Process.KEEP + 200
+        assert (
+            result.omitted == 400_009
+        )  # all but the 2 * KEEP bytes kept: the x's beyond them, START, END, newline
 
     def test_timeout_kills_child_processes_too(self, tmp_path: Path) -> None:
         marker = tmp_path / "survived"

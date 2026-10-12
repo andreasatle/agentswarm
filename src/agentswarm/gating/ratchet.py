@@ -22,6 +22,11 @@ from typing import ClassVar, Self
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.domain import Level
+from agentswarm.workspace.sandbox import SandboxResult
+
+
+class TruncatedOutput(RuntimeError):
+    """A test run's output was cut short: counting from it would miss tests, so it isn't counted at all."""
 
 
 class Outcomes(BaseModel):
@@ -33,6 +38,15 @@ class Outcomes(BaseModel):
     failed: frozenset[str]  # failures and errors
 
     LINE: ClassVar[re.Pattern[str]] = re.compile(r"^(PASSED|FAILED|ERROR|XPASS) (\S+)")
+
+    @classmethod
+    def of(cls, result: SandboxResult) -> Self:
+        """The outcomes of a finished test run; TruncatedOutput if part of its output was left out."""
+        if result.omitted:
+            raise TruncatedOutput(
+                f"{result.omitted} bytes of the test output were left out; tests would go uncounted"
+            )
+        return cls.parse(result.output)
 
     @classmethod
     def parse(cls, output: str) -> Self:

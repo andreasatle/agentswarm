@@ -205,7 +205,7 @@ class RatchetCheck:
         result = self._sandbox.run((*self._config.command, *self.FLAGS), cwd, self._config.timeout_s)
         if result.exit_code is None:
             return None
-        return Outcomes.parse(result.output)
+        return Outcomes.of(result)
 
     def outcomes_at(self, cwd: Path, commit: str) -> Outcomes | None:
         """The suite's outcomes on a plain copy of `commit`, next to `cwd` (so the sandbox can mount it)."""

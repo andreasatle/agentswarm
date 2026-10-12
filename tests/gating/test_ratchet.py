@@ -1,13 +1,15 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.config import CheckConfig, WorklistConfig
 from agentswarm.core.domain import ArtifactCreated, ArtifactId, Escalated, Paused, Sized
 from agentswarm.gating.checks import CheckStatus, Parts, RatchetCheck
-from agentswarm.gating.ratchet import Outcomes, Progress
-from agentswarm.workspace.sandbox import LocalSandbox
+from agentswarm.gating.ratchet import Outcomes, Progress, TruncatedOutput
+from agentswarm.workspace.sandbox import LocalSandbox, SandboxResult
 from tests.support.harness import Harness
 from tests.support.samples import Samples
 
@@ -58,6 +60,13 @@ class TestOutcomes:
         output = "PASSED t.py::test_a\nFAILED t.py::test_b - AssertionError\nERROR t.py::test_c\nnoise\n"
         outcomes = Outcomes.parse(output)
         assert outcomes.passed == {"t.py::test_a"} and outcomes.failed == {"t.py::test_b", "t.py::test_c"}
+
+    def test_refuses_output_with_its_middle_left_out(self) -> None:
+        whole = SandboxResult(exit_code=1, output="PASSED t.py::test_a\n")
+        assert Outcomes.of(whole).passed == {"t.py::test_a"}
+        cut = SandboxResult(exit_code=1, output="PASSED t.py::test_a\n... omitted ...", omitted=500)
+        with pytest.raises(TruncatedOutput):  # counting would miss the tests in the left-out part
+            Outcomes.of(cut)
 
     def test_progress_needs_a_fixed_test_and_nothing_broken(self) -> None:
         base = Outcomes(passed=frozenset({"a"}), failed=frozenset({"b", "c"}))

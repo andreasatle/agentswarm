@@ -31,6 +31,7 @@ class SandboxResult(BaseModel):
     exit_code: int | None  # None when the command never finished
     output: str  # stdout followed by stderr
     timed_out: bool = False
+    omitted: int = 0  # bytes left out of the middle of a very long output
 
     @property
     def passed(self) -> bool:
@@ -75,7 +76,10 @@ class Process:
     command can't exhaust the orchestrator (CODEX_AUDIT.md F14).
     """
 
-    KEEP = 64_000  # bytes kept from the start and from the end of the output
+    # Bytes kept from the start and from the end of the output: enough for the per-test lines of ~13,000
+    # tests, which test counting needs whole (HTML5's 1,958 tests print 166 kB). Models see check output
+    # trimmed far shorter (CheckResult), so this only bounds memory.
+    KEEP = 1_000_000
 
     @classmethod
     def run(
@@ -105,7 +109,8 @@ class Process:
                 if on_timeout is not None:
                     on_timeout()
                 return SandboxResult(exit_code=None, output=f"timed out after {timeout_s}s", timed_out=True)
-            return SandboxResult(exit_code=code, output=cls.bounded(out))
+            output, omitted = cls.bounded(out)
+            return SandboxResult(exit_code=code, output=output, omitted=omitted)
 
     @staticmethod
     def _kill(process: subprocess.Popen[bytes]) -> None:
@@ -114,15 +119,17 @@ class Process:
         process.wait()
 
     @classmethod
-    def bounded(cls, out: IO[bytes]) -> str:
+    def bounded(cls, out: IO[bytes]) -> tuple[str, int]:
+        """The output, its middle left out if it is longer than twice KEEP; and how many bytes were."""
         size = out.seek(0, os.SEEK_END)
         out.seek(0)
         if size <= 2 * cls.KEEP:
-            return out.read().decode(errors="replace")
+            return out.read().decode(errors="replace"), 0
         head = out.read(cls.KEEP).decode(errors="replace")
         out.seek(size - cls.KEEP)
         tail = out.read().decode(errors="replace")
-        return f"{head}\n... ({size - 2 * cls.KEEP} bytes of output omitted) ...\n{tail}"
+        omitted = size - 2 * cls.KEEP
+        return f"{head}\n... ({omitted} bytes of output omitted) ...\n{tail}", omitted
 
 
 class LocalSandbox:

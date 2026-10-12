@@ -74,7 +74,7 @@ class Scoreboard:
             result = self._sandbox.run((*self._command, "-rA", "--tb=no"), copy, self._timeout_s)
         finally:
             shutil.rmtree(copy, ignore_errors=True)
-        outcomes = Outcomes.parse(result.output)
+        outcomes = Outcomes.of(result)
         passed = Counter(n.split("::", 1)[0] for n in outcomes.passed)
         total = Counter(n.split("::", 1)[0] for n in outcomes.passed | outcomes.failed)
         files = tuple(FileScore(path=p, passed=passed[p], total=total[p]) for p in sorted(total))
