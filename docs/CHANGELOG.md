@@ -2,11 +2,11 @@
 
 What changed in AgentSwarm, latest first. Each entry says the problem that called for it, what was built, and what it means for the swarm.
 
-## 2026-10-12: HTML5: 99.8% visible, 99% held out
+## 2026-10-12: HTML5: 100% visible, 99.7% held out
 
 - **Problem:** the hardest problem so far: the HTML standard's parsing algorithm, which must build the same tree as a browser for any input, broken markup included. Judged by the 1,958 tree-construction tests the browsers maintain.
 - **Solution:** the same setup as YAML: the standard's parsing chapter as text, with its examples and worked cases left out, every fifth test held out, and the instruction to follow the standard's algorithms rather than rules guessed from tests. On the way, a test-counting bug was fixed: very long test output was cut in the middle and some tests went uncounted; now the count refuses cut output.
-- **Implication:** 1,590 of 1,593 visible and 363 of 365 held-out tests in one run, for $4.97: an HTML parser in 1,400 lines. Seen and unseen agree within a point.
+- **Implication:** all 1,593 visible and 364 of 365 held-out tests, for $5.18: an HTML parser in about 1,400 lines. Seen and unseen agree within a point.
 
 ## 2026-10-12: YAML 1.2: 100% visible, 97% held out
 
