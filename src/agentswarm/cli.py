@@ -39,6 +39,7 @@ from agentswarm.evaluation.compare import (
 )
 from agentswarm.evaluation.difficulty import DifficultyRater, DifficultyRatings
 from agentswarm.evaluation.faults import Variant
+from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
@@ -85,6 +86,7 @@ class Cli:
         import-toml SUITE --out DIR                the toml-test suite (TOML 1.0.0) as a seed, some held out
         import-jq SOURCE --out DIR                 jq's own tests as a seed for an interpreter, some held out
         import-yaml SUITE --out DIR [--spec MD]    the yaml-test-suite (YAML 1.2) as a seed, some held out
+        import-html5 DIR --out DIR [--spec MD]     html5lib's tree-construction tests as a seed, some held out
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         spend                                      today's spend of every run, per account, against the limits
@@ -160,6 +162,8 @@ class Cli:
                 return self.import_jq(args)
             case "import-yaml":
                 return self.import_yaml(args)
+            case "import-html5":
+                return self.import_html5(args)
             case "score":
                 return self.score(args)
             case "openrouter-models":
@@ -347,6 +351,14 @@ class Cli:
         spec = Path(args.spec).expanduser() if args.spec else None
         summary = YamlImport(Path(args.suite).expanduser(), Path(args.out).expanduser(), spec).write()
         self._show(summary.render())
+        return 0
+
+    def import_html5(self, args: argparse.Namespace) -> int:
+        """The html5lib tree-construction tests as a seed project, every fifth per group held out."""
+        spec = Path(args.spec).expanduser() if args.spec else None
+        self._show(
+            Html5Import(Path(args.tests).expanduser(), Path(args.out).expanduser(), spec).write().render()
+        )
         return 0
 
     def score(self, args: argparse.Namespace) -> int:
@@ -582,6 +594,14 @@ class Cli:
         yml.add_argument(
             "--spec", help="the YAML 1.2.2 spec's Markdown (yaml-spec), for the agents without examples"
         )
+        html5 = commands.add_parser(
+            "import-html5", help="the html5lib tree-construction tests as a seed project"
+        )
+        html5.add_argument(
+            "tests", help="a folder of the tests' .dat files (web-platform-tests, parsing/resources)"
+        )
+        html5.add_argument("--out", required=True, help="where the seed and the held-out tests go")
+        html5.add_argument("--spec", help="the standard's parsing chapter as text, for the agents")
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")

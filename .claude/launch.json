@@ -10,6 +10,7 @@
         "--project", "examples/commonmark/switch-over-cascade.yaml=/Users/andreasatle/agentswarm-runs/switch-over-3",
         "--project", "examples/jq/project.yaml=/Users/andreasatle/agentswarm-runs/jq",
         "--project", "examples/yaml/project.yaml=/Users/andreasatle/agentswarm-runs/yaml",
+        "--project", "examples/html5/project.yaml=/Users/andreasatle/agentswarm-runs/html5",
         "--port", "8765"
       ],
       "port": 8765
