@@ -86,6 +86,7 @@ class Cli:
         import-toml SUITE --out DIR [--hide-all]   the toml-test suite (TOML 1.0.0) as a seed, some held out
         import-jq SOURCE --out DIR                 jq's own tests as a seed for an interpreter, some held out
         import-yaml SUITE --out DIR [--spec MD]    the yaml-test-suite (YAML 1.2) as a seed, some held out
+                                [--hide-all]       ... or every test held out (no labels)
         import-html5 DIR --out DIR [--spec MD]     html5lib's tree-construction tests as a seed, some held out
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
@@ -351,7 +352,9 @@ class Cli:
     def import_yaml(self, args: argparse.Namespace) -> int:
         """The yaml-test-suite's data release as a seed project, every fifth case per group held out."""
         spec = Path(args.spec).expanduser() if args.spec else None
-        summary = YamlImport(Path(args.suite).expanduser(), Path(args.out).expanduser(), spec).write()
+        summary = YamlImport(
+            Path(args.suite).expanduser(), Path(args.out).expanduser(), spec, args.hide_all
+        ).write()
         self._show(summary.render())
         return 0
 
@@ -600,6 +603,11 @@ class Cli:
         yml.add_argument("--out", required=True, help="where the seed and the held-out tests go")
         yml.add_argument(
             "--spec", help="the YAML 1.2.2 spec's Markdown (yaml-spec), for the agents without examples"
+        )
+        yml.add_argument(
+            "--hide-all",
+            action="store_true",
+            help="hold out every test: the spec and no labels (self-supervised)",
         )
         html5 = commands.add_parser(
             "import-html5", help="the html5lib tree-construction tests as a seed project"

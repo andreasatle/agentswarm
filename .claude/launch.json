@@ -12,6 +12,7 @@
         "--project", "examples/yaml/project.yaml=/Users/andreasatle/agentswarm-runs/yaml",
         "--project", "examples/html5/project.yaml=/Users/andreasatle/agentswarm-runs/html5",
         "--project", "examples/toml-self/project.yaml=/Users/andreasatle/agentswarm-runs/toml-self",
+        "--project", "examples/yaml-self/project.yaml=/Users/andreasatle/agentswarm-runs/yaml-self",
         "--port", "8765"
       ],
       "port": 8765

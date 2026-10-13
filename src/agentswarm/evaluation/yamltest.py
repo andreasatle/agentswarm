@@ -279,9 +279,12 @@ gives
 ```
 """
 
-    def __init__(self, suite: Path, out: Path, spec: Path | None = None) -> None:
+    def __init__(self, suite: Path, out: Path, spec: Path | None = None, hide_all: bool = False) -> None:
         super().__init__(out)
         self._suite = suite  # the suite's data release, e.g. the data-2022-01-17 tag
+        self._hide_all = (
+            hide_all  # every test held out: the agents get the spec and no labels (self-supervised)
+        )
         self._spec = spec  # the 1.2.2 spec's Markdown, given to the agents without its examples
 
     def groups(self) -> list[SeedGroup[YamlCase]]:
@@ -308,6 +311,9 @@ gives
         if self._spec is not None:
             files["docs/yaml-1.2.2.md"] = YamlSpec(self._spec).text()
         return files
+
+    def held(self, position: int, case: YamlCase) -> bool:
+        return self._hide_all or super().held(position, case)
 
     def count(self, cases: Sequence[YamlCase]) -> int:
         return sum(1 if c.rejected else 1 + (c.values is not None) for c in cases)

@@ -76,3 +76,10 @@ class TestYamlSpec:
         assert "*Example #. Invalid Byte Order Mark: left out (the examples are tests).*" in text
         assert "- bad" not in text and "ERROR" not in text and "Legend" not in text
         assert "Text before." in text and "Text after." in text and "[#] c-byte-order-mark" in text
+
+
+class TestYamlHideAll:
+    def test_every_case_is_held_out(self, tmp_path: Path) -> None:
+        summary = YamlImport(Suite(tmp_path / "suite").root, tmp_path / "out", hide_all=True).write()
+        assert (summary.visible, summary.held_out) == (0, 16)
+        assert not list((summary.seed / "tests" / "acceptance").glob("test_*.py"))

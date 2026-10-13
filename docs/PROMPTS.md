@@ -1311,7 +1311,8 @@ project, the specification included.
   Quote the specification's words in a comment above each test.
 - Where the specification itself shows an input and its result, check exactly that, quoting the passage.
 - Generate many inputs with random.Random and a fixed seed, so a failure can be reproduced. Use only the
-  standard library and pytest.
+  standard library and pytest. Keep the file focused: at most about 300 lines, a few strong checks per rule
+  rather than many similar ones.
 - Check only what this step covers, through the project's public interface, importing it the way the
   project's own tests do. The test runs from the project root.
 - Every check must hold for the finished program as the specification describes it, not only for this step:
