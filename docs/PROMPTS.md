@@ -1316,6 +1316,8 @@ project, the specification included.
   project's own tests do. The test runs from the project root.
 - Every check must hold for the finished program as the specification describes it, not only for this step:
   never require that an input the specification allows is rejected, even if a later step implements it.
+- Never compare with another implementation of the same thing (a library for the format, in the standard
+  library or elsewhere): its answers are known answers, which this project doesn't have.
 - Make sure every input your generators build is what the test claims it is (a "malformed" input must stay
   malformed whatever the random choices; a "valid" one must be valid).
 - The checks must fail now, because the step isn't done yet, and pass once it is done correctly.

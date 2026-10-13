@@ -37,9 +37,10 @@ checks:
       - |
         import pathlib, re, sys
         banned = re.compile(r"^\s*(import|from)\s+(tomllib|tomli|tomlkit|toml|pytoml|rtoml|qtoml)\b", re.M)
-        found = [str(p) for p in pathlib.Path("tomlparse").rglob("*.py") if banned.search(p.read_text())]
+        # Here the tests too: a reference implementation in a check is a source of known answers, a label
+        found = [str(p) for d in ("tomlparse", "tests") for p in pathlib.Path(d).rglob("*.py") if banned.search(p.read_text())]
         for path in found:
-            print(f"{path}: imports a TOML library; write the parser yourself, with the standard library otherwise")
+            print(f"{path}: imports a TOML library; in the parser it would do the work, in a test it would give the answers")
         sys.exit(1 if found else 0)
   layout:
     kind: inconsistent
