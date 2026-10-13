@@ -2,6 +2,12 @@
 
 What changed in AgentSwarm, latest first. Each entry says the problem that called for it, what was built, and what it means for the swarm.
 
+## 2026-10-13: Self-supervised: YAML 1.2 without labels, 97%
+
+- **Problem:** TOML is familiar to the models; would self-supervision hold on an intricate spec, with even the spec's examples removed?
+- **Solution:** the same setup: derived checks from a check writer of another model family, disputes ruled by a referee reasoning first, all 681 official tests hidden.
+- **Implication:** 663 of 681 hidden tests, for $4.60: the same 97% the supervised run reached on its held-out tests, at about 2.7 times its cost. The referee upheld two wrong checks and kept one right one.
+
 ## 2026-10-13: Self-supervised: TOML without labels, 100%
 
 - **Problem:** every problem so far came with tests that give the right answers. Most real work doesn't.

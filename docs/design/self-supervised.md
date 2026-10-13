@@ -81,6 +81,16 @@ Why TOML: a direct comparison with a known supervised result, so the only thing 
 
 **What it does show:** with the setup fixed, a swarm given only a spec and self-derived checks built a fully conformant TOML parser on its first attempt per step, at about 1.4 times the supervised cost; the referee wasn't needed this time (no disputes), so its reliability is still unmeasured in a good run.
 
+## YAML 1.2 without labels (2026-10-13, $4.60): 97% of the hidden tests
+
+**Result:** 663/681 hidden tests (from 5), for $4.60, with the spec's examples removed (stricter than TOML). Supervised, YAML reached 97% of its 118 held-out tests for $1.69; without labels it reaches 97% of all 681. 5 of 6 steps merged, all by Sol; the last (a review pass over the whole spec) escalated after every model failed it. A parser of 1,695 lines in pure Python, no YAML library in code or tests, nothing from the hidden suite in the repository (checked by hand).
+
+**The referee, working this time:** 3 disputes. Upheld: a folding check that contradicted the spec's definition of a line break, and a check that contradicted the event notation for flow mappings. Rejected: one on tags. Reasoning-first and majority voting gave rulings that follow their own reasons.
+
+**The 18 failures:** 9 event streams, 8 loaded values, 1 input accepted that should be rejected. Not sorted further, so the hidden tests stay out of the work.
+
+**What the two problems say together:** on two well-specified formats, a spec plus self-derived checks plus a referee reached the same hidden pass rates as labeled tests, at about 1.4 to 2.7 times the cost; the extra cost is the check writing (Sonnet), not the building. The caveat stands that both formats are familiar to these models; a format they know less would separate the checks' contribution from their prior knowledge.
+
 ## What gets built
 
 | Part | Size | Exists? |
