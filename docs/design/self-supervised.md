@@ -53,6 +53,22 @@ Why TOML: a direct comparison with a known supervised result, so the only thing 
 - **Each test is disputed once;** at most 3 disputes are ruled per answer.
 - **Model families:** Sonnet plans and writes the checks, Sol (and the local Gemma) builds, DeepSeek referees (examples/toml-self/project.yaml).
 
+## First run (2026-10-13, $3.39 of $5): failed, and why
+
+**Result:** the hidden score went from 7/679 to 0/679. Two causes, neither the parser's alone:
+
+1. **The interface (my setup).** The hidden tests pass each file as bytes (some invalid files aren't UTF-8). The supervised stub's docstring said bytes are accepted, but neither the spec nor the north star does; the planner specified `loads(document: str)` with a TypeError for bytes, as tomllib does, so every hidden test failed before parsing. Measured with the bytes decoded first: 481/679, but that is 474 of 474 invalid documents rejected and only **7 of 205 valid documents** parsed: the parser rejects nearly everything it can't handle yet.
+2. **Wrong checks that stood, because the referee ruled against its own reasoning.** 7 disputes, all by Sol; on reading them, the builder was right every time (a test demanding that `key = "value"` be rejected, left from the skeleton step; a random generator that turns "malformed" escapes into valid ones; a valid multi-line string the test rejects). DeepSeek upheld 2. In 4 of the 5 it rejected, its written reason agreed with the builder and its verdict didn't. The same test got opposite rulings in two steps. Two steps escalated on these tests, and 20 of the 26 planned steps never started.
+
+**What it says:** the measurement works (the hidden score caught everything), and the dispute path is the right idea: the builder found real check errors. What failed is the referee's reliability and a few avoidable setup choices.
+
+**Fixes before a second run (code, no paid calls):**
+- The referee's answer gives its reasoning before its verdict (the verdict field was first, so the model committed before thinking; reasoning-then-answer is the established practice for structured judgements), and it is asked three times with the majority ruling (self-consistency; DeepSeek's three calls cost about a cent).
+- A ruling holds project-wide: a test ruled once is not ruled again in another step, so rulings can't contradict each other.
+- The check writer's prompt: checks must hold for the finished program, never assert that an input a later step will handle is rejected (the skeleton step's check froze a temporary limit, like the transitional tests the ratchet once protected).
+- The interface in the north star and the stub: `loads` accepts str or UTF-8 bytes, invalid UTF-8 raises TOMLDecodeError.
+- Planning one level deep (6 steps, as the planner first proposed), with the size question in shadow: 26 steps meant 26 check files to write and to get right.
+
 ## What gets built
 
 | Part | Size | Exists? |
