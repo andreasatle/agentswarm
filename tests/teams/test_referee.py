@@ -28,9 +28,13 @@ WRONG = (  # a model-written check that demands what the spec doesn't say
 
 def ruling(upheld: bool) -> Step[BaseModel]:
     def step(toolbox: Toolbox | None) -> BaseModel:
-        return RulingAnswer(upheld=upheld, reason="the spec says 'Goodbye, <name>!'")
+        return RulingAnswer(reason="the spec says 'Goodbye, <name>!'", upheld=upheld)
 
     return step
+
+
+def votes(*upheld: bool) -> FakeWorker:
+    return FakeWorker([ruling(u) for u in upheld])
 
 
 class Disputing:
@@ -82,7 +86,7 @@ class TestReferee:
     async def test_an_upheld_dispute_skips_the_test_and_the_work_goes_on(self, tmp_path: Path) -> None:
         d = Disputing(tmp_path)
         await d.write_tests()
-        rulings = await d.build(FakeWorker([ruling(True)]), quote="returns 'Goodbye, <name>!'")
+        rulings = await d.build(votes(True, True), quote="returns 'Goodbye, <name>!'")
         assert [(r.test, r.upheld, r.referee) for r in rulings] == [
             (f"{d.path}::test_farewell", True, "deepseek")
         ]
@@ -97,7 +101,7 @@ class TestReferee:
     async def test_a_rejected_dispute_leaves_the_test(self, tmp_path: Path) -> None:
         d = Disputing(tmp_path)
         await d.write_tests()
-        rulings = await d.build(FakeWorker([ruling(False)]), quote="returns 'Goodbye, <name>!'")
+        rulings = await d.build(votes(False, True, False), quote="returns 'Goodbye, <name>!'")
         assert [r.upheld for r in rulings] == [False]
         assert any(isinstance(e, Escalated) for e in d.history)  # the test stands, so the checks still fail
         assert "skip" not in d.h.repository.checkout_artifact(d.artifact).read(d.path)
@@ -127,3 +131,27 @@ class TestReferee:
         function = tree.body[-1]
         assert isinstance(function, ast.FunctionDef) and len(function.decorator_list) == 2
         assert skipped.count("import pytest") == 1
+
+
+class TestRulings:
+    def test_the_majority_of_three_decides(self) -> None:
+        def answers(*upheld: bool) -> list[RulingAnswer]:
+            return [RulingAnswer(reason="r", upheld=u) for u in upheld]
+
+        assert Referee.decided(answers(True)) is None
+        assert Referee.decided(answers(True, False)) is None
+        assert Referee.decided(answers(True, False, True)) is True
+        assert Referee.decided(answers(False, False)) is False
+
+    async def test_a_test_ruled_once_is_ruled_the_same_in_another_step(self, tmp_path: Path) -> None:
+        d = Disputing(tmp_path)
+        await d.write_tests()
+        referee = Referee(votes(True, True), "deepseek", ["docs/spec.md"])
+        worktree = d.h.repository.checkout_artifact(d.artifact)
+        worktree.write("docs/spec.md", SPEC)
+        dispute = Dispute(test=f"{d.path}::test_farewell", quote="returns 'Goodbye, <name>!'", reason="r")
+        first = await referee.rule(worktree, ArtifactId(d.artifact.id), dispute, "sol")
+        worktree.reset_hard(worktree.head() + "~1")  # another step's branch, without the skip
+        again = await referee.rule(worktree, ArtifactId(d.artifact.id), dispute, "sol")  # no more model calls
+        assert first is not None and again is not None and first.upheld and again.upheld
+        assert again.ruling.startswith("as ruled before") and "pytest.mark.skip" in worktree.read(d.path)

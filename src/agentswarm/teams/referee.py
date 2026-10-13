@@ -43,12 +43,14 @@ class RulingRequest(Frozen):
 
 
 class RulingAnswer(Frozen):
-    """Your ruling on one disputed test."""
+    """Your ruling on one disputed test: first your reasoning, then the verdict it leads to."""
 
+    # Reasoning before the verdict: with the verdict first, a model commits before it thinks (the first run
+    # had 4 of 7 rulings whose reasons agreed with the builder and whose verdicts didn't).
+    reason: str = Field(description="what the spec requires for the input the test checks, citing it")
     upheld: bool = Field(
         description="true if the test contradicts the spec and must go; false if it is right"
     )
-    reason: str = Field(description="one or two sentences, citing the spec")
 
 
 class Referee:
@@ -56,6 +58,7 @@ class Referee:
     CONTEXT = 1_500  # characters of spec on either side of the quote
     FILE_LIMIT = 40_000  # characters of the test file given to the model
     MAX_PER_ANSWER: ClassVar[int] = 3  # disputes ruled from one builder answer; more are ignored
+    VOTES: ClassVar[int] = 3  # independent rulings per dispute; the majority decides (self-consistency)
     INSTRUCTIONS = """\
 You are the referee between a builder and the checks someone else wrote for its work, in a project that has a
 specification but no tests with known answers. The builder says one test contradicts the specification and
@@ -71,6 +74,8 @@ quotes the passage. Rule on that test alone, from the specification, in a single
         self._worker = worker
         self._model = model
         self._spec = tuple(spec)  # files in the project, relative to its root
+        # Rulings so far in this run, by test: a test ruled once stays ruled, in every step that meets it
+        self._rulings: dict[str, tuple[bool, str]] = {}
 
     async def rule(
         self, worktree: Worktree, artifact: ArtifactId, dispute: Dispute, builder: str | None
@@ -93,8 +98,16 @@ quotes the passage. Rule on that test alone, from the specification, in a single
             )
 
         source = self.source(worktree, path)
-        if source is None or self.definition(source, function) is None:
+        definition = self.definition(source, function) if source is not None else None
+        if source is None or definition is None:
             return ruled(False, f"{test} is not an acceptance test of this project", None)
+        if test in self._rulings:  # ruled before in this run: the same ruling, applied here too
+            upheld, reason = self._rulings[test]
+            skipped = any(ast.unparse(d).startswith("pytest.mark.skip") for d in definition.decorator_list)
+            if upheld and not skipped:
+                worktree.write(path, self.skipped(source, function, reason))
+                worktree.commit_paths(f"{artifact}: referee skips {test} (ruled before): {reason}", [path])
+            return ruled(upheld, f"as ruled before: {reason}", self._model)
         passage = self.passage(worktree, dispute.quote)
         if passage is None:
             return ruled(False, "the quote is not in the spec, word for word", None)
@@ -105,14 +118,32 @@ quotes the passage. Rule on that test alone, from the specification, in a single
             passage=passage,
             reason=dispute.reason,
         )
-        try:
-            answer = await self._worker.run(self.INSTRUCTIONS, request, RulingAnswer)
-        except WorkerError:
+        answers: list[RulingAnswer] = []
+        for _ in range(self.VOTES):
+            try:
+                answers.append(await self._worker.run(self.INSTRUCTIONS, request, RulingAnswer))
+            except WorkerError:
+                continue
+            if self.decided(answers) is not None:
+                break
+        verdict = self.decided(answers)
+        if verdict is None:
             return None
+        answer = next(a for a in answers if a.upheld == verdict)
+        self._rulings[test] = (answer.upheld, answer.reason)
         if answer.upheld:
             worktree.write(path, self.skipped(source, function, answer.reason))
             worktree.commit_paths(f"{artifact}: referee skips {test}: {answer.reason}", [path])
         return ruled(answer.upheld, answer.reason, self._model)
+
+    @classmethod
+    def decided(cls, answers: Sequence[RulingAnswer]) -> bool | None:
+        """The majority verdict once one side has it; None while undecided."""
+        majority = cls.VOTES // 2 + 1
+        for verdict in (True, False):
+            if sum(a.upheld == verdict for a in answers) >= majority:
+                return verdict
+        return None
 
     def source(self, worktree: Worktree, path: str) -> str | None:
         if not path.startswith(f"{self.FOLDER}/") or not path.endswith(".py"):

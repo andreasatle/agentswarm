@@ -1314,6 +1314,10 @@ project, the specification included.
   standard library and pytest.
 - Check only what this step covers, through the project's public interface, importing it the way the
   project's own tests do. The test runs from the project root.
+- Every check must hold for the finished program as the specification describes it, not only for this step:
+  never require that an input the specification allows is rejected, even if a later step implements it.
+- Make sure every input your generators build is what the test claims it is (a "malformed" input must stay
+  malformed whatever the random choices; a "valid" one must be valid).
 - The checks must fail now, because the step isn't done yet, and pass once it is done correctly.
 - Do not implement the step.
 ```
@@ -1449,12 +1453,14 @@ class RulingRequest(Frozen):
 
 ```python
 class RulingAnswer(Frozen):
-    """Your ruling on one disputed test."""
+    """Your ruling on one disputed test: first your reasoning, then the verdict it leads to."""
 
+    # Reasoning before the verdict: with the verdict first, a model commits before it thinks (the first run
+    # had 4 of 7 rulings whose reasons agreed with the builder and whose verdicts didn't).
+    reason: str = Field(description="what the spec requires for the input the test checks, citing it")
     upheld: bool = Field(
         description="true if the test contradicts the spec and must go; false if it is right"
     )
-    reason: str = Field(description="one or two sentences, citing the spec")
 ```
 
 <details><summary>JSON schema</summary>
@@ -1462,22 +1468,22 @@ class RulingAnswer(Frozen):
 ```json
 {
   "additionalProperties": false,
-  "description": "Your ruling on one disputed test.",
+  "description": "Your ruling on one disputed test: first your reasoning, then the verdict it leads to.",
   "properties": {
+    "reason": {
+      "description": "what the spec requires for the input the test checks, citing it",
+      "title": "Reason",
+      "type": "string"
+    },
     "upheld": {
       "description": "true if the test contradicts the spec and must go; false if it is right",
       "title": "Upheld",
       "type": "boolean"
-    },
-    "reason": {
-      "description": "one or two sentences, citing the spec",
-      "title": "Reason",
-      "type": "string"
     }
   },
   "required": [
-    "upheld",
-    "reason"
+    "reason",
+    "upheld"
   ],
   "title": "RulingAnswer",
   "type": "object"

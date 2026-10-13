@@ -9,10 +9,10 @@
 project: toml-self
 domain: software
 north_star: >-
-  A TOML 1.0.0 parser in pure Python: the package tomlparse, whose loads(document) returns the same Python values
-  as the standard library's tomllib and raises TOMLDecodeError for every invalid document, exactly as the TOML
-  1.0.0 specification in docs/toml-v1.0.0.md states. No tests with known answers are given: done when the
-  specification is implemented.
+  A TOML 1.0.0 parser in pure Python: the package tomlparse, whose loads(document) takes a str, or bytes in
+  UTF-8 (invalid UTF-8 raises TOMLDecodeError), returns the same Python values as the standard library's
+  tomllib, and raises TOMLDecodeError for every invalid document, exactly as the TOML 1.0.0 specification in
+  docs/toml-v1.0.0.md states. No tests with known answers are given: done when the specification is implemented.
 seed: ~/agentswarm-data/toml/self/seed
 levels: [raw, experimental]
 sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
@@ -59,7 +59,7 @@ checks:
       - tests
       - docs
 teams:
-  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 2, build_at_max_depth: true}
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}  # one level: a step per spec section (2 gave 26 steps, each with its checks)
   - {use: acceptance_tester, watches: raw, model: checker, derived: true, checks: [spec]}
   - use: executor
     watches: raw
@@ -82,6 +82,6 @@ teams:
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
 score: {check: spec, held_out: [~/agentswarm-data/toml/self/held_out]}  # all 679 tests, never shown
-budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-13 (UTC): $5 for the first run without labels (approved)
+budgets: {usd_per_day: 3.0, reserve_usd: 0.3}  # set per approved run (the first, 2026-10-13: $3.39, failed; see the design doc)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether the task is split: by spec section
