@@ -2,6 +2,12 @@
 
 What changed in AgentSwarm, latest first. Each entry says the problem that called for it, what was built, and what it means for the swarm.
 
+## 2026-10-13: Self-supervised: TOML without labels, 100%
+
+- **Problem:** every problem so far came with tests that give the right answers. Most real work doesn't.
+- **Solution:** a check writer on another model family writes checks from the spec that need no known answers (round trips, equivalent inputs, rules the spec states); the builder may dispute a check, quoting the spec; a referee of a third family rules, reasoning first, by majority of three. The official tests stay hidden and only score. A first run failed and showed why (an interface the goal didn't state, a referee whose verdicts contradicted its reasons); both were fixed.
+- **Implication:** all 679 hidden TOML tests pass, for $3.43, against $2.44 with labels. One check compared dates with Python's own TOML parser, a hidden label, now banned; and TOML is familiar to these models, so a less familiar problem is the next test.
+
 ## 2026-10-12: HTML5: 100% visible, 99.7% held out
 
 - **Problem:** the hardest problem so far: the HTML standard's parsing algorithm, which must build the same tree as a browser for any input, broken markup included. Judged by the 1,958 tree-construction tests the browsers maintain.

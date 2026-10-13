@@ -69,6 +69,18 @@ Why TOML: a direct comparison with a known supervised result, so the only thing 
 - The interface in the north star and the stub: `loads` accepts str or UTF-8 bytes, invalid UTF-8 raises TOMLDecodeError.
 - Planning one level deep (6 steps, as the planner first proposed), with the size question in shadow: 26 steps meant 26 check files to write and to get right.
 
+## Second run (2026-10-13, $3.43): 100% of the hidden tests
+
+**Result:** 679/679 hidden tests (from 7), for $3.43 (Sonnet's check writing $2.93 of it, Sol's building $0.50), against the supervised run's 100% for $2.44. No disputes, no escalations; 7 merges; a parser of 524 lines in 8 modules, importing only the standard library. Verified by hand: the hidden tests pass when run directly, the 456 derived checks pass, and nothing from the hidden suite was ever in the project's repository.
+
+**What it doesn't show, honestly:**
+- **One check used a reference implementation.** The check writer compared dates and times with `tomllib`, which Python 3.13 in the sandbox has: for that one step, a source of correct answers, which is a label. The builder never used it. Fix: reference implementations are banned in checks too (the own-parser check covers tests/, and the check writer is told).
+- **Two of six steps had no derived checks.** On the largest step (all scalars) the check writer hit its 32k output limit twice ($0.69 for nothing); the last step and the umbrella got none either. Those steps were built against the spec and the builder's own unit tests alone.
+- **The spec's examples were kept** (by design, for a clean comparison): a few labels.
+- **TOML is well known to these models,** so the spec plus the model's prior knowledge may carry most of the result; this run can't separate that from what the checks added. An ablation (spec only, no checks) or a less familiar problem would.
+
+**What it does show:** with the setup fixed, a swarm given only a spec and self-derived checks built a fully conformant TOML parser on its first attempt per step, at about 1.4 times the supervised cost; the referee wasn't needed this time (no disputes), so its reliability is still unmeasured in a good run.
+
 ## What gets built
 
 | Part | Size | Exists? |
