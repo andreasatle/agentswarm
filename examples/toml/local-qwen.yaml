@@ -1,0 +1,73 @@
+# Local trial (2026-10-13): can a model on this Mac (24 GB) do real steps? Supervised TOML, solved before with GPT-6.1
+# Sol for $2.44, now with qwen3-coder:30b as the only builder: 3 independent attempts per work item measure its
+# success rate per attempt and how often one of three succeeds (what voting between local coders would need).
+#   uv run agentswarm run examples/toml/local-qwen.yaml --root ~/agentswarm-runs/toml-local --max-rounds 200
+project: toml-local
+domain: software
+north_star: >-
+  A TOML 1.0.0 parser in pure Python: the package tomlparse, whose loads(document) returns the same Python values
+  as the standard library's tomllib and raises TOMLDecodeError for every invalid document. Done when every test
+  of the official toml-test suite passes.
+seed: ~/agentswarm-data/toml/out/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # Only the local model: the trial measures how often it succeeds on real steps, with no paid model calls.
+  qwen30: {model: "ollama:qwen3-coder:30b", temperature: 0.7, max_tokens: 16384, timeout_s: 1800, context_window: 32768}  # 0.7: independent attempts differ; 32k: the model and its cache fit in 24 GB
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, protected: [tests/acceptance/]}
+  # Python's standard library has a TOML parser; using it (or any other) would solve the task without doing it.
+  own-parser:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, re, sys
+        banned = re.compile(r"^\s*(import|from)\s+(tomllib|tomli|tomlkit|toml|pytoml|rtoml|qtoml)\b", re.M)
+        found = [str(p) for p in pathlib.Path("tomlparse").rglob("*.py") if banned.search(p.read_text())]
+        for path in found:
+            print(f"{path}: imports a TOML library; write the parser yourself, with the standard library otherwise")
+        sys.exit(1 if found else 0)
+  layout:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, sys
+        allowed = sys.argv[1:]
+        stray = sorted(p.name for p in pathlib.Path(".").iterdir() if not p.name.startswith(".") and p.name not in allowed)
+        for name in stray:
+            print(f"{name}: outside the project layout (only {', '.join(allowed)} belong at the root); delete it")
+        sys.exit(1 if stray else 0)
+      - tomlparse
+      - tests
+      - docs
+teams:
+  # No planner and no split on failure: both would call a cloud model. A work item every attempt fails stays
+  # failed and is recorded; the worklist moves on to the next file after attempts_per_file.
+  - use: executor
+    watches: raw
+    model_tiers: [qwen30]
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
+    checks: [spec, own-parser, layout]
+    max_model_calls: 60
+    attempts: 3  # independent attempts per item: the success rate per attempt, and how often one of three succeeds
+    repairs: 1
+    partial: true
+    constraints:
+      - Use only the Python standard library, and no TOML library from it or anywhere else (tomllib included).
+      - Keep the code in the tomlparse package, split into modules as it grows.
+      - The TOML 1.0.0 spec is in docs/toml-v1.0.0.md; the tests in tests/acceptance/ are the definition of done.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
+score: {check: spec, held_out: [~/agentswarm-data/toml/out/held_out]}  # measured at the start and end of every run
+budgets: {usd_per_day: 1.0, reserve_usd: 0.0}  # no paid model calls; the user's limit for local runs is $1 a day, Jev included
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["route:*"]}
