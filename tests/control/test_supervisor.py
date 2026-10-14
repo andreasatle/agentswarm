@@ -5,7 +5,17 @@ from typing import Any
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.core.config import JevMode, ProjectConfig
-from agentswarm.core.domain import ArtifactCreated, ArtifactId, Escalated, Paused, Rejected, Resumed, Sized
+from agentswarm.core.domain import (
+    ArtifactCreated,
+    ArtifactId,
+    Escalated,
+    Level,
+    Paused,
+    Promoted,
+    Rejected,
+    Resumed,
+    Sized,
+)
 from agentswarm.jev.api import NoulAnswer
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.judgement import Judgement
@@ -112,6 +122,28 @@ class TestStalls:
         s.h.clock.advance(timedelta(minutes=31))
         s.supervisor.step()
         assert s.escalations(second.id) == []  # its turn comes when the first one merges
+
+    def test_a_child_whose_sibling_just_merged_after_a_long_wait_is_no_stall(self, tmp_path: Path) -> None:
+        s = Supervised(tmp_path)
+        parent = s.h.create()
+        factory = ArtifactFactory(s.h.board, Harness.LADDER)
+        first, second = (factory.child(parent, i, f"part {i}", Samples.EXECUTOR) for i in (1, 2))
+        s.h.board.append([ArtifactCreated(artifact=first), ArtifactCreated(artifact=second)])
+        s.h.board.append([Sized(artifact=parent.id, fits=False, children=(first.id, second.id))])
+        s.h.clock.advance(timedelta(minutes=95))  # a long attempt on the first (JSONPath, 2026-10-14)
+        s.h.board.append(  # the first one merges at last
+            [
+                Promoted(
+                    artifact=first.id,
+                    from_level=Level("raw"),
+                    to_level=Level("experimental"),
+                    gate_decision=None,
+                    commit="c1",
+                )
+            ]
+        )
+        s.supervisor.step()
+        assert s.escalations(second.id) == []  # idle from when it could move, not from its own last event
 
     def test_umbrellas_and_the_top_level_are_never_stalled(self, tmp_path: Path) -> None:
         s = Supervised(tmp_path, levels=["raw", "experimental"])

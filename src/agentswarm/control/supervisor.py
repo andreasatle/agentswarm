@@ -103,7 +103,9 @@ class Supervisor:
             return None  # waiting for an earlier sibling of its split: its turn comes when that one merges
         if views.claim_on(artifact.id, now) is None and views.active_claims(now):
             return None  # waiting its turn: a team is busy with another artifact
-        idle = now - max(views.last_activity(artifact.id), self._started)
+        # From when it could last move: a step that waited 90 minutes for a sibling isn't idle the moment
+        # that sibling merges (JSONPath, 2026-10-14: two steps parked as stalled right after a long attempt)
+        idle = now - max(views.ready_since(artifact.id), self._started)
         if idle > timedelta(minutes=self._config.supervisor.stall_after_minutes):
             return (
                 f"stalled at {artifact.level}: nothing happened for {int(idle.total_seconds() // 60)} minutes"

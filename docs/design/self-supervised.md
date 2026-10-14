@@ -91,6 +91,18 @@ Why TOML: a direct comparison with a known supervised result, so the only thing 
 
 **What the two problems say together:** on two well-specified formats, a spec plus self-derived checks plus a referee reached the same hidden pass rates as labeled tests, at about 1.4 to 2.7 times the cost; the extra cost is the check writing (Sonnet), not the building. The caveat stands that both formats are familiar to these models; a format they know less would separate the checks' contribution from their prior knowledge.
 
+## JSONPath (RFC 9535) without labels, with the broad builder pool (2026-10-14, $3.43): 99% of the hidden tests
+
+**Result:** 709/715 hidden tests (from 51, the queries whose answer is empty), for $3.43, on a 2024 standard the models know far less well than TOML or YAML. 849 lines in pure Python, including its own I-Regexp module (RFC 9485); nothing from the hidden suite in the repository; checked by hand.
+
+**The router, with seven builders to choose from:** GLM-5.3 took the first step (one failed attempt, then a success, $0.28), GPT-6.1 Sol the next two ($0.18 and $0.39). The local qwen3-coder, Haiku, qwen3-coder 480B, DeepSeek and Sonnet were never chosen: their measured cost per success on hard steps ranked lower. One dispute (upheld, consistent).
+
+**A framework bug, found and fixed:** steps 3 (filters) and 5 (final review) never ran. Step 2's attempt took 94 minutes; the moment it merged, the supervisor saw step 3 "idle for 115 minutes", counting from step 3's own last event although it had been waiting its turn, and parked it as stalled; the same then hit step 5. Step 4 (functions) implemented filters as well, which is why the score is still 99%. Fixed: idle time counts from when a step could last move (`BoardViews.ready_since`), with a test that fails without the fix.
+
+**Also seen again:** the check writer failed twice on the whole task ($0.76 for nothing), as on TOML. Next to fix.
+
+**Three problems together:** TOML 100%, YAML 97%, JSONPath 99% of their hidden tests without any labels, the last on unfamiliar ground. The checks plus the spec carry the work, not only the models' prior knowledge.
+
 ## What gets built
 
 | Part | Size | Exists? |

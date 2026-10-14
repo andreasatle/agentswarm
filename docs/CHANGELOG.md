@@ -2,6 +2,12 @@
 
 What changed in AgentSwarm, latest first. Each entry says the problem that called for it, what was built, and what it means for the swarm.
 
+## 2026-10-14: Without labels on unfamiliar ground: JSONPath 99%
+
+- **Problem:** TOML and YAML are familiar to the models; did self-supervision only work because they already knew the formats?
+- **Solution:** JSONPath, a 2024 standard (RFC 9535), with all 715 compliance tests hidden, the RFC as the only spec, and seven builders for the router to choose from, local and hosted, small and large.
+- **Implication:** 709 of 715 hidden tests for $3.43. The router chose GLM-5.3 and GPT-6.1 Sol. A false "stall" after a long attempt was found and fixed on the way.
+
 ## 2026-10-13: Self-supervised: YAML 1.2 without labels, 97%
 
 - **Problem:** TOML is familiar to the models; would self-supervision hold on an intricate spec, with even the spec's examples removed?

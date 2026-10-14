@@ -242,6 +242,21 @@ class BoardViews:
         """When anything last happened to the artifact."""
         return self._histories[id][-1].at
 
+    def ready_since(self, id: ArtifactId) -> datetime:
+        """When the artifact could last move: its own last event, or the last event of an earlier sibling
+        of its split (and of its parent's), whichever is later: a step that waited its turn is idle only
+        from then.
+        """
+        times = [self.last_activity(id)]
+        artifact = self._artifacts[id]
+        if artifact.parent is not None and artifact.fixes is None:
+            for sibling in self.children(artifact.parent):
+                if sibling.id == id:
+                    break
+                times.append(self.last_activity(sibling.id))
+            times.append(self.ready_since(artifact.parent))
+        return max(times)
+
     def is_umbrella(self, id: ArtifactId) -> bool:
         """Split into children by decomposition: it does no work itself and joins when they are done."""
         return id in self._umbrellas
