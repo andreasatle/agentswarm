@@ -2,6 +2,7 @@ import itertools
 from collections.abc import Callable, Sequence
 
 import pytest
+from langchain.agents.structured_output import StructuredOutputValidationError
 from langchain.messages import AIMessage, ToolMessage
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
@@ -109,6 +110,20 @@ class TestLangChainWorker:
         model = Replies().cut_off("I am still thinking about").text("unused").call("Answer", summary="late")
         with pytest.raises(CutOff, match="stopped at the output limit"):
             await LangChainWorker(model.model(), max_model_calls=1).run("Do it.", Payload(task="t"), Answer)
+
+    async def test_a_native_typed_answer_stopped_at_the_limit_is_cut_off(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Sonnet 5.5 answers natively; its thinking and file ran past max_tokens and the JSON broke off
+        worker = LangChainWorker(Replies().model(), max_model_calls=1)
+
+        async def cut(*args: object) -> dict[str, object]:
+            reply = AIMessage('{"test": "import pytest', response_metadata={"stop_reason": "max_tokens"})
+            raise StructuredOutputValidationError("Answer", ValueError("Unterminated string"), reply)
+
+        monkeypatch.setattr(worker, "_invoke", cut)
+        with pytest.raises(CutOff):
+            await worker.run("Do it.", Payload(task="t"), Answer)
 
     def test_each_providers_way_of_saying_the_reply_hit_the_limit(self) -> None:
         for metadata in (

@@ -23,7 +23,7 @@ models:
   # ranks them by measured cost per success (Anthropic and DeepSeek build too, so for their attempts the checks and
   # rulings come from the same family: recorded per attempt, so the analysis can separate them).
   planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
-  checker: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  checker: {model: "anthropic:claude-sonnet-5-5", max_tokens: 64000, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}  # thinking counts as output: 32k cut files off
   referee: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
   qwen30: {model: "ollama:qwen3-coder:30b", temperature: 0.7, max_tokens: 16384, timeout_s: 1800, context_window: 32768}  # local
   haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}

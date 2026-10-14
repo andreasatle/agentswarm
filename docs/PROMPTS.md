@@ -1341,7 +1341,8 @@ project, the specification included.
       "path": "tests/test_greeter.py",
       "content": "from greeter import greet\n\n\ndef test_greet():\n    assert greet(\"Ada\") == \"Hello, Ada!\"\n"
     }
-  ]
+  ],
+  "previous_try": null
 }
 </data>
 ```
@@ -1355,6 +1356,8 @@ class AcceptRequest(Frozen):
     north_star: str
     task: str
     files: tuple[SourceFile, ...]  # every file of the project as it is, before the task is done
+    # On a second try: why the first answer was thrown away, and what to do differently
+    previous_try: str | None = None
 
 
 class SourceFile(Frozen):

@@ -103,6 +103,12 @@ Why TOML: a direct comparison with a known supervised result, so the only thing 
 
 **Three problems together:** TOML 100%, YAML 97%, JSONPath 99% of their hidden tests without any labels, the last on unfamiliar ground. The checks plus the spec carry the work, not only the models' prior knowledge.
 
+## The check writer's failures, diagnosed and fixed (2026-10-14)
+
+**Cause:** every failed check file, across the three runs without labels, stopped at exactly 32,768 output tokens, the configured limit. The files themselves are 120 to 530 lines (2,000 to 6,000 tokens); the rest is Sonnet 5.5's thinking, which is on by default and counts as output against `max_tokens`. On the widest tasks (the whole spec, a final review) thinking plus file ran past the limit and the answer broke off mid-string. Two things made it waste money: the worker reported a native typed answer cut off at the limit as "invalid" rather than "cut off", and the retry repeated the same request, so it was cut off again ($0.69 on TOML, $0.76 on JSONPath, for nothing).
+
+**Fixes:** the worker reports a cut-off as `CutOff` whichever way the answer was given; a second try is told in its typed input why the first was thrown away (cut off: write at most about 150 lines, strongest checks first; other reasons named); and the check writer's `max_tokens` is 64,000 in the configs without labels (Sonnet allows 128,000). Thinking stays on: the quality of the checks is what self-supervision rests on.
+
 ## What gets built
 
 | Part | Size | Exists? |

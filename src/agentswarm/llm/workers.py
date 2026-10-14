@@ -149,7 +149,10 @@ class LangChainWorker:
                 )
                 state = await self._invoke(instructions, payload, output, toolbox, tokens)
         except StructuredOutputError as error:  # an answer that doesn't fit the schema, after retries
-            raise InvalidAnswer(f"{type(error).__name__}: {error}") from error
+            # A native typed answer that stopped at the output limit is cut off, not malformed: callers react
+            # differently (the check writer's files ran past 32k tokens of thinking and code, 2026-10-14).
+            kind = CutOff if Stops.at_limit(getattr(error, "ai_message", None)) else InvalidAnswer
+            raise kind(f"{type(error).__name__}: {error}") from error
         except Exception as error:  # provider failures surface as many types
             if ProviderUnavailable.describes(error):
                 raise ProviderUnavailable(f"{type(error).__name__}: {error}") from error

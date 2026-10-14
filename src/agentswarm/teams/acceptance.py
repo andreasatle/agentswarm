@@ -26,7 +26,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.gating.checks import CheckStatus, CommandCheck
-from agentswarm.llm.workers import ProviderUnavailable, Worker, WorkerError
+from agentswarm.llm.workers import CutOff, ProviderUnavailable, Worker, WorkerError
 from agentswarm.teams.routing import RoutedTiers
 from agentswarm.teams.runner import Relevance
 from agentswarm.workspace.git import Worktree
@@ -47,6 +47,8 @@ class AcceptRequest(Frozen):
     north_star: str
     task: str
     files: tuple[SourceFile, ...]  # every file of the project as it is, before the task is done
+    # On a second try: why the first answer was thrown away, and what to do differently
+    previous_try: str | None = None
 
 
 class AcceptAnswer(Frozen):
@@ -198,10 +200,15 @@ project, the specification included.
         why = ""
         start, routed = self._routing.start(ctx, worktree.head()) if self._routing is not None else (0, [])
         for number in range(self.TRIES):
+            if number and why:
+                request = request.model_copy(update={"previous_try": self.advice(why)})
             try:
                 answer = await self.worker(start + number).run(self._instructions, request, AcceptAnswer)
             except ProviderUnavailable as error:
                 return [*routed, Paused(reason=f"the model provider is unavailable: {error}")]
+            except CutOff as error:
+                why = f"cut off at the output limit: {error}"
+                continue
             except WorkerError as error:
                 why = f"no valid answer: {error}"
                 continue
@@ -233,6 +240,16 @@ project, the specification included.
             artifact=artifact, team=self._name, commit=worktree.head(), files=(), note=why
         )
         return [*routed, skipped]
+
+    @staticmethod
+    def advice(why: str) -> str:
+        """What the second try is told about the first."""
+        if why.startswith("cut off"):
+            return (
+                "Your last answer was cut off at the output limit before the file was complete. Write a "
+                "shorter file this time: at most about 150 lines, the strongest checks first."
+            )
+        return f"Your last answer was thrown away: {why}. Fix that this time."
 
     def worker(self, tier: int) -> Worker:
         """The worker for a try: from the routed tier, the next try one tier up, staying on the strongest."""

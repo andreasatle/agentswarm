@@ -15,7 +15,7 @@ from agentswarm.core.domain import (
     Sized,
 )
 from agentswarm.gating.checks import CheckStatus, CommandCheck
-from agentswarm.llm.workers import FakeWorker, Step, Toolbox
+from agentswarm.llm.workers import CutOff, FakeWorker, Step, Toolbox
 from agentswarm.teams.acceptance import AcceptanceTester, AcceptAnswer, AcceptRequest
 from agentswarm.teams.executor import ExecutorReport, ExecutorTeam, WorktreeToolbox
 from agentswarm.teams.runner import Relevance
@@ -179,3 +179,25 @@ class TestDerivedChecks:
         team = AcceptanceTester(Samples.RAW, Recording([a.answer(GOOD)]), a.runner, derived=True)
         await a.act(team)
         assert seen == [AcceptanceTester.DERIVED] and "round trips" in seen[0]
+
+
+class TestRetries:
+    async def test_a_second_try_is_told_why_the_first_was_thrown_away(self, tmp_path: Path) -> None:
+        a = Accepting(tmp_path)
+        seen: list[str | None] = []
+
+        def cut(toolbox: Toolbox | None) -> BaseModel:
+            raise CutOff("stopped at the output limit")
+
+        class Recording(FakeWorker):
+            async def run[T: BaseModel](
+                self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
+            ) -> T:
+                assert isinstance(payload, AcceptRequest)
+                seen.append(payload.previous_try)
+                return await super().run(instructions, payload, output, toolbox)
+
+        team = AcceptanceTester(Samples.RAW, Recording([cut, a.answer(GOOD)]), a.runner)
+        written = await a.act(team)
+        assert written and written[0].files  # the second, shorter try was used
+        assert seen[0] is None and seen[1] is not None and "at most about 150 lines" in seen[1]
