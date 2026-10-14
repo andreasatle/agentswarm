@@ -1,0 +1,96 @@
+# Self-supervised development on unfamiliar ground, with every builder the router can choose (docs/design/
+# self-supervised.md): JSONPath, RFC 9535 (2024), far less familiar to models than TOML or YAML. All 715 tests of
+# the JSONPath Compliance Test Suite are hidden and only scored; the agents get the RFC (11 of the 715 queries
+# appear in it, all short and generic). The same teams as examples/yaml-self. The builder pool is broad, so the
+# router measures cost per success on real steps for every model, local and hosted, small and large (the user,
+# 2026-10-14: "evaluate all possibilities ... if we restrict ourselves to too small models we will get stuck").
+#   uv run agentswarm import-jsonpath ~/agentswarm-data/jsonpath/cts --rfc ~/agentswarm-data/jsonpath/rfc9535.txt \
+#     --out ~/agentswarm-data/jsonpath/self --hide-all
+#   uv run agentswarm run examples/jsonpath-self/project.yaml --root ~/agentswarm-runs/jsonpath-self --max-rounds 120 \
+#     --task "Implement JSONPath in jsonpathpy, as RFC 9535 in docs/rfc9535.txt specifies it"
+project: jsonpath-self
+domain: software
+north_star: >-
+  JSONPath as RFC 9535 specifies it, in pure Python: the package jsonpathpy, whose query(selector, document)
+  returns the values of the nodes the query selects from a parsed JSON document, in the order the RFC gives them,
+  and raises JsonPathError for every query the RFC doesn't allow (its grammar, well-typedness of function
+  expressions, integer ranges). No tests with known answers are given: done when RFC 9535 is implemented.
+seed: ~/agentswarm-data/jsonpath/self/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # Planner and check writer: Sonnet. Referee: DeepSeek. Builders: everything, cheap and local first; the router
+  # ranks them by measured cost per success (Anthropic and DeepSeek build too, so for their attempts the checks and
+  # rulings come from the same family: recorded per attempt, so the analysis can separate them).
+  planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  checker: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  referee: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
+  qwen30: {model: "ollama:qwen3-coder:30b", temperature: 0.7, max_tokens: 16384, timeout_s: 1800, context_window: 32768}  # local
+  haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
+  glm: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:z-ai/glm-5.3', usd_per_million: {cache_read: 0.059, input: 0.079, output: 4.8}}
+  qwen480: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:qwen/qwen3-coder', usd_per_million: {cache_read: 0.1, input: 0.3, output: 1.0}}
+  deepseek: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, protected: [tests/acceptance/]}
+  # A JSONPath library would solve the task without doing it (the sandbox has none).
+  own-parser:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, re, sys
+        banned = re.compile(r"^\s*(import|from)\s+(jsonpath|jsonpath_ng|jsonpath_rw|jsonpath2|python_jsonpath|jmespath|subprocess)\b", re.M)
+        # Here the tests too: a JSONPath library in a check would give known answers, a label
+        found = [str(p) for d in ("jsonpathpy", "tests") for p in pathlib.Path(d).rglob("*.py") if banned.search(p.read_text())]
+        for path in found:
+            print(f"{path}: imports a JSONPath library or subprocess; in the parser it would do the work, in a test it would give the answers")
+        sys.exit(1 if found else 0)
+  layout:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, sys
+        allowed = sys.argv[1:]
+        stray = sorted(p.name for p in pathlib.Path(".").iterdir() if not p.name.startswith(".") and p.name not in allowed)
+        for name in stray:
+            print(f"{name}: outside the project layout (only {', '.join(allowed)} belong at the root); delete it")
+        sys.exit(1 if stray else 0)
+      - jsonpathpy
+      - tests
+      - docs
+teams:
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}
+  - {use: acceptance_tester, watches: raw, model: checker, derived: true, checks: [spec]}
+  - use: executor
+    watches: raw
+    model_tiers: [qwen30, haiku55, glm, qwen480, deepseek, gpt-sol, sonnet]  # the router ranks them; this order counts only before data
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
+    checks: [spec, own-parser, layout]
+    max_model_calls: 60
+    attempts: 4
+    climb: true
+    split_on_failure: true
+    repairs: 0  # repairs succeeded 1 of 25 for Sol and 0 of 10 for qwen3-coder: a fresh attempt by the next model does better
+    partial: true
+    referee: referee
+    spec: [docs/rfc9535.txt]
+    constraints:
+      - Use only the Python standard library; no JSONPath library, and no subprocess.
+      - Keep the code in the jsonpathpy package, split into modules as it grows (for example a lexer, a parser to a syntax tree, the well-typedness checks, and an evaluator).
+      - RFC 9535 is in docs/rfc9535.txt (search and read the parts you need); implement each rule the way it states it. Hidden tests check the rest.
+      - The tests in tests/acceptance/ were written by another model from the RFC and can be wrong. If one contradicts the RFC, don't work around it; name it in `disputes` with the RFC's exact words. A referee rules, and a test ruled wrong is skipped.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
+score: {check: spec, held_out: [~/agentswarm-data/jsonpath/self/held_out]}  # all 715 tests, never shown
+budgets: {usd_per_day: 8.0, reserve_usd: 0.3}  # 2026-10-14 (UTC): $8 for this run (approved)
+supervisor: {stall_after_minutes: 90}  # the local model takes up to 30 minutes an attempt
+jev: {mode: shadow, active: ["size:*", "route:*"]}

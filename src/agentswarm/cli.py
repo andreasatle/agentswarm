@@ -42,6 +42,7 @@ from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.jq import JqImport
+from agentswarm.evaluation.jsonpath import JsonPathImport
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -88,6 +89,7 @@ class Cli:
         import-yaml SUITE --out DIR [--spec MD]    the yaml-test-suite (YAML 1.2) as a seed, some held out
                                 [--hide-all]       ... or every test held out (no labels)
         import-html5 DIR --out DIR [--spec MD]     html5lib's tree-construction tests as a seed, some held out
+        import-jsonpath SUITE --rfc TXT --out DIR  the JSONPath compliance suite (RFC 9535) as a seed
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         spend                                      today's spend of every run, per account, against the limits
@@ -165,6 +167,8 @@ class Cli:
                 return self.import_yaml(args)
             case "import-html5":
                 return self.import_html5(args)
+            case "import-jsonpath":
+                return self.import_jsonpath(args)
             case "score":
                 return self.score(args)
             case "openrouter-models":
@@ -364,6 +368,12 @@ class Cli:
         self._show(
             Html5Import(Path(args.tests).expanduser(), Path(args.out).expanduser(), spec).write().render()
         )
+        return 0
+
+    def import_jsonpath(self, args: argparse.Namespace) -> int:
+        """The JSONPath compliance test suite and RFC 9535 as a seed project; some or all tests held out."""
+        suite, rfc, out = (Path(p).expanduser() for p in (args.suite, args.rfc, args.out))
+        self._show(JsonPathImport(suite, rfc, out, args.hide_all).write().render())
         return 0
 
     def score(self, args: argparse.Namespace) -> int:
@@ -617,6 +627,16 @@ class Cli:
         )
         html5.add_argument("--out", required=True, help="where the seed and the held-out tests go")
         html5.add_argument("--spec", help="the standard's parsing chapter as text, for the agents")
+
+        jsonpath = commands.add_parser(
+            "import-jsonpath", help="the JSONPath compliance suite as a seed project"
+        )
+        jsonpath.add_argument(
+            "suite", help="a checkout of github.com/jsonpath-standard/jsonpath-compliance-test-suite"
+        )
+        jsonpath.add_argument("--rfc", required=True, help="RFC 9535 as plain text, the spec for the agents")
+        jsonpath.add_argument("--out", required=True, help="where the seed and the held-out tests go")
+        jsonpath.add_argument("--hide-all", action="store_true", help="hold out every test (no labels)")
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")
