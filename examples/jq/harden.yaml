@@ -77,7 +77,7 @@ gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-interpreter, layout]}
 worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
 score: {check: spec, held_out: [~/agentswarm-data/jq/out/held_out]}  # measured at the start and end of every run
-budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-15 (UTC): $5 for the first hardening run (to approve)
+budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-15 (UTC): $5 for the first hardening run (approved)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs
 hardening:
