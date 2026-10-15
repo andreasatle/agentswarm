@@ -197,6 +197,14 @@ class AttackFocus(StrEnum):
     MUTATION = "mutation"  # behaviours no check covers, found by planting bugs that no check notices
 
 
+class AttackFinding(Frozen):
+    """A confirmed red team report, kept with the fix task made from it."""
+
+    task: ArtifactId
+    claim: str
+    quote: str  # the spec's words it rests on
+
+
 class Attacked(Frozen):
     """One red team attack on the product during hardening: what it reported, and what the referee confirmed.
 
@@ -214,10 +222,30 @@ class Attacked(Frozen):
     confirmed: int = Field(ge=0)  # of those, confirmed by the referee against the spec
     tasks: tuple[ArtifactId, ...] = ()  # the fix tasks made from the confirmed ones
     dropped: tuple[str, ...] = ()  # why each unconfirmed report was dropped, one line each
+    findings: tuple[AttackFinding, ...] = ()  # the confirmed reports, one per task
 
     @property
     def subject(self) -> None:
         return None
+
+
+class Reconsidered(Frozen):
+    """The referee looked again at a confirmed red team report whose fix every builder model failed: a change
+    that made the red team's test pass broke protected tests the product passed. Where the spec is imprecise
+    the existing tests say what it means (2026-10-15: the manual's "`a op= b` is `a |= . op b`", read
+    literally, contradicted jq's own tests). Withdrawn: the task is dropped and later red teams are told."""
+
+    kind: Literal["reconsidered"] = "reconsidered"
+    artifact: ArtifactId
+    claim: str
+    broken: tuple[str, ...]  # the protected tests the change broke; empty: no conflict was found
+    referee: str | None  # None when plain code settled it (no conflict, or the tests didn't run)
+    withdrawn: bool
+    reason: str
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
 
 
 class CheckDisputed(Frozen):
@@ -609,6 +637,7 @@ type Event = Annotated[
     | AcceptanceRestored
     | CheckDisputed
     | Attacked
+    | Reconsidered
     | Paused
     | Resumed
     | Spent

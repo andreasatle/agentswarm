@@ -5,8 +5,16 @@ from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import CheckConfig, HardeningConfig
-from agentswarm.core.domain import AcceptanceWritten, Attacked, AttackFocus, Event
-from agentswarm.gating.checks import CommandCheck
+from agentswarm.core.domain import (
+    AcceptanceWritten,
+    Attacked,
+    AttackFocus,
+    Event,
+    Reconsidered,
+    TeamName,
+    Unbuildable,
+)
+from agentswarm.gating.checks import CommandCheck, RatchetCheck
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.hardening import (
     AttackProblem,
@@ -16,7 +24,7 @@ from agentswarm.teams.hardening import (
     Leads,
     SpecSections,
 )
-from agentswarm.teams.referee import Referee, ReportAnswer
+from agentswarm.teams.referee import ReconsiderAnswer, Referee, ReportAnswer
 from agentswarm.workspace.sandbox import LocalSandbox
 from tests.support.harness import Harness
 
@@ -53,17 +61,34 @@ def ruling(confirmed: bool) -> Step[BaseModel]:
     return step
 
 
+def second_look(withdrawn: bool) -> Step[BaseModel]:
+    def step(toolbox: Toolbox | None) -> BaseModel:
+        return ReconsiderAnswer(reason="the existing test shows what the spec means", withdrawn=withdrawn)
+
+    return step
+
+
+EXISTING = "from greeting import goodbye\n\n\ndef test_short():\n    assert goodbye('Ada') == 'Bye'\n"
+FIXED = PRODUCT.replace("return 'Bye'", "return f'Goodbye, {name}!'")
+
+
 class Campaign:
     """A product on the base level with its spec, and a campaign over one section and one focus."""
 
     def __init__(
-        self, tmp_path: Path, red_team: list[Step[BaseModel]], referee: list[Step[BaseModel]]
+        self,
+        tmp_path: Path,
+        red_team: list[Step[BaseModel]],
+        referee: list[Step[BaseModel]],
+        existing: str | None = None,  # a protected test already in the product
     ) -> None:
         tmp_path.mkdir(parents=True, exist_ok=True)
         self.h = Harness(tmp_path)
         level = self.h.repository.checkout_level(Harness.LADDER.base)
         level.write("greeting.py", PRODUCT)
         level.write("docs/spec.md", SPEC)
+        if existing is not None:
+            level.write("tests/acceptance/test_existing.py", existing)
         level.commit("the product and its spec")
         level.remove()
         config = HardeningConfig(
@@ -71,6 +96,8 @@ class Campaign:
             focuses=(AttackFocus.SECTION,),
         )  # fmt: skip
         check = CommandCheck("spec", PYTEST, LocalSandbox())
+        guarded = PYTEST.model_copy(update={"protected": ("tests/acceptance/",)})
+        review = RatchetCheck("spec", guarded, Harness.LADDER.base, LocalSandbox())
         self.hardener = Hardener(
             config,
             Harness.NORTH_STAR,
@@ -81,10 +108,20 @@ class Campaign:
             FakeWorker(red_team),
             Referee(FakeWorker(referee), "deepseek", ["docs/spec.md"]),
             check,
+            review=review,
         )
 
     def events(self) -> list[Event]:
         return [e.event for e in self.h.log.read()]
+
+    def builders_fail(self, task_id: str, product: str) -> None:
+        """The last attempt's change on the task's branch, then every builder model failed the task."""
+        task = next(a for a in self.h.board.current().artifacts() if a.id == task_id)
+        branch = self.h.repository.checkout_artifact(task)
+        branch.write("greeting.py", product)
+        branch.commit("the last attempt")
+        branch.remove()
+        self.h.board.append([Unbuildable(artifact=task.id, team=TeamName("executor"), reason="checks fail")])
 
 
 class TestSpecSections:
@@ -174,3 +211,31 @@ class TestLeads:
         level.remove()
         assert leads and all(lead.startswith("greeting.py:") for lead in leads)
         assert any(":6:" in lead for lead in leads)  # goodbye's line: nothing notices a change there
+
+
+class TestReconsider:
+    async def test_a_fix_that_breaks_a_protected_test_goes_back_to_the_referee(self, tmp_path: Path) -> None:
+        referee = [ruling(True), ruling(True), second_look(True), second_look(True)]
+        c = Campaign(tmp_path, [attack(FAILING, "returns 'Goodbye, <name>!'")], referee, existing=EXISTING)
+        await c.hardener.step()
+        task = next(e for e in c.events() if isinstance(e, Attacked)).tasks[0]
+        c.builders_fail(task, FIXED)
+        assert await c.hardener.step() == 1
+        reconsidered = next(e for e in c.events() if isinstance(e, Reconsidered))
+        assert reconsidered.withdrawn and reconsidered.referee == "deepseek"
+        assert reconsidered.broken == ("tests/acceptance/test_existing.py::test_short",)
+        assert c.h.board.current().dropped(task)  # the planner never splits it
+        assert "withdrawn" in c.hardener.withdrawn(c.h.board.current())[0]  # later red teams are told
+
+    async def test_without_a_broken_protected_test_the_report_stands_with_no_model_call(
+        self, tmp_path: Path
+    ) -> None:
+        c = Campaign(tmp_path, [attack(FAILING, "returns 'Goodbye, <name>!'")], [ruling(True), ruling(True)])
+        await c.hardener.step()
+        task = next(e for e in c.events() if isinstance(e, Attacked)).tasks[0]
+        c.builders_fail(task, FIXED)
+        assert await c.hardener.step() == 1
+        reconsidered = next(e for e in c.events() if isinstance(e, Reconsidered))
+        assert not reconsidered.withdrawn and reconsidered.referee is None and not reconsidered.broken
+        assert not c.h.board.current().dropped(task)
+        assert not c.hardener.unreviewed(c.h.board.current())  # looked at once

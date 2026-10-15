@@ -158,6 +158,11 @@ class RatchetCheck:
         self._git = git or Git()
         self._known: dict[str, Outcomes] = {}  # the level's outcomes, per commit
 
+    @property
+    def protected(self) -> tuple[str, ...]:
+        """Path prefixes of the tests held to the ratchet; empty: every test is."""
+        return self._config.protected
+
     def without_progress(self) -> "RatchetCheck":
         """The same check judging a refactor: breaking nothing is enough (it shares the level's outcomes)."""
         if not self._config.progress:

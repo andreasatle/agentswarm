@@ -63,7 +63,16 @@ from agentswarm.teams.decomposer import Decomposer, Split, SplitRequest
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, ExecutorTeam, WorktreeToolbox
 from agentswarm.teams.hardening import AttackReport, AttackRequest, AttackToolbox, Hardener
-from agentswarm.teams.referee import Referee, ReportAnswer, ReportRequest, RulingAnswer, RulingRequest
+from agentswarm.teams.referee import (
+    ConflictingTest,
+    ReconsiderAnswer,
+    ReconsiderRequest,
+    Referee,
+    ReportAnswer,
+    ReportRequest,
+    RulingAnswer,
+    RulingRequest,
+)
 from agentswarm.teams.stateless import BuildState, BuildStep, Outcome, StatelessBuilder
 
 type ToolboxClass = type[WorktreeToolbox] | type[AnalysisToolbox] | type[ReadingToolbox]
@@ -197,6 +206,22 @@ class SampleData:
             test_file=test,
             quote="an empty name raises ValueError",
             passage="## Greeting greet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
+        )
+
+    @classmethod
+    def reconsider(cls) -> ReconsiderRequest:
+        report = cls.report()
+        existing = "CASES = [\n    ('empty-name', '', 'Hello, guest!'),\n]\n"
+        return ReconsiderRequest(
+            claim=report.claim,
+            test_file=report.test_file,
+            quote=report.quote,
+            passage=report.passage,
+            conflicts=(
+                ConflictingTest(
+                    test="tests/acceptance/test_greet.py::test_greet[empty-name]", excerpt=existing
+                ),
+            ),
         )
 
     @classmethod
@@ -348,6 +373,14 @@ class PromptCatalogue:
                 Referee,
                 SampleData.report(),
                 ReportAnswer,
+                None,
+            ),
+            CallFamily(
+                "Referee: looks again at a confirmed report whose fix broke existing protected tests",
+                (Caller("", Referee, Referee.RECONSIDER),),
+                Referee,
+                SampleData.reconsider(),
+                ReconsiderAnswer,
                 None,
             ),
             CallFamily(

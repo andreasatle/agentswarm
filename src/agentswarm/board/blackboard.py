@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     Promoted,
     PromotionSettled,
     PromotionStarted,
+    Reconsidered,
     Rejected,
     Released,
     Repaired,
@@ -156,6 +157,7 @@ class BoardViews:
                 | AcceptanceWritten()
                 | AcceptanceRestored()
                 | CheckDisputed()
+                | Reconsidered()
                 | Unbuildable()
                 | Repaired()
             ):

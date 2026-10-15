@@ -266,6 +266,10 @@ class Project:
             # A plain run of the test command, for the red teams' scratch tests and the mutants: a ratchet
             # check compares with the level, which is not what a single scratch test needs
             check = CommandCheck(hardening.check, config.checks[hardening.check], sandbox)
+            # The same tests test by test, against the base level: to see what a red team fix broke
+            review = RatchetCheck(
+                hardening.check, config.checks[hardening.check], config.levels.base, sandbox
+            )
             progress = (
                 Progress(config, config.score, repository.path, sandbox) if config.score is not None else None
             )
@@ -281,6 +285,7 @@ class Project:
                 check,
                 budget,
                 progress,
+                review,
             )
         return cls(
             config,

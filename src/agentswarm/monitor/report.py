@@ -23,6 +23,7 @@ from agentswarm.core.domain import (
     Promoted,
     PromotionSettled,
     PromotionStarted,
+    Reconsidered,
     Rejected,
     Released,
     Repaired,
@@ -107,6 +108,10 @@ class Report:
                     f'round {event.round}, {event.focus} attack on "{event.section}" by {event.model}: '
                     f"{event.reported} reported, {event.confirmed} confirmed{tasks}"
                 )
+            case Reconsidered():
+                verdict = "withdrawn, task dropped" if event.withdrawn else "stands"
+                broke = f" (the fix broke {', '.join(event.broken)})" if event.broken else ""
+                return f"red team report reconsidered{broke}: {verdict}: {event.reason}"
             case CheckDisputed():
                 verdict = "upheld, test skipped" if event.upheld else "rejected, test stands"
                 return f"{event.model or 'builder'} disputed {event.test}: {verdict} ({event.ruling})"
@@ -160,8 +165,12 @@ class HardeningSummary:
             mine = [a for a in attacks if a.focus == focus]
             tasks = [t for a in mine for t in a.tasks]
             fixed = sum(views.merge_commit(t) is not None for t in tasks)
+            withdrawn = sum(
+                any(isinstance(e, Reconsidered) and e.withdrawn for e in views.history(t)) for t in tasks
+            )
             lines.append(
                 f"  {focus:<10} {len(mine)} attacks: {sum(a.reported for a in mine)} reported, "
                 f"{sum(a.confirmed for a in mine)} confirmed, {fixed} fixed and merged"
+                + (f", {withdrawn} withdrawn" if withdrawn else "")
             )
         return "\n".join(lines)

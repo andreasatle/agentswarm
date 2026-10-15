@@ -71,6 +71,36 @@ class ReportAnswer(Frozen):
     )
 
 
+class ConflictingTest(Frozen):
+    """A protected test the product passed, broken by a change that made a red team's test pass."""
+
+    test: str  # its pytest id
+    excerpt: str  # its source around the case
+
+
+class ReconsiderRequest(Frozen):
+    """The payload a referee receives to look again at a report it confirmed."""
+
+    claim: str
+    test_file: str  # the red team's test
+    quote: str
+    passage: str  # the spec around the quote, whitespace collapsed
+    conflicts: tuple[ConflictingTest, ...]
+
+
+class ReconsiderAnswer(Frozen):
+    """Your second ruling on one red team report: first your reasoning, then the verdict it leads to."""
+
+    reason: str = Field(
+        description="whether a correct product could pass both the red team's test and the existing tests, "
+        "and which of them the spec, read with the existing tests, supports"
+    )
+    withdrawn: bool = Field(
+        description="true if the red team's test and the existing tests can't both hold and the existing "
+        "tests show what the spec means; false if the report stands"
+    )
+
+
 class Referee:
     FOLDER = "tests/acceptance"
     CONTEXT = 1_500  # characters of spec on either side of the quote
@@ -98,6 +128,23 @@ test rests on. Rule on that report alone, from the specification, in a single an
   something the specification doesn't say, or the specification is unclear, the report is not confirmed:
   a confirmed report becomes work for the builders.
 - Don't judge the product's code: it isn't shown, and doesn't matter here."""
+
+    RECONSIDER = """\
+You are the referee for a red team that attacks a finished product against its specification. You confirmed
+one of its reports before: it became work for the builders, with the red team's test as the acceptance test.
+Every builder has failed that work, and a change that made the red team's test pass broke existing protected
+tests that the product passed. Rule again on that report alone, in a single answer.
+
+- Read the passage, the red team's test and the existing tests that broke.
+- Decide first whether a correct product could pass both the red team's test and the existing tests. If it
+  could, the builders' change was wrong, not the report: the report stands.
+- If they can't both hold, decide which the specification supports. The existing tests are part of the
+  project's definition of done: where the specification is brief or imprecise, they show what it means.
+  Withdraw the report unless the specification clearly contradicts the existing tests.
+- Don't judge the builders' code: it isn't shown, and doesn't matter here."""
+    EXCERPT_LINES = 12  # lines of a broken test's file on either side of its case
+    EXCERPT_LIMIT = 3_000  # characters of each broken test given to the model
+    MAX_CONFLICTS = 5
 
     def __init__(self, worker: Worker, model: str, spec: Sequence[str]) -> None:
         self._worker = worker
@@ -194,6 +241,57 @@ test rests on. Rule on that report alone, from the specification, in a single an
         if verdict is None:
             return None
         return verdict, next(a.reason for a in answers if a.confirmed == verdict)
+
+    async def reconsider(
+        self, worktree: Worktree, claim: str, test_file: str, quote: str, broken: Sequence[str]
+    ) -> tuple[bool, str] | None:
+        """Whether a confirmed report is withdrawn, given the protected tests its fix broke, and why; None
+        when no ruling was had. `worktree` holds the broken tests."""
+        passage = self.passage(worktree, quote)
+        if passage is None:
+            return True, "the quote is not in the spec, word for word"
+        conflicts = tuple(
+            ConflictingTest(test=test, excerpt=self.excerpt(worktree, test))
+            for test in broken[: self.MAX_CONFLICTS]
+        )
+        request = ReconsiderRequest(
+            claim=claim,
+            test_file=test_file[: self.FILE_LIMIT],
+            quote=quote,
+            passage=passage,
+            conflicts=conflicts,
+        )
+        answers: list[ReconsiderAnswer] = []
+        for _ in range(self.VOTES):
+            try:
+                answers.append(await self._worker.run(self.RECONSIDER, request, ReconsiderAnswer))
+            except WorkerError:
+                continue
+            if self.majority([a.withdrawn for a in answers]) is not None:
+                break
+        verdict = self.majority([a.withdrawn for a in answers])
+        if verdict is None:
+            return None
+        return verdict, next(a.reason for a in answers if a.withdrawn == verdict)
+
+    @classmethod
+    def excerpt(cls, worktree: Worktree, test: str) -> str:
+        """A test's source around its case: the lines near its parameter id, else its function."""
+        path, _, rest = test.partition("::")
+        function, _, case = rest.partition("[")
+        try:
+            source = worktree.read(path)
+        except (OSError, UnicodeDecodeError, ValueError):
+            return "(the test file can't be read)"
+        lines = source.split("\n")
+        case = case.removesuffix("]")
+        at = next((n for n, line in enumerate(lines) if case and case in line), None)
+        if at is None:
+            node = cls.definition(source, function)
+            text = (ast.get_source_segment(source, node) or source) if node is not None else source
+        else:
+            text = "\n".join(lines[max(0, at - cls.EXCERPT_LINES) : at + cls.EXCERPT_LINES + 1])
+        return text[: cls.EXCERPT_LIMIT]
 
     @classmethod
     def majority(cls, verdicts: Sequence[bool]) -> bool | None:

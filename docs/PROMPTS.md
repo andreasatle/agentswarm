@@ -41,6 +41,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Acceptance tester: tests written before the work (also its benchmark probe)](#acceptance-tester-tests-written-before-the-work-also-its-benchmark-probe) | `acceptance_tester` | `AcceptAnswer` |
 | [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
+| [Referee: looks again at a confirmed report whose fix broke existing protected tests](#referee-looks-again-at-a-confirmed-report-whose-fix-broke-existing-protected-tests) | (`Referee`) | `ReconsiderAnswer` |
 | [Referee: rules on an acceptance test the builder disputes (projects without labels)](#referee-rules-on-an-acceptance-test-the-builder-disputes-projects-without-labels) | (`Referee`) | `RulingAnswer` |
 | [Probe: critique in one answer (benchmark)](#probe-critique-in-one-answer-benchmark) | (`Critiquing`) | `CritiqueAnswer` |
 | [Jev questions](#jev-questions) | gates, relevance filters, planners, router | answers |
@@ -1430,6 +1431,8 @@ in the project too. Find where the product breaks the specification, within the 
   problems: that is a good result.
 - Report the most important problems first. Don't report style, naming, or anything the specification doesn't
   require.
+- Reports listed as withdrawn in the data were found wrong after all (the project's existing tests show what
+  the specification means there): don't report them again.
 ```
 
 ### User message (sample)
@@ -1441,7 +1444,8 @@ in the project too. Find where the product breaks the specification, within the 
   "section": "Greeting",
   "passage": "## Greeting\n\ngreet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
   "focus": "Edge values the section names or implies: empty input, zero, limits and the values just inside and just outside them, the largest and smallest allowed.",
-  "leads": []
+  "leads": [],
+  "withdrawn": []
 }
 </data>
 ```
@@ -1457,6 +1461,7 @@ class AttackRequest(Frozen):
     passage: str  # that section's text
     focus: str  # what to attack in it
     leads: tuple[str, ...] = ()  # planted bugs no check noticed: behaviours nothing tests yet
+    withdrawn: tuple[str, ...] = ()  # reports confirmed once and withdrawn since: not problems, don't repeat
 ```
 
 ### Tools
@@ -1634,6 +1639,115 @@ class ReportAnswer(Frozen):
     "confirmed"
   ],
   "title": "ReportAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Referee`: 
+
+## Referee: looks again at a confirmed report whose fix broke existing protected tests
+
+### Referee
+
+`agentswarm.teams.referee.Referee`
+
+```text
+You are the referee for a red team that attacks a finished product against its specification. You confirmed
+one of its reports before: it became work for the builders, with the red team's test as the acceptance test.
+Every builder has failed that work, and a change that made the red team's test pass broke existing protected
+tests that the product passed. Rule again on that report alone, in a single answer.
+
+- Read the passage, the red team's test and the existing tests that broke.
+- Decide first whether a correct product could pass both the red team's test and the existing tests. If it
+  could, the builders' change was wrong, not the report: the report stands.
+- If they can't both hold, decide which the specification supports. The existing tests are part of the
+  project's definition of done: where the specification is brief or imprecise, they show what it means.
+  Withdraw the report unless the specification clearly contradicts the existing tests.
+- Don't judge the builders' code: it isn't shown, and doesn't matter here.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "claim": "greet('') returns 'Hello, !' instead of raising ValueError",
+  "test_file": "from greeter import greet\nimport pytest\n\n\ndef test_empty():\n    with pytest.raises(ValueError):\n        greet('')\n",
+  "quote": "an empty name raises ValueError",
+  "passage": "## Greeting greet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
+  "conflicts": [
+    {
+      "test": "tests/acceptance/test_greet.py::test_greet[empty-name]",
+      "excerpt": "CASES = [\n    ('empty-name', '', 'Hello, guest!'),\n]\n"
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class ReconsiderRequest(Frozen):
+    """The payload a referee receives to look again at a report it confirmed."""
+
+    claim: str
+    test_file: str  # the red team's test
+    quote: str
+    passage: str  # the spec around the quote, whitespace collapsed
+    conflicts: tuple[ConflictingTest, ...]
+
+
+class ConflictingTest(Frozen):
+    """A protected test the product passed, broken by a change that made a red team's test pass."""
+
+    test: str  # its pytest id
+    excerpt: str  # its source around the case
+```
+
+### Answer
+
+```python
+class ReconsiderAnswer(Frozen):
+    """Your second ruling on one red team report: first your reasoning, then the verdict it leads to."""
+
+    reason: str = Field(
+        description="whether a correct product could pass both the red team's test and the existing tests, "
+        "and which of them the spec, read with the existing tests, supports"
+    )
+    withdrawn: bool = Field(
+        description="true if the red team's test and the existing tests can't both hold and the existing "
+        "tests show what the spec means; false if the report stands"
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your second ruling on one red team report: first your reasoning, then the verdict it leads to.",
+  "properties": {
+    "reason": {
+      "description": "whether a correct product could pass both the red team's test and the existing tests, and which of them the spec, read with the existing tests, supports",
+      "title": "Reason",
+      "type": "string"
+    },
+    "withdrawn": {
+      "description": "true if the red team's test and the existing tests can't both hold and the existing tests show what the spec means; false if the report stands",
+      "title": "Withdrawn",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "reason",
+    "withdrawn"
+  ],
+  "title": "ReconsiderAnswer",
   "type": "object"
 }
 ```
