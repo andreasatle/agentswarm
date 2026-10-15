@@ -66,6 +66,16 @@ Then **YAML without labels** (97%), the self-supervised case.
 
 **Cost:** about $0.24 per merged fix, about $0.80 per held-out test gained. Still to measure: the other three focuses (boundaries, rejection, mutation) and further rounds.
 
+## Second round on jq (2026-10-15, $4.75): the other three focuses, held out unchanged at 92%
+
+**Result:** 32 attacks (boundaries 11, rejection 11, mutation 10; the budget ended the 11th mutation attack). 25 reported, 10 confirmed, 9 fixed and merged; one more section fix from round 1 merged too. Visible 765 to 817, all passing; held out 115/125, unchanged.
+
+**Per focus:** boundaries found the most (20 reported, 8 confirmed, 8 merged, e.g. `abs` at the binary64 precision limit); rejection 3 reported, 1 confirmed, 0 merged; mutation 2 reported, 1 confirmed, 1 merged, and its 20 mutants per attack make it the slowest. The section focus remains the one that moved the held-out score.
+
+**A wrong report got through the referee:** the manual says `a op= b` is equivalent to `a |= . op b`, read literally that makes `.a += .a` on {"a":2} an error; jq 1.7.1 evaluates the right side against the original input ({"a":4}), as the visible test jq.test:1086 shows. The red team and the referee both read the manual literally; the ratchet refused every fix (it would break 1086 and 1203), so nothing wrong was merged, but the task and its split cost the builders about $0.5. The guard that's missing: a report whose demand contradicts an existing protected test should go back to the referee with that test, before it becomes a task (where the spec is imprecise, the tests say what it means).
+
+**What it says:** the new focuses find real failures the visible tests miss (52 new protected tests), but not the ones the held-out tests check; the held-out gap left (10 tests) isn't where boundaries, rejection and mutation look. Further rounds of the section focus, or a deeper attack on the sections with held-out failures, are the next measured step.
+
 ## What gets built
 
 | Part | Size | Exists? |
