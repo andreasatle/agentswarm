@@ -2,6 +2,12 @@
 
 What changed in AgentSwarm, latest first. Each entry says the problem that called for it, what was built, and what it means for the swarm.
 
+## 2026-10-15: Hardening with red teams: jq from 87% to 92% unseen
+
+- **Problem:** a product that passes its own checks can still be wrong where the checks don't look: jq passed all its visible tests but only 87% of the unseen ones.
+- **Solution:** red teams attack the finished product by spec section; a report needs a failing test and the spec's own words, a referee confirms it, and each confirmed failure becomes a fix whose test stays. Also: a router that pools each model's record across task difficulties, and conflicting fixes redone on the current product instead of waiting for a person.
+- **Implication:** one round, $4.80: 21 confirmed failures, 20 fixes merged, unseen tests from 109 to 115 of 125, nothing broken.
+
 ## 2026-10-14: Without labels on unfamiliar ground: JSONPath 99%
 
 - **Problem:** TOML and YAML are familiar to the models; did self-supervision only work because they already knew the formats?

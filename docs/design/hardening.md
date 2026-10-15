@@ -1,4 +1,4 @@
-# Hardening with red teams: design (draft for review, 2026-10-15)
+# Hardening with red teams: design (built 2026-10-15)
 
 ## The question
 
@@ -55,6 +55,16 @@ product merged at the level
 **jq** (supervised: 100% of the visible tests, 87% of the held-out ones). The gap is functions and edge cases the manual documents but no visible test exercises: exactly what a spec-section red team should find, and held-out tests to measure it. The red teams get the manual (as the builders did), never the held-out tests. Success: the held-out score rises from 87%, with no visible test broken.
 
 Then **YAML without labels** (97%), the self-supervised case.
+
+## First campaign on jq (2026-10-15, $4.80 including a failed start): 87% to 92% of the held-out tests
+
+**Result:** one whole round, section focus only (11 attacks, one per manual section or part). 25 problems reported, 21 confirmed by the referee against the manual, 20 fixed and merged. Held out 109/125 to 115/125; visible 550/550 to 765/765, the red teams' tests now part of the protected checks and all passing. It stopped at the day's $5 budget, which included $0.31 for a first attack by GLM-5.3 that reasoned past its output limit and returned nothing.
+
+**What the red teams found, from the manual alone:** documented builtins the builders never wrote (`arrays`, `booleans`, `normals`, `finites`, `strings`, `halt`, `halt_error`), number precision rules, variable keys in objects, and more; several match the held-out failures seen on 2026-10-12, which no agent saw.
+
+**Fixed on the way (framework):** the router now pools each model's record across difficulty bands (a model failing everywhere no longer gets a fresh chance in each band); a branch that conflicts with the moved base is redone there, keeping its acceptance tests, instead of waiting for a person (several fixes from one attack touch the same file).
+
+**Cost:** about $0.24 per merged fix, about $0.80 per held-out test gained. Still to measure: the other three focuses (boundaries, rejection, mutation) and further rounds.
 
 ## What gets built
 
