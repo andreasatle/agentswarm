@@ -1,0 +1,89 @@
+# Hardening jq (docs/design/hardening.md): the same project as examples/jq/project.yaml, whose product passes 100%
+# of the visible tests and 87% of the held-out ones; red teams attack it by manual section and focus, a referee
+# confirms each report against the manual, and each confirmed failure becomes a fix task with that test.
+# Success: the held-out score rises from 87%, no visible test breaks. Run on the existing root:
+#   uv run agentswarm run examples/jq/harden.yaml --root ~/agentswarm-runs/jq --max-rounds 400
+project: jq
+domain: software
+north_star: >-
+  A jq 1.7.1 interpreter in pure Python: the package jqpy, whose Program(source) compiles a jq program (JqError
+  where jq rejects it) and whose run(text) yields exactly the outputs jq gives for that JSON input. Done when
+  every test from jq's own test suite passes.
+seed: ~/agentswarm-data/jq/out/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  glm: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:z-ai/glm-5.3', usd_per_million: {cache_read: 0.059, input: 0.079, output: 4.8}}  # the red teams: cheap, another family than the builder (Sol)
+  referee: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}  # a third family
+  # The same models as CommonMark's last runs; the router ranks them by measured cost per success.
+  planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  gemma26: {model: "ollama:gemma4:26b", temperature: 0, max_tokens: 16384, timeout_s: 900, context_window: 65536}
+  haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 65536, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  sonnet: {model: "anthropic:claude-sonnet-5-5", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, protected: [tests/acceptance/]}
+  # A jq library or the jq program itself would solve the task without doing it (the sandbox has neither).
+  own-interpreter:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, re, sys
+        banned = re.compile(r"^\s*(import|from)\s+(jq|pyjq|subprocess)\b", re.M)
+        found = [str(p) for p in pathlib.Path("jqpy").rglob("*.py") if banned.search(p.read_text())]
+        for path in found:
+            print(f"{path}: imports a jq library or subprocess; write the interpreter yourself in pure Python")
+        sys.exit(1 if found else 0)
+  layout:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, sys
+        allowed = sys.argv[1:]
+        stray = sorted(p.name for p in pathlib.Path(".").iterdir() if not p.name.startswith(".") and p.name not in allowed)
+        for name in stray:
+            print(f"{name}: outside the project layout (only {', '.join(allowed)} belong at the root); delete it")
+        sys.exit(1 if stray else 0)
+      - jqpy
+      - tests
+      - docs
+teams:
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}
+  - use: executor
+    watches: raw
+    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # ranked by the router; this order counts only before data
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
+    checks: [spec, own-interpreter, layout]
+    max_model_calls: 60
+    attempts: 4
+    climb: true  # after a failure, the router's best model not yet failed on the step
+    split_on_failure: true  # a step every model fails goes back to the planner (ADaPT), not to a person
+    repairs: 2
+    partial: true  # some tests fixed and none broken is progress: the ratchet judges, not the model
+    constraints:
+      - Use only the Python standard library; no jq library, and no subprocess.
+      - Keep the code in the jqpy package, split into modules as it grows (for example a lexer, a parser, an evaluator and the builtins).
+      - The jq manual is in docs/jq-manual.md; the tests in tests/acceptance/ are the definition of done.
+      - jq programs are generators (one input can give many outputs, or none) and may be endless (repeat, range without an end, recursion), so evaluate lazily; each test gets 10 seconds.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec, own-interpreter, layout]}
+worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
+score: {check: spec, held_out: [~/agentswarm-data/jq/out/held_out]}  # measured at the start and end of every run
+budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-15 (UTC): $5 for the first hardening run (to approve)
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs
+hardening:
+  model: glm
+  referee: referee
+  spec: docs/jq-manual.md
+  # the manual's sections the tests cover (the command line, I/O, streaming, modules and colors are left out)
+  sections: [Basic filters, Types and Values, Builtin operators and functions, Conditionals and Comparisons, Regular expressions, Advanced features, Math, Assignment]
+  check: spec

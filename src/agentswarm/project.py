@@ -22,7 +22,8 @@ from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig, SpendLimits
 from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName, Usage
-from agentswarm.gating.checks import CheckSet, RatchetCheck
+from agentswarm.evaluation.score import Progress
+from agentswarm.gating.checks import CheckSet, CommandCheck, RatchetCheck
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.join import JoinPromoter
 from agentswarm.gating.promotion import Promoter, PromotionLoop
@@ -34,8 +35,10 @@ from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
 from agentswarm.judging.judgement import Judgements, ModeTable
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.llm.models import ChatModels
-from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
+from agentswarm.llm.workers import LangChainWorkers, Meter, WorkerProvider
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
+from agentswarm.teams.hardening import Hardener
+from agentswarm.teams.referee import Referee
 from agentswarm.teams.runner import TeamRunner
 from agentswarm.workspace.git import Git, Repository
 from agentswarm.workspace.lock import RootIdentity, RootLock
@@ -83,8 +86,10 @@ class Project:
         owned: list[Closeable],
         outcomes: OutcomeRecorder | None = None,
         worklist: Worklist | None = None,
+        hardener: Hardener | None = None,
     ) -> None:
         self._worklist = worklist
+        self._hardener = hardener
         self.config = config
         self.board = board
         self.repository = repository
@@ -246,6 +251,37 @@ class Project:
             check = checks.check(config.worklist.check)
             assert isinstance(check, RatchetCheck)  # checked by validate()
             worklist = Worklist(board, artifacts, repository, config.levels, check, config.worklist)
+        hardener = None
+        if config.hardening is not None:
+            hardening = config.hardening
+
+            def metered(team: str, model: str) -> Meter:
+                return ledger.meter(team, model, config.models[model].usd_per_million)
+
+            red_team = workers.worker(
+                hardening.model, hardening.max_model_calls, metered("red_team", hardening.model)
+            )
+            referee_worker = workers.worker(hardening.referee, 3, metered("referee", hardening.referee))
+            referee_id = config.models[hardening.referee].model
+            # A plain run of the test command, for the red teams' scratch tests and the mutants: a ratchet
+            # check compares with the level, which is not what a single scratch test needs
+            check = CommandCheck(hardening.check, config.checks[hardening.check], sandbox)
+            progress = (
+                Progress(config, config.score, repository.path, sandbox) if config.score is not None else None
+            )
+            hardener = Hardener(
+                hardening,
+                config.north_star,
+                board,
+                repository,
+                config.levels,
+                artifacts,
+                red_team,
+                Referee(referee_worker, referee_id, (hardening.spec,)),
+                check,
+                budget,
+                progress,
+            )
         return cls(
             config,
             board,
@@ -258,6 +294,7 @@ class Project:
             owned,
             outcomes,
             worklist,
+            hardener,
         )
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
@@ -269,6 +306,8 @@ class Project:
         actions = 0
         for runner in self._runners:
             actions += await runner.step()
+        if self._hardener is not None:  # red teams attack the product once the builders are idle
+            actions += await self._hardener.step()
         # Gates, the router and the supervisor block (git, sandboxes, synchronous Jev): in a thread, so other
         # projects in the same process keep going meanwhile.
         actions += await asyncio.to_thread(self._publisher.recover)

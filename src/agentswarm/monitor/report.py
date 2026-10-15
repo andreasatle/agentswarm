@@ -7,6 +7,7 @@ from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
     ArtifactCreated,
+    Attacked,
     AttemptFailed,
     CheckDisputed,
     Claimed,
@@ -100,6 +101,12 @@ class Report:
                 return f"acceptance tests by {event.team}: {', '.join(f.path for f in event.files)}"
             case AcceptanceRestored():
                 return f"acceptance tests restored after the producer changed them: {', '.join(event.paths)}"
+            case Attacked():
+                tasks = f": {', '.join(event.tasks)}" if event.tasks else ""
+                return (
+                    f'round {event.round}, {event.focus} attack on "{event.section}" by {event.model}: '
+                    f"{event.reported} reported, {event.confirmed} confirmed{tasks}"
+                )
             case CheckDisputed():
                 verdict = "upheld, test skipped" if event.upheld else "rejected, test stands"
                 return f"{event.model or 'builder'} disputed {event.test}: {verdict} ({event.ruling})"
@@ -138,3 +145,23 @@ class Report:
         if len(blocks) == 1:
             blocks.append("(no artifacts)")
         return "\n\n".join(blocks)
+
+
+class HardeningSummary:
+    """A hardening campaign per focus: attacks, reports, confirmed, fixed (docs/design/hardening.md)."""
+
+    @staticmethod
+    def render(views: BoardViews) -> str | None:
+        attacks = views.attacks()
+        if not attacks:
+            return None
+        lines = [f"hardening: {len(attacks)} attacks in {max(a.round for a in attacks)} round(s)"]
+        for focus in sorted({a.focus for a in attacks}):
+            mine = [a for a in attacks if a.focus == focus]
+            tasks = [t for a in mine for t in a.tasks]
+            fixed = sum(views.merge_commit(t) is not None for t in tasks)
+            lines.append(
+                f"  {focus:<10} {len(mine)} attacks: {sum(a.reported for a in mine)} reported, "
+                f"{sum(a.confirmed for a in mine)} confirmed, {fixed} fixed and merged"
+            )
+        return "\n".join(lines)

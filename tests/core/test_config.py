@@ -83,6 +83,7 @@ class TestProjectConfig:
                 "models": {"m": {"model": "ollama:m"}},
                 "teams": [{"use": "executor", "watches": "raw", "referee": "m"}],
             },
+            {"hardening": {"model": "nope", "referee": "nope", "spec": "docs/s.md", "check": "unit_tests"}},
             {
                 "levels": ["raw", "experimental", "candidate"],
                 "gates": [{"from": "experimental", "to": "candidate", "requires": ["nobody"]}],
@@ -106,6 +107,7 @@ class TestProjectConfig:
             "undefined-model-tier",
             "undefined-referee",
             "referee-without-spec",
+            "hardening-undefined-model",
             "required-team-not-watching",
             "judge-above-the-lowest-level",
         ],

@@ -60,7 +60,7 @@ from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.llm.catalog import OpenRouterCatalog
 from agentswarm.llm.workers import WorkerProvider
-from agentswarm.monitor.report import Report
+from agentswarm.monitor.report import HardeningSummary, Report
 from agentswarm.monitor.server import MonitorServer, Watched
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
@@ -213,6 +213,9 @@ class Cli:
             after = self.scored(progress, project)
             if before is not None and after is not None:
                 self._show(Progress.render(before, after))
+            hardening = HardeningSummary.render(project.board.current())
+            if hardening is not None:
+                self._show(hardening)
             self._show(self.levels(config, Path(args.root).expanduser()))
         finally:
             project.close()

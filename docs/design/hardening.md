@@ -48,7 +48,7 @@ product merged at the level
 
 **Stopping:** a section is hardened when a round of all red teams confirms nothing new; the product when every section is hardened, or the budget is spent. Each round costs a few small model calls, so the budget, not a fixed count, bounds it.
 
-**Measures, every round:** the hidden score (scored after each round, at no model cost); per red team: reports, confirmed by the referee, fixed and merged, hidden tests gained, dollars per confirmed failure. A red team that confirms nothing for two campaigns is switched off.
+**Measures, every round:** the hidden score (scored after each round, at no model cost); per red team: reports, confirmed by the referee, fixed and merged, hidden tests gained, dollars per confirmed failure. **No red team is switched off** (the user, 2026-10-15: a quiet team can still find rare failures that are well worth finding): in the first version every team attacks every section each round; if cost later demands it, a quiet team attacks less often but never stops, explore and exploit as the router does for models.
 
 ## The first experiment
 
@@ -72,6 +72,6 @@ About two days of work, no paid model calls; each part with tests, prompts in PR
 ## Risks and guards
 
 - **False reports flood the builders:** every report needs a failing test and a verbatim quote, and the referee rules before anything becomes a task.
-- **Red teams that find nothing cost money (the October 7 smoke run: 90% of the cost, nothing found):** each team is measured per confirmed failure and switched off when it doesn't pay; rounds stop when nothing new is confirmed.
+- **Red teams that find nothing cost money (the October 7 smoke run: 90% of the cost, nothing found):** each team is measured per confirmed failure; rounds stop when a whole round confirms nothing new, and the budget caps the rest. Quiet teams are kept, since rare finds are the point of diverse attackers.
 - **Overfitting to the red teams' own tests:** the hidden tests stay hidden and measure every round.
 - **Fixes that break other things:** the ratchet, as everywhere.

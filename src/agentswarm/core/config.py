@@ -11,7 +11,7 @@ from typing import Any, ClassVar, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from agentswarm.core.domain import FindingKind, Level, Usage
+from agentswarm.core.domain import AttackFocus, FindingKind, Level, Usage
 
 
 class Strict(BaseModel):
@@ -275,6 +275,26 @@ class TeamConfig(Strict):
         return self
 
 
+class HardeningConfig(Strict):
+    """Red teams attack the merged product, one spec section and focus at a time, until a round confirms
+    nothing new (docs/design/hardening.md). Each confirmed failure becomes a fix task with that test."""
+
+    model: str  # the red teams' model, a name in `models`
+    referee: str  # rules on each report against the spec before it becomes a task, a name in `models`
+    spec: str  # the spec file in the project, split into sections at `heading`
+    heading: str = "## "  # a line starting with this opens a section
+    sections: tuple[str, ...] = ()  # section titles to attack, in this order; empty: every section
+    section_size: int = Field(default=10_000, gt=0)  # a longer section is cut at its next deeper heading
+    check: str  # the test check (a name in `checks`) the red teams' tests and the mutants run with
+    focuses: tuple[AttackFocus, ...] = tuple(AttackFocus)
+    max_problems: int = Field(default=3, ge=1)  # reports taken from one attack
+    mutants: int = Field(default=20, ge=1)  # mutants tried per mutation attack, for leads
+    # done after this many whole rounds in a row confirm nothing: one quiet round is weak evidence (the user,
+    # 2026-10-15: "like preparing for a hurricane three times, and at the fourth you don't care")
+    quiet_rounds: int = Field(default=2, ge=1)
+    max_model_calls: int = Field(default=30, gt=0)  # per attack
+
+
 class SupervisorConfig(Strict):
     """When the supervisor steps in (§14.1)."""
 
@@ -399,6 +419,7 @@ class ProjectConfig(Strict):
     jev: JevConfig = JevConfig()
     worklist: WorklistConfig | None = None  # failing tests of a ratchet check become work items
     score: ScoreConfig | None = None  # measured at the start and end of every run
+    hardening: HardeningConfig | None = None  # red teams attack the product until nothing new is found
 
     @model_validator(mode="before")
     @classmethod
@@ -453,6 +474,12 @@ class ProjectConfig(Strict):
                 raise ValueError(f"team {team.use!r}: split_on_failure needs climb and a decomposer team")
         if self.score is not None and self.score.check not in self.checks:
             raise ValueError(f"score uses undefined check {self.score.check!r}")
+        if self.hardening is not None:
+            for model in (self.hardening.model, self.hardening.referee):
+                if model not in self.models:
+                    raise ValueError(f"hardening uses undefined model {model!r}")
+            if self.hardening.check not in self.checks:
+                raise ValueError(f"hardening uses undefined check {self.hardening.check!r}")
         return self
 
     def _check_gate_level_rules(self, gate: GateConfig) -> None:

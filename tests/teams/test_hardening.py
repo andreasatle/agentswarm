@@ -1,0 +1,176 @@
+import sys
+from pathlib import Path
+
+from pydantic import BaseModel
+
+from agentswarm.board.artifacts import ArtifactFactory
+from agentswarm.core.config import CheckConfig, HardeningConfig
+from agentswarm.core.domain import AcceptanceWritten, Attacked, AttackFocus, Event
+from agentswarm.gating.checks import CommandCheck
+from agentswarm.llm.workers import FakeWorker, Step, Toolbox
+from agentswarm.teams.hardening import (
+    AttackProblem,
+    AttackReport,
+    AttackToolbox,
+    Hardener,
+    Leads,
+    SpecSections,
+)
+from agentswarm.teams.referee import Referee, ReportAnswer
+from agentswarm.workspace.sandbox import LocalSandbox
+from tests.support.harness import Harness
+
+PYTEST = CheckConfig(
+    command=(sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"), failure_exit_codes=(1,)
+)
+SPEC = (
+    "# Greeting\n\n## Hello\n\nhello(name) returns 'Hello, <name>!'.\n\n"
+    "## Goodbye\n\ngoodbye(name) returns 'Goodbye, <name>!' for any name.\n"
+)
+PRODUCT = "def hello(name):\n    return f'Hello, {name}!'\n\n\ndef goodbye(name):\n    return 'Bye'\n"
+FAILING = (
+    "from greeting import goodbye\n\n\ndef test_goodbye():\n    assert goodbye('Ada') == 'Goodbye, Ada!'\n"
+)
+PASSING = "from greeting import hello\n\n\ndef test_hello():\n    assert hello('Ada') == 'Hello, Ada!'\n"
+
+
+def attack(test: str, quote: str) -> Step[BaseModel]:
+    def step(toolbox: Toolbox | None) -> BaseModel:
+        assert isinstance(toolbox, AttackToolbox)
+        toolbox.run_test("test_red.py", test)
+        problem = AttackProblem(
+            title="goodbye", claim="goodbye ignores the name", test="test_red.py", quote=quote
+        )
+        return AttackReport(summary="attacked", problems=(problem,))
+
+    return step
+
+
+def ruling(confirmed: bool) -> Step[BaseModel]:
+    def step(toolbox: Toolbox | None) -> BaseModel:
+        return ReportAnswer(reason="the spec names the greeting", confirmed=confirmed)
+
+    return step
+
+
+class Campaign:
+    """A product on the base level with its spec, and a campaign over one section and one focus."""
+
+    def __init__(
+        self, tmp_path: Path, red_team: list[Step[BaseModel]], referee: list[Step[BaseModel]]
+    ) -> None:
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        self.h = Harness(tmp_path)
+        level = self.h.repository.checkout_level(Harness.LADDER.base)
+        level.write("greeting.py", PRODUCT)
+        level.write("docs/spec.md", SPEC)
+        level.commit("the product and its spec")
+        level.remove()
+        config = HardeningConfig(
+            model="red", referee="ref", spec="docs/spec.md", sections=("Goodbye",), check="spec",
+            focuses=(AttackFocus.SECTION,),
+        )  # fmt: skip
+        check = CommandCheck("spec", PYTEST, LocalSandbox())
+        self.hardener = Hardener(
+            config,
+            Harness.NORTH_STAR,
+            self.h.board,
+            self.h.repository,
+            Harness.LADDER,
+            ArtifactFactory(self.h.board, Harness.LADDER),
+            FakeWorker(red_team),
+            Referee(FakeWorker(referee), "deepseek", ["docs/spec.md"]),
+            check,
+        )
+
+    def events(self) -> list[Event]:
+        return [e.event for e in self.h.log.read()]
+
+
+class TestSpecSections:
+    def test_sections_open_at_their_heading_and_deeper_headings_stay_inside(self) -> None:
+        sections = SpecSections.split("intro\n## A\none\n### A.1\ntwo\n## B\nthree\n", "## ")
+        assert [(s.title, s.text) for s in sections] == [
+            ("A", "## A\none\n### A.1\ntwo"),
+            ("B", "## B\nthree"),
+        ]
+
+    def test_a_long_section_is_cut_at_its_deeper_headings(self) -> None:
+        text = (
+            "## Builtins\nintro\n### a\n" + "x" * 50 + "\n### b\n" + "y" * 50 + "\n### c\n" + "z" * 50 + "\n"
+        )
+        sections = SpecSections.split(text, "## ", size=120)
+        assert [s.title for s in sections] == ["Builtins (1/2)", "Builtins (2/2)"]
+        assert sections[0].text.startswith("## Builtins") and "### a" in sections[0].text
+        assert "### c" in sections[1].text
+
+
+class TestRounds:
+    @staticmethod
+    def attacked(round: int, section: str, confirmed: int = 0) -> Attacked:
+        return Attacked(
+            round=round, section=section, focus=AttackFocus.SECTION, commit="c", reported=confirmed,
+            confirmed=confirmed,
+        )  # fmt: skip
+
+    def test_a_round_covers_every_pair_before_the_next_begins(self) -> None:
+        pairs = [("A", AttackFocus.SECTION), ("B", AttackFocus.SECTION)]
+        assert Hardener.next_attack([], pairs) == (1, pairs[0])
+        assert Hardener.next_attack([self.attacked(1, "A")], pairs) == (1, pairs[1])
+        assert Hardener.next_attack([self.attacked(1, "A"), self.attacked(1, "B")], pairs) == (2, pairs[0])
+
+    def test_done_only_after_two_whole_quiet_rounds(self, tmp_path: Path) -> None:
+        hardener = Campaign(tmp_path, [], []).hardener
+        one = [self.attacked(1, "A", confirmed=1), self.attacked(1, "B")]
+        two = [self.attacked(2, "A"), self.attacked(2, "B")]
+        three = [self.attacked(3, "A"), self.attacked(3, "B")]
+        assert not hardener.done(one + two, 2)  # one quiet round is weak evidence
+        assert hardener.done(one + two + three, 2)
+        assert not hardener.done(one + two + three[:1], 2)  # the third round isn't whole yet
+
+
+class TestHardener:
+    async def test_a_confirmed_report_becomes_a_fix_task_with_the_failing_test(self, tmp_path: Path) -> None:
+        c = Campaign(tmp_path, [attack(FAILING, "returns 'Goodbye, <name>!'")], [ruling(True), ruling(True)])
+        assert await c.hardener.step() == 1
+        events = c.events()
+        attacked = [e for e in events if isinstance(e, Attacked)]
+        assert [(a.reported, a.confirmed, len(a.tasks)) for a in attacked] == [(1, 1, 1)]
+        written = next(e for e in events if isinstance(e, AcceptanceWritten))
+        task = next(a for a in c.h.board.current().artifacts() if a.id == attacked[0].tasks[0])
+        assert task.level == Harness.LADDER.lowest and "Goodbye, <name>!" in task.task
+        branch = c.h.repository.checkout_artifact(task)
+        assert branch.read(written.files[0].path) == FAILING  # its acceptance test, protected from now
+        assert await c.hardener.step() == 0  # the builders have work: no attack until it's done
+
+    async def test_reports_without_a_failing_test_a_real_quote_or_a_ruling_are_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        passing = Campaign(tmp_path / "p", [attack(PASSING, "returns 'Goodbye, <name>!'")], [])
+        await passing.hardener.step()
+        quote = Campaign(tmp_path / "q", [attack(FAILING, "goodbye returns 'Bye'")], [])
+        await quote.hardener.step()
+        refused = Campaign(
+            tmp_path / "r", [attack(FAILING, "returns 'Goodbye, <name>!'")], [ruling(False)] * 2
+        )
+        await refused.hardener.step()
+        reasons = [
+            next(e for e in c.events() if isinstance(e, Attacked)).dropped[0]
+            for c in (passing, quote, refused)
+        ]
+        assert "passed, or never ran" in reasons[0]
+        assert "not in the spec" in reasons[1]
+        assert "not confirmed" in reasons[2]
+        assert not [a for c in (passing, quote, refused) for a in c.h.board.current().artifacts()]
+
+
+class TestLeads:
+    def test_planted_bugs_no_check_notices_become_leads(self, tmp_path: Path) -> None:
+        c = Campaign(tmp_path, [], [])
+        level = c.h.repository.checkout_level(Harness.LADDER.base)
+        level.write("tests/test_hello.py", PASSING)  # hello is tested, goodbye isn't
+        level.commit("a test for hello")
+        leads = Leads(CommandCheck("spec", PYTEST, LocalSandbox()), count=40).find(level, "seed")
+        level.remove()
+        assert leads and all(lead.startswith("greeting.py:") for lead in leads)
+        assert any(":6:" in lead for lead in leads)  # goodbye's line: nothing notices a change there

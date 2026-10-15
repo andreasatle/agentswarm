@@ -39,6 +39,8 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Judge fallback: a model answering Jev's questions](#judge-fallback-a-model-answering-jevs-questions) | (`LLMDecider`) | `LLMAnswers` |
 | [Probe: produce in one answer (benchmark)](#probe-produce-in-one-answer-benchmark) | (`Producing`) | `ProduceAnswer` |
 | [Acceptance tester: tests written before the work (also its benchmark probe)](#acceptance-tester-tests-written-before-the-work-also-its-benchmark-probe) | `acceptance_tester` | `AcceptAnswer` |
+| [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
+| [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Referee: rules on an acceptance test the builder disputes (projects without labels)](#referee-rules-on-an-acceptance-test-the-builder-disputes-projects-without-labels) | (`Referee`) | `RulingAnswer` |
 | [Probe: critique in one answer (benchmark)](#probe-critique-in-one-answer-benchmark) | (`Critiquing`) | `CritiqueAnswer` |
 | [Jev questions](#jev-questions) | gates, relevance filters, planners, router | answers |
@@ -1409,6 +1411,238 @@ class AcceptAnswer(Frozen):
 `AcceptanceTester`: Writes the acceptance tests of each new leaf artifact at the lowest level, before the executor starts.
 
 Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting.
+
+## Red team (hardening): attacks the finished product, one spec section and focus at a time
+
+### Hardener
+
+`agentswarm.teams.hardening.Hardener`: The hardening campaign: plain code that schedules attacks, checks reports and makes fix tasks.
+
+```text
+You are a red team. The product in the project is finished as far as its builders know; its specification is
+in the project too. Find where the product breaks the specification, within the section and focus in the data.
+
+- Read the section in the data, then the product's code (list_files, read_file) to see how it handles it.
+- Write pytest files with run_test that check what the specification requires, through the product's public
+  interface. A test must fail on the product to count, and must assert only what the specification says.
+- Report a problem only with a test you ran that fails, and the specification's exact words it rests on,
+  copied from the section. A rule the product already meets is not a problem. If nothing breaks, report no
+  problems: that is a good result.
+- Report the most important problems first. Don't report style, naming, or anything the specification doesn't
+  require.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "north_star": "A small greeting library",
+  "section": "Greeting",
+  "passage": "## Greeting\n\ngreet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
+  "focus": "Edge values the section names or implies: empty input, zero, limits and the values just inside and just outside them, the largest and smallest allowed.",
+  "leads": []
+}
+</data>
+```
+
+### Payload types
+
+```python
+class AttackRequest(Frozen):
+    """The payload a red team receives."""
+
+    north_star: str
+    section: str  # the spec section to attack, its title
+    passage: str  # that section's text
+    focus: str  # what to attack in it
+    leads: tuple[str, ...] = ()  # planted bugs no check noticed: behaviours nothing tests yet
+```
+
+### Tools
+
+`AttackToolbox`:
+
+- `list_files() -> str`: List every file in the project, one relative path per line.
+- `read_file(path: str) -> str`: Return the content of the file at `path`, relative to the project root.
+- `run_test(name: str, content: str) -> str`: Write a pytest file named `name` (test_*.py) with `content`, run it, and return the output.
+
+Use it to demonstrate a problem: a test that fails because of the change is the evidence a report needs. Run the same name again to replace the file.
+
+### Answer
+
+```python
+class AttackReport(Frozen):
+    """What the red team found: only problems backed by a failing test and the spec's own words."""
+
+    summary: str = Field(description="one line: what was attacked")
+    problems: tuple[AttackProblem, ...]
+
+
+class AttackProblem(Frozen):
+    title: str = Field(description="one line")
+    claim: str = Field(description="what the product gets wrong, for which input, and what the spec requires")
+    test: str = Field(description="the name of the run_test file that fails because of this problem")
+    quote: str = Field(description="the spec's exact words the test rests on, copied from the spec")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "AttackProblem": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "one line",
+          "title": "Title",
+          "type": "string"
+        },
+        "claim": {
+          "description": "what the product gets wrong, for which input, and what the spec requires",
+          "title": "Claim",
+          "type": "string"
+        },
+        "test": {
+          "description": "the name of the run_test file that fails because of this problem",
+          "title": "Test",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the spec's exact words the test rests on, copied from the spec",
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "claim",
+        "test",
+        "quote"
+      ],
+      "title": "AttackProblem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What the red team found: only problems backed by a failing test and the spec's own words.",
+  "properties": {
+    "summary": {
+      "description": "one line: what was attacked",
+      "title": "Summary",
+      "type": "string"
+    },
+    "problems": {
+      "items": {
+        "$ref": "#/$defs/AttackProblem"
+      },
+      "title": "Problems",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "problems"
+  ],
+  "title": "AttackReport",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Hardener`: The hardening campaign: plain code that schedules attacks, checks reports and makes fix tasks.
+
+## Referee: confirms a red team's report against the spec before it becomes work
+
+### Referee
+
+`agentswarm.teams.referee.Referee`
+
+```text
+You are the referee for a red team that attacks a finished product against its specification. The red team
+says the product gets one thing wrong, shows a test that fails on the product, and quotes the passage the
+test rests on. Rule on that report alone, from the specification, in a single answer.
+
+- Read the passage and the test. Decide what the specification requires for the input the test checks.
+- Confirm only if the specification clearly requires exactly what the test asserts. If the test asserts
+  something the specification doesn't say, or the specification is unclear, the report is not confirmed:
+  a confirmed report becomes work for the builders.
+- Don't judge the product's code: it isn't shown, and doesn't matter here.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "claim": "greet('') returns 'Hello, !' instead of raising ValueError",
+  "test_file": "from greeter import greet\nimport pytest\n\n\ndef test_empty():\n    with pytest.raises(ValueError):\n        greet('')\n",
+  "quote": "an empty name raises ValueError",
+  "passage": "## Greeting greet(name) returns 'Hello, <name>!'; an empty name raises ValueError."
+}
+</data>
+```
+
+### Payload types
+
+```python
+class ReportRequest(Frozen):
+    """The payload a referee receives for a red team's report."""
+
+    claim: str  # what the red team says the product gets wrong
+    test_file: str  # the red team's test, which fails on the product
+    quote: str
+    passage: str  # the spec around the quote, whitespace collapsed
+```
+
+### Answer
+
+```python
+class ReportAnswer(Frozen):
+    """Your ruling on one red team report: first your reasoning, then the verdict it leads to."""
+
+    reason: str = Field(description="what the spec requires for the input the test checks, citing it")
+    confirmed: bool = Field(
+        description="true only if the spec clearly requires exactly what the test asserts; false otherwise"
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your ruling on one red team report: first your reasoning, then the verdict it leads to.",
+  "properties": {
+    "reason": {
+      "description": "what the spec requires for the input the test checks, citing it",
+      "title": "Reason",
+      "type": "string"
+    },
+    "confirmed": {
+      "description": "true only if the spec clearly requires exactly what the test asserts; false otherwise",
+      "title": "Confirmed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "reason",
+    "confirmed"
+  ],
+  "title": "ReportAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Referee`: 
 
 ## Referee: rules on an acceptance test the builder disputes (projects without labels)
 

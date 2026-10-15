@@ -12,6 +12,7 @@ from agentswarm.core.domain import (
     Artifact,
     ArtifactCreated,
     ArtifactId,
+    Attacked,
     AttemptFailed,
     CheckDisputed,
     Claim,
@@ -76,6 +77,7 @@ class BoardViews:
     _unpriced: int = 0  # Spent events for models without a price
     _billed: float = 0.0  # the part of the spend the providers reported charging
     _scores: list[Scored] = field(default_factory=list[Scored])
+    _attacks: list[Attacked] = field(default_factory=list[Attacked])
     _project_escalations: list[Escalated] = field(default_factory=list[Escalated])
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
     _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
@@ -118,6 +120,8 @@ class BoardViews:
                     self._umbrellas.add(event.artifact)
             case Scored():
                 self._scores.append(event)
+            case Attacked():
+                self._attacks.append(event)
             case Spent():
                 self._spent.append((envelope.at, event.usd))
                 self._billed += event.usd if event.billed else 0.0
@@ -229,6 +233,10 @@ class BoardViews:
     def scores(self) -> list[Scored]:
         """Every measurement of the definition of done, oldest first."""
         return list(self._scores)
+
+    def attacks(self) -> list[Attacked]:
+        """Every red team attack of a hardening campaign, oldest first."""
+        return list(self._attacks)
 
     def project_escalations(self) -> list[Escalated]:
         """Escalations about the whole project, such as an exhausted budget, oldest first."""

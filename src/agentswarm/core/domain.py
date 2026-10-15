@@ -188,6 +188,38 @@ class AcceptanceWritten(Frozen):
         return self.artifact
 
 
+class AttackFocus(StrEnum):
+    """What a red team attacks in a hardening campaign (docs/design/hardening.md)."""
+
+    SECTION = "section"  # every rule and stated behaviour of one spec section
+    BOUNDARIES = "boundaries"  # edge values the spec names: empty, limits, just inside and just outside
+    REJECTION = "rejection"  # inputs the spec says are invalid and must be rejected
+    MUTATION = "mutation"  # behaviours no check covers, found by planting bugs that no check notices
+
+
+class Attacked(Frozen):
+    """One red team attack on the product during hardening: what it reported, and what the referee confirmed.
+
+    A confirmed report becomes a fix task whose acceptance test is the red team's failing test; the campaign
+    repeats rounds over every spec section and focus until a round confirms nothing new.
+    """
+
+    kind: Literal["attacked"] = "attacked"
+    round: int = Field(ge=1)
+    section: str  # the spec section's title
+    focus: AttackFocus
+    commit: str  # the product's commit that was attacked
+    model: str | None = None
+    reported: int = Field(ge=0)  # problems the red team reported with a failing test
+    confirmed: int = Field(ge=0)  # of those, confirmed by the referee against the spec
+    tasks: tuple[ArtifactId, ...] = ()  # the fix tasks made from the confirmed ones
+    dropped: tuple[str, ...] = ()  # why each unconfirmed report was dropped, one line each
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
 class CheckDisputed(Frozen):
     """A builder said an acceptance test contradicts the spec, and a referee ruled on it.
 
@@ -576,6 +608,7 @@ type Event = Annotated[
     | AcceptanceWritten
     | AcceptanceRestored
     | CheckDisputed
+    | Attacked
     | Paused
     | Resumed
     | Spent

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from agentswarm.core.domain import (
     ArtifactId,
+    AttackFocus,
     Finding,
     FindingId,
     FindingKind,
@@ -61,7 +62,8 @@ from agentswarm.teams.analyzer import (
 from agentswarm.teams.decomposer import Decomposer, Split, SplitRequest
 from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
 from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, ExecutorTeam, WorktreeToolbox
-from agentswarm.teams.referee import Referee, RulingAnswer, RulingRequest
+from agentswarm.teams.hardening import AttackReport, AttackRequest, AttackToolbox, Hardener
+from agentswarm.teams.referee import Referee, ReportAnswer, ReportRequest, RulingAnswer, RulingRequest
 from agentswarm.teams.stateless import BuildState, BuildStep, Outcome, StatelessBuilder
 
 type ToolboxClass = type[WorktreeToolbox] | type[AnalysisToolbox] | type[ReadingToolbox]
@@ -174,6 +176,28 @@ class SampleData:
     def accept(cls) -> AcceptRequest:
         request = cls.produce()
         return AcceptRequest(north_star=request.north_star, task=request.task, files=request.files)
+
+    @classmethod
+    def attack(cls) -> AttackRequest:
+        return AttackRequest(
+            north_star=cls.NORTH_STAR,
+            section="Greeting",
+            passage="## Greeting\n\ngreet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
+            focus=Hardener.FOCUS[AttackFocus.BOUNDARIES],
+        )
+
+    @classmethod
+    def report(cls) -> ReportRequest:
+        test = (
+            "from greeter import greet\nimport pytest\n\n\n"
+            "def test_empty():\n    with pytest.raises(ValueError):\n        greet('')\n"
+        )
+        return ReportRequest(
+            claim="greet('') returns 'Hello, !' instead of raising ValueError",
+            test_file=test,
+            quote="an empty name raises ValueError",
+            passage="## Greeting greet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
+        )
 
     @classmethod
     def ruling(cls) -> RulingRequest:
@@ -308,6 +332,22 @@ class PromptCatalogue:
                 AcceptanceTester,
                 SampleData.accept(),
                 AcceptAnswer,
+                None,
+            ),
+            CallFamily(
+                "Red team (hardening): attacks the finished product, one spec section and focus at a time",
+                (Caller("", Hardener, Hardener.INSTRUCTIONS),),
+                Hardener,
+                SampleData.attack(),
+                AttackReport,
+                AttackToolbox,
+            ),
+            CallFamily(
+                "Referee: confirms a red team's report against the spec before it becomes work",
+                (Caller("", Referee, Referee.CONFIRM),),
+                Referee,
+                SampleData.report(),
+                ReportAnswer,
                 None,
             ),
             CallFamily(

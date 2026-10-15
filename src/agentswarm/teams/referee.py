@@ -53,6 +53,24 @@ class RulingAnswer(Frozen):
     )
 
 
+class ReportRequest(Frozen):
+    """The payload a referee receives for a red team's report."""
+
+    claim: str  # what the red team says the product gets wrong
+    test_file: str  # the red team's test, which fails on the product
+    quote: str
+    passage: str  # the spec around the quote, whitespace collapsed
+
+
+class ReportAnswer(Frozen):
+    """Your ruling on one red team report: first your reasoning, then the verdict it leads to."""
+
+    reason: str = Field(description="what the spec requires for the input the test checks, citing it")
+    confirmed: bool = Field(
+        description="true only if the spec clearly requires exactly what the test asserts; false otherwise"
+    )
+
+
 class Referee:
     FOLDER = "tests/acceptance"
     CONTEXT = 1_500  # characters of spec on either side of the quote
@@ -69,6 +87,17 @@ quotes the passage. Rule on that test alone, from the specification, in a single
 - Uphold the dispute only if the test demands something the specification contradicts or doesn't require.
   If the test is right, or the specification is unclear, the test stands.
 - Don't judge the builder's code: it isn't shown, and doesn't matter here."""
+
+    CONFIRM = """\
+You are the referee for a red team that attacks a finished product against its specification. The red team
+says the product gets one thing wrong, shows a test that fails on the product, and quotes the passage the
+test rests on. Rule on that report alone, from the specification, in a single answer.
+
+- Read the passage and the test. Decide what the specification requires for the input the test checks.
+- Confirm only if the specification clearly requires exactly what the test asserts. If the test asserts
+  something the specification doesn't say, or the specification is unclear, the report is not confirmed:
+  a confirmed report becomes work for the builders.
+- Don't judge the product's code: it isn't shown, and doesn't matter here."""
 
     def __init__(self, worker: Worker, model: str, spec: Sequence[str]) -> None:
         self._worker = worker
@@ -136,14 +165,49 @@ quotes the passage. Rule on that test alone, from the specification, in a single
             worktree.commit_paths(f"{artifact}: referee skips {test}: {answer.reason}", [path])
         return ruled(answer.upheld, answer.reason, self._model)
 
+    @property
+    def model(self) -> str:
+        return self._model
+
+    async def confirm(
+        self, worktree: Worktree, claim: str, test_file: str, quote: str
+    ) -> tuple[bool, str] | None:
+        """Whether the spec backs a red team's report, and why; None when no ruling was had.
+
+        Plain code first: the quote must be the spec's own words, or the report is not confirmed.
+        """
+        passage = self.passage(worktree, quote)
+        if passage is None:
+            return False, "the quote is not in the spec, word for word"
+        request = ReportRequest(
+            claim=claim, test_file=test_file[: self.FILE_LIMIT], quote=quote, passage=passage
+        )
+        answers: list[ReportAnswer] = []
+        for _ in range(self.VOTES):
+            try:
+                answers.append(await self._worker.run(self.CONFIRM, request, ReportAnswer))
+            except WorkerError:
+                continue
+            if self.majority([a.confirmed for a in answers]) is not None:
+                break
+        verdict = self.majority([a.confirmed for a in answers])
+        if verdict is None:
+            return None
+        return verdict, next(a.reason for a in answers if a.confirmed == verdict)
+
     @classmethod
-    def decided(cls, answers: Sequence[RulingAnswer]) -> bool | None:
+    def majority(cls, verdicts: Sequence[bool]) -> bool | None:
         """The majority verdict once one side has it; None while undecided."""
-        majority = cls.VOTES // 2 + 1
+        needed = cls.VOTES // 2 + 1
         for verdict in (True, False):
-            if sum(a.upheld == verdict for a in answers) >= majority:
+            if sum(v == verdict for v in verdicts) >= needed:
                 return verdict
         return None
+
+    @classmethod
+    def decided(cls, answers: Sequence[RulingAnswer]) -> bool | None:
+        """The majority verdict on a dispute once one side has it; None while undecided."""
+        return cls.majority([a.upheld for a in answers])
 
     def source(self, worktree: Worktree, path: str) -> str | None:
         if not path.startswith(f"{self.FOLDER}/") or not path.endswith(".py"):
