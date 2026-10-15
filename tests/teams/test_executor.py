@@ -489,15 +489,28 @@ class TestSyncWithTheBase:
         assert isinstance(event, CommitPushed) and event.model is None
         assert set(w.worktree.files()) == {"greeting.py", "other.py"}
 
-    async def test_a_real_conflict_goes_to_a_person(self, tmp_path: Path) -> None:
+    async def test_a_real_conflict_is_redone_on_the_current_base(self, tmp_path: Path) -> None:
         w = Workspace(tmp_path)
         w.worktree.write("greeting.py", "def farewell(name): ...\n")
         w.worktree.commit("farewell")
         self.advance_base(w, {"greeting.py": "def hello(): ...\n"})
         self.conflicted(w)
-        team = ExecutorTeam(FakeWorker([]), [Toolboxes.CHECK], Samples.RAW, sync_from=Samples.EXPERIMENTAL)
-        (event,) = Traces.drop(await team.act(w.ctx(), w.worktree))
-        assert isinstance(event, Escalated) and "conflicts with experimental" in event.reason
+        seen: list[str] = []
+
+        def work(toolbox: Toolbox | None) -> ExecutorReport:
+            assert isinstance(toolbox, WorktreeToolbox)
+            seen.append(toolbox.read_file("greeting.py"))  # the work starts from the current base
+            toolbox.write_file("greeting.py", "def hello(): ...\n\n\ndef farewell(name): ...\n")
+            return ExecutorReport(summary="farewell, again", complete=True)
+
+        team = ExecutorTeam(
+            FakeWorker([work]), [Toolboxes.CHECK], Samples.RAW, sync_from=Samples.EXPERIMENTAL
+        )
+        events = Traces.drop(await team.act(w.ctx(), w.worktree))
+        assert any(isinstance(e, CommitPushed) for e in events)
+        assert "def hello" in w.worktree.read("greeting.py") and "farewell" in w.worktree.read("greeting.py")
+        assert not any(isinstance(e, Escalated) for e in events)
+        assert "def hello" in seen[0] and "farewell" not in seen[0]
 
 
 class TestRepairsAndPartialWork:

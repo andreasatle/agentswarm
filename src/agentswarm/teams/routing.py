@@ -132,6 +132,11 @@ class Prior(Frozen):
 
     rates: tuple[float, float, float] = (0.8, 0.6, 0.4)  # easy, medium, hard
     strength: float = Field(default=2.0, gt=0.0)
+    # Partial pooling (hierarchical priors): in a band, a model starts from its record in the other bands,
+    # worth this many imagined runs, instead of from the same guess as every other model. Without it a
+    # band's few outcomes were all the router knew: gemma4:26b, 0 for 21 in other bands, was tried again in
+    # the middle band ahead of GPT-6.1 Sol, 93 for 108 elsewhere (2026-10-15). 0: no pooling.
+    pooling: float = Field(default=4.0, ge=0.0)
 
     def counts(self, band: int) -> tuple[float, float]:
         rate = self.rates[band]
@@ -201,9 +206,22 @@ class Beliefs:
         return Belief(
             successes=successes,
             failures=failures,
-            prior=self._prior.counts(band),
+            prior=self.prior(kind, band, model_id),
             seen=self._seen.get(key, 0),
         )
+
+    def prior(self, kind: CallKind, band: int, model_id: str) -> tuple[float, float]:
+        """The band's guess, moved toward the model's record in the other bands (partial pooling)."""
+        if self._prior.pooling == 0.0:
+            return self._prior.counts(band)
+        elsewhere = [self._counts.get((kind, other, model_id), [0.0, 0.0]) for other in range(Bands.COUNT)]
+        successes = sum(c[0] for o, c in enumerate(elsewhere) if o != band)
+        failures = sum(c[1] for o, c in enumerate(elsewhere) if o != band)
+        if successes + failures == 0.0:
+            return self._prior.counts(band)
+        guess_s, guess_f = self._prior.counts(band)
+        rate = (successes + guess_s) / (successes + failures + guess_s + guess_f)
+        return rate * self._prior.pooling, (1.0 - rate) * self._prior.pooling
 
     def cost(self, kind: CallKind, band: int, model_id: str, estimate: float) -> float:
         """Dollars per attempt: the measured mean, with the price-based estimate counting as one attempt."""

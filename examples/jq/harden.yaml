@@ -59,7 +59,7 @@ teams:
   - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}
   - use: executor
     watches: raw
-    model_tiers: [haiku55, gpt-sol, sonnet]  # hardening: no gemma26 (0 of 23 real steps; one attempt held every fix for 20 minutes)  # ranked by the router; this order counts only before data
+    model_tiers: [gemma26, haiku55, gpt-sol, sonnet]  # ranked by the router, which pools each model's record across bands (gemma4:26b, 0 of 23, now comes last)
     routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
     checks: [spec, own-interpreter, layout]
     max_model_calls: 60

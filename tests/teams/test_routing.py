@@ -83,7 +83,7 @@ class Routing:
 
 class TestBeliefs:
     def test_counts_outcomes_on_top_of_a_small_guess_per_band(self) -> None:
-        beliefs = Beliefs(Outcomes.ledger().calls(), Prior())
+        beliefs = Beliefs(Outcomes.ledger().calls(), Prior(pooling=0.0))
         easy = beliefs.of(CallKind.PRODUCE, 0, SMALL)
         assert (easy.successes, easy.failures) == (30, 0)
         assert easy.rate == pytest.approx((30 + 1.6) / (30 + 2.0))  # prior: 0.8 of 2 imagined runs
@@ -91,12 +91,25 @@ class TestBeliefs:
         assert (unknown.successes, unknown.failures) == (0, 0) and unknown.rate == pytest.approx(0.6)
 
     def test_draws_spread_widely_without_outcomes_and_settle_with_them(self) -> None:
-        beliefs = Beliefs(Outcomes.ledger().calls(), Prior())
+        beliefs = Beliefs(Outcomes.ledger().calls(), Prior(pooling=0.0))
         rng = random.Random(1)
         fresh = [beliefs.of(CallKind.PRODUCE, 1, SMALL).draw(rng) for _ in range(200)]
         proven = [beliefs.of(CallKind.PRODUCE, 0, SMALL).draw(rng) for _ in range(200)]
         assert max(fresh) - min(fresh) > 0.6
         assert min(proven) > 0.8
+
+    def test_a_band_without_outcomes_starts_from_the_models_record_elsewhere(self) -> None:
+        # LARGE: 30 of 30 in bands 0 and 2; SMALL: 30 of 30 in band 0, 0 of 30 in band 2; neither has band 1
+        pooled = Beliefs(Outcomes.ledger().calls(), Prior())
+        plain = Beliefs(Outcomes.ledger().calls(), Prior(pooling=0.0))
+        assert plain.of(CallKind.PRODUCE, 1, LARGE).rate == pytest.approx(0.6)  # every model's guess
+        assert pooled.of(CallKind.PRODUCE, 1, LARGE).prior == pytest.approx(
+            (4.0 * 61.2 / 62.0, 4.0 * 0.8 / 62.0)  # band 1's guess (0.6 of 2) moved by 60 of 60, worth 4 runs
+        )
+        assert pooled.of(CallKind.PRODUCE, 1, LARGE).rate > 0.95
+        assert (
+            0.4 < pooled.of(CallKind.PRODUCE, 1, SMALL).rate < 0.6
+        )  # a mixed record elsewhere: no strong lean
 
     def test_renders_successes_runs_and_rate_per_band(self) -> None:
         table = Beliefs(Outcomes.ledger().calls(), Prior()).render()

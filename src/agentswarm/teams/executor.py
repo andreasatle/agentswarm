@@ -514,22 +514,34 @@ You are the executor in a software team. Implement the task in `instruction.goal
         """Merge the base level into the branch, so the work starts from what has been merged since it forked.
 
         Plain code does what a conflict finding asks: a rejection for conflicts alone is settled by the merge,
-        and the merged branch goes back to the gate without a model. A merge that conflicts is escalated:
-        the builder has no tool to resolve it. None: carry on with the model.
+        and the merged branch goes back to the gate without a model. A merge that conflicts means the work was
+        done on a base that has moved: the branch starts again from the current base, keeping its acceptance
+        tests, and the model redoes the work there (the builder has no tool to resolve conflicts; a person
+        used to be asked, and two red-team fixes waited for one, 2026-10-15). None: carry on with the model.
         """
         if self._sync_from is None:
             return None
         before = worktree.head()
         if not worktree.merge(self._sync_from, f"{ctx.artifact.id}: merge {self._sync_from}"):
-            return Escalated(
-                artifact=ctx.artifact.id,
-                reason=f"conflicts with {self._sync_from}, which a person must resolve",
-            )
+            self.redo(ctx, worktree, self._sync_from)
+            return None
         merged = worktree.head() != before
         conflicts = [f for f in ctx.open_findings if f.kind is FindingKind.CONFLICT]
         if merged and conflicts and len(conflicts) == len(ctx.open_findings):
             return CommitPushed(artifact=ctx.artifact.id, commit=worktree.head())
         return None
+
+    @staticmethod
+    def redo(ctx: ArtifactContext, worktree: Worktree, base: Level) -> None:
+        """Start the branch again from `base`, with the acceptance tests its task was given."""
+        worktree.reset_hard(base)
+        written = [e for e in ctx.history if isinstance(e, AcceptanceWritten)]
+        for event in written:
+            for file in event.files:
+                worktree.write(file.path, worktree.show(event.commit, file.path))
+        worktree.commit(
+            f"{ctx.artifact.id}: redone on the current {base}, which its earlier work conflicted with"
+        )
 
     async def _attempt(
         self,
