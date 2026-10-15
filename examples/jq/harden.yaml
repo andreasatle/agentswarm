@@ -81,9 +81,13 @@ budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-15 (UTC): $5 for the fi
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs
 hardening:
-  model: glm
+  # The red team: Sol, the most reliable tool user in the ledger (93% of real steps). GLM-5.3 failed the first
+  # attack (2026-10-15): it reasoned past its 32k output limit after reading 9 files, $0.31 for nothing.
+  # Same family as the builder; the referee (DeepSeek) judges every report against the manual.
+  model: gpt-sol
   referee: referee
   spec: docs/jq-manual.md
   # the manual's sections the tests cover (the command line, I/O, streaming, modules and colors are left out)
   sections: [Basic filters, Types and Values, Builtin operators and functions, Conditionals and Comparisons, Regular expressions, Advanced features, Math, Assignment]
   check: spec
+  focuses: [section]  # first the rules of each section (11 attacks a round); boundaries, rejection and mutation later
