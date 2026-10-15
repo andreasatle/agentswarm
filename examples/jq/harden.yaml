@@ -77,7 +77,7 @@ gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-interpreter, layout]}
 worklist: {check: spec, max_open: 1, attempts_per_file: 3, shown: 10}
 score: {check: spec, held_out: [~/agentswarm-data/jq/out/held_out]}  # measured at the start and end of every run
-budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-15 (UTC): $5 for the first hardening run (approved)
+budgets: {usd_per_day: 9.8, reserve_usd: 0.3}  # 2026-10-15 (UTC): $5 for the first hardening round, $5 more for the second (both approved)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["route:*"]}  # try first, split only what every model fails (ADaPT): the size question only logs
 hardening:
@@ -90,4 +90,4 @@ hardening:
   # the manual's sections the tests cover (the command line, I/O, streaming, modules and colors are left out)
   sections: [Basic filters, Types and Values, Builtin operators and functions, Conditionals and Comparisons, Regular expressions, Advanced features, Math, Assignment]
   check: spec
-  focuses: [section]  # first the rules of each section (11 attacks a round); boundaries, rejection and mutation later
+  focuses: [section, boundaries, rejection, mutation]  # round 1 did section only; it now completes with the other three (33 attacks)
