@@ -1420,7 +1420,7 @@ Not for umbrellas (their children get their own) or fix artifacts (the tests the
 
 ### Hardener
 
-`agentswarm.teams.hardening.Hardener`: The hardening campaign: plain code that schedules attacks, checks reports and makes fix tasks.
+`agentswarm.teams.hardening.Hardener`: The hardening campaign: red teams attack the product by spec section and focus; plain code checks their reports and makes fix tasks.
 
 ```text
 You are a red team. The product in the project is finished as far as its builders know; its specification is
@@ -1577,7 +1577,7 @@ class AttackProblem(Frozen):
 
 ### What happens to the answer
 
-`Hardener`: The hardening campaign: plain code that schedules attacks, checks reports and makes fix tasks.
+`Hardener`: The hardening campaign: red teams attack the product by spec section and focus; plain code checks their reports and makes fix tasks.
 
 ## Referee: confirms a red team's report against the spec before it becomes work
 

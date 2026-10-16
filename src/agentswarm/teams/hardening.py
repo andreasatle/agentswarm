@@ -32,6 +32,7 @@ from agentswarm.core.domain import (
     AttackFinding,
     AttackFocus,
     Event,
+    Focus,
     Reconsidered,
     RejectedReport,
     Sized,
@@ -44,6 +45,7 @@ from agentswarm.gating.ratchet import Progress as TestProgress
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.analyzer import AnalysisToolbox
+from agentswarm.teams.campaign import Campaign, Part
 from agentswarm.teams.referee import Referee
 from agentswarm.workspace.git import Repository, Worktree
 
@@ -52,9 +54,8 @@ class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class SpecSection(Frozen):
-    title: str
-    text: str
+class SpecSection(Part):
+    """A section of a spec: what one attack is about."""
 
 
 class SpecSections:
@@ -182,8 +183,9 @@ class Leads:
         return tuple(leads)
 
 
-class Hardener:
-    """The hardening campaign: plain code that schedules attacks, checks reports and makes fix tasks."""
+class Hardener(Campaign):
+    """The hardening campaign: red teams attack the product by spec section and focus; plain code checks
+    their reports and makes fix tasks."""
 
     NAME = TeamName("red_team")
     TEXT_LIMIT = 30_000  # characters of a spec section given to the red team
@@ -247,54 +249,31 @@ in the project too. Find where the product breaks the specification, within the 
         progress: Measure | None = None,
         review: RatchetCheck | None = None,
     ) -> None:
+        super().__init__(board, repository, ladder, config.quiet_rounds, budget, progress)
         self._config = config
         self._north_star = north_star
-        self._board = board
-        self._repository = repository
-        self._ladder = ladder
         self._artifacts = artifacts
         self._worker = worker
         self._referee = referee
         self._check = check
-        self._budget = budget
-        self._progress = progress
         self._leads = Leads(check, config.mutants)
         # The test suite, test by test, for looking again at a report whose fix every builder failed; None:
         # confirmed reports are never reconsidered
         self._review = review
 
-    async def step(self) -> int:
-        """One attack, when the builders are idle and the campaign isn't done. Returns the actions taken."""
-        views = self._board.current()
-        if views.paused or (self._budget is not None and self._budget.exhausted(views)):
-            return 0
-        for finding in self.unreviewed(views):  # before the planner splits it: a fix no builder could make
+    @property
+    def focuses(self) -> tuple[Focus, ...]:
+        return self._config.focuses
+
+    async def prepare(self, views: BoardViews) -> int:
+        """Before the planner splits it: a fix no builder could make is looked at again."""
+        for finding in self.unreviewed(views):
             reconsidered = await self.reconsider(views.artifact(finding.task), finding)
             self._board.append([reconsidered])
             if reconsidered.withdrawn:
                 Escalations(self._board, None).drop(finding.task, f"withdrawn: {reconsidered.reason}")
             return 1
-        if self.building(views):
-            return 0  # the product is still changing: attack it once the work at the lowest level is done
-        tip = self._repository.tip(self._ladder.base)
-        worktree = self._repository.checkout_detached(tip, f"_attack-{len(views.attacks()) + 1}")
-        try:
-            sections = self.sections(worktree)
-            pairs = [(s.title, f) for s in sections for f in self._config.focuses]
-            if not pairs or self.done(views.attacks(), len(pairs)):
-                return 0
-            round, (title, focus) = self.next_attack(views.attacks(), pairs)
-            section = next(s for s in sections if s.title == title)
-            events = await self.attack(
-                worktree, tip, round, section, focus, self.withdrawn(views), self.rejected(views)
-            )
-        finally:
-            worktree.remove()
-        self._board.append(events)
-        attacked = [e for e in [*views.attacks(), *events] if isinstance(e, Attacked) and e.round == round]
-        if len(attacked) == len(pairs) and self._progress is not None:  # a round is complete: measure it
-            self._board.append([await self._progress.measure(self._board.current())])
-        return 1
+        return 0
 
     def unreviewed(self, views: BoardViews) -> list[AttackFinding]:
         """Confirmed reports whose fix every builder model failed, not yet looked at again."""
@@ -372,13 +351,8 @@ in the project too. Find where the product breaks the specification, within the 
         found = [f"{r.claim} (rejected: {r.reason})" for attack in views.attacks() for r in attack.rejected]
         return tuple(dict.fromkeys(found))[-cls.REJECTED_SHOWN :]
 
-    def building(self, views: BoardViews) -> bool:
-        """Work is open at the lowest level. A task split into steps does no work itself: its steps count
-        (2026-10-16: YAML's first task stayed open with a step escalated, and no attack ever started)."""
-        return any(
-            a.level == self._ladder.lowest and views.active(a.id) and not views.children(a.id)
-            for a in views.artifacts()
-        )
+    def parts(self, worktree: Worktree) -> list[Part]:
+        return list(self.sections(worktree))
 
     def sections(self, worktree: Worktree) -> list[SpecSection]:
         try:
@@ -392,36 +366,11 @@ in the project too. Find where the product breaks the specification, within the 
             s for t in self._config.sections for s in found if s.title == t or s.title.startswith(f"{t} (")
         ]
 
-    def done(self, attacks: Sequence[Attacked], pairs: int) -> bool:
-        """Whether the last `quiet_rounds` whole rounds each confirmed nothing."""
-        rounds = sorted({a.round for a in attacks})
-        complete = [r for r in rounds if sum(a.round == r for a in attacks) >= pairs]
-        quiet = complete[-self._config.quiet_rounds :]
-        return len(quiet) == self._config.quiet_rounds and all(
-            sum(a.confirmed for a in attacks if a.round == r) == 0 for r in quiet
-        )
-
-    @staticmethod
-    def next_attack(
-        attacks: Sequence[Attacked], pairs: Sequence[tuple[str, AttackFocus]]
-    ) -> tuple[int, tuple[str, AttackFocus]]:
-        """The current round and its first pair not yet attacked in it."""
-        round = max((a.round for a in attacks), default=1)
-        done: set[tuple[str, AttackFocus]] = {(a.section, a.focus) for a in attacks if a.round == round}
-        if len(done) >= len(pairs):
-            round, done = round + 1, set[tuple[str, AttackFocus]]()
-        return round, next(p for p in pairs if p not in done)
-
     async def attack(
-        self,
-        worktree: Worktree,
-        tip: str,
-        round: int,
-        section: SpecSection,
-        focus: AttackFocus,
-        withdrawn: Sequence[str] = (),
-        rejected: Sequence[str] = (),
+        self, worktree: Worktree, tip: str, round: int, part: Part, focus: Focus, views: BoardViews
     ) -> list[Event]:
+        assert isinstance(focus, AttackFocus)  # the hardener's focuses (HardeningConfig)
+        section = part
         leads = (
             self._leads.find(worktree, f"{round}:{section.title}") if focus is AttackFocus.MUTATION else ()
         )
@@ -431,8 +380,8 @@ in the project too. Find where the product breaks the specification, within the 
             passage=section.text[: self.TEXT_LIMIT],
             focus=self.FOCUS[focus],
             leads=leads,
-            withdrawn=tuple(withdrawn),
-            rejected=tuple(rejected),
+            withdrawn=self.withdrawn(views),
+            rejected=self.rejected(views),
         )
         toolbox = AttackToolbox(worktree, "", self._check)
 

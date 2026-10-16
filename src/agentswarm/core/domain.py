@@ -200,6 +200,19 @@ class AttackFocus(StrEnum):
     COMBINATION = "combination"
 
 
+class Perspective(StrEnum):
+    """What a document's reviewers look at in a review campaign (docs/design/documents.md)."""
+
+    FACTS = "facts"  # a red team: a claim its cited source doesn't support, or one citing nothing
+    COVERAGE = "coverage"  # what the brief asks for and the sources hold, missing from the document
+    READER = "reader"  # what the intended reader, new to the subject, couldn't follow
+    CONSISTENCY = "consistency"  # two passages that disagree
+    GENERAL = "general"  # one broad reviewer: the baseline the perspectives must beat
+
+
+type Focus = AttackFocus | Perspective  # what a campaign attacks a part for
+
+
 class AttackFinding(Frozen):
     """A confirmed red team report, kept with the fix task made from it."""
 
@@ -233,8 +246,8 @@ class Attacked(Frozen):
 
     kind: Literal["attacked"] = "attacked"
     round: int = Field(ge=1)
-    section: str  # the spec section's title
-    focus: AttackFocus
+    section: str  # the part's title: a spec section, or a document's section file
+    focus: Focus
     commit: str  # the product's commit that was attacked
     model: str | None = None
     reported: int = Field(ge=0)  # problems the red team reported with a failing test
