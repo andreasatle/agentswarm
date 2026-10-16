@@ -1,4 +1,4 @@
-# Documents with reviewers: design (draft, 2026-10-16)
+# Documents with reviewers: design (built 2026-10-16)
 
 ## The question
 
@@ -62,3 +62,12 @@ About two to three days of work, no paid model calls (tests use fakes). Then: th
 - **Reviewers that ask for more and more text** (judges prefer length): the brief's length cap is a plain-code check; a finding that can only be fixed by exceeding it is not confirmed.
 - **Findings of taste, not substance:** every finding needs verbatim evidence and the referee's ruling; the per-perspective record shows which ones move nothing.
 - **Hidden questions too specific for a newcomer's guide:** the baseline measures what a plain guide reaches; the question is the gain over it, not the absolute score.
+
+## Decisions made during implementation
+
+- **One campaign machine for red teams and reviewers** (`teams/campaign.py`): rounds over part × focus, done after quiet rounds, a score when a round is whole. The Hardener and the `ReviewCampaign` supply the parts (spec sections; the document's section files), the focuses (`AttackFocus`; `Perspective`) and the attack. A campaign counts only attacks on its own focuses, so changing focuses starts the rounds over instead of mixing old and new.
+- **A finding's fix has no acceptance check of its own.** A test can be made to pass; a finding can only be judged. Rather than a model call inside every check run, the next round settles it: the same perspective meets the revised section again, and an unresolved finding comes back (the referee's earlier ruling stands beside it). The writer's checks stay plain code: `check_doc` (headings, one sentence per line, citations naming a source, the length cap).
+- **Plain code before the referee:** each quote must be in the file it names, word for word, at least 12 characters, and in the document, its sources or the brief; the evidence must fit the perspective (`ReviewCampaign.NEEDS`: a coverage finding quotes a source, a consistency finding two document passages). The referee sees each quote with 600 characters around it.
+- **Scoring is a `Measure`, now async,** so a score may call models: `QuestionProgress` reads the guide on the base level, drops the questions the reader answers from memory once (kept beside the questions as `memorized.json`), and scores the rest; `Scored.seen` is empty for a guide (the agents see no questions).
+- **The baseline is a perspective:** `general`, one broad reviewer, the same machinery (`examples/guide/baseline.yaml`), so the comparison is at equal cost on the same built guide.
+- **Models:** the writer by the router (Haiku 5.5, Sol), the outliner Sonnet, the reviewers Sol, the referee and the grader DeepSeek, the reader Haiku 5.5.
