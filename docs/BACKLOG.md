@@ -37,6 +37,7 @@ Kept current by Claude (COLLABORATION.md): every idea the user raised, and what 
 | Reject "too good" solutions to avoid overspending | Dropped | Throwing away correct work costs more; overspending is handled where the model is chosen (routing, cheapest first) |
 | Step down to a cheaper model now and then | Covered | Thompson sampling explores cheaper uncertain models by itself |
 | Discount old outcomes, like an EMA | Built | Discounted Thompson sampling, counted in calls (a pause forgets nothing) |
+| Red teams as reviews from several perspectives: documentation, code quality, missed tests (the user, 2026-10-16) | Parked | Hardening covers missed tests (correctness, objective evidence). Code quality and documentation reviewers need a measure first, with no answer key: e.g. whether later changes in reviewed code get cheaper and break less. Due before real use, once goals without a spec work |
 | Models choose tasks when capacity is fixed | Parked | Capacity-aware assignment; due when local runs show idle or swap time |
 | A bigger local machine (150-200 GB) | Parked | Probe the open models it would run through an API first, then decide |
 | Qwen's size ladder as the model axis | Adopted | Stage 4's competitiveness study (ROADMAP.md) |
