@@ -7,6 +7,7 @@ from agentswarm.core.domain import (
     AcceptanceRestored,
     AcceptanceWritten,
     ArtifactCreated,
+    ArtifactId,
     Attacked,
     AttemptFailed,
     CheckDisputed,
@@ -164,7 +165,7 @@ class HardeningSummary:
         for focus in sorted({a.focus for a in attacks}):
             mine = [a for a in attacks if a.focus == focus]
             tasks = [t for a in mine for t in a.tasks]
-            fixed = sum(views.merge_commit(t) is not None for t in tasks)
+            fixed = sum(HardeningSummary.merged(views, t) for t in tasks)
             withdrawn = sum(
                 any(isinstance(e, Reconsidered) and e.withdrawn for e in views.history(t)) for t in tasks
             )
@@ -174,3 +175,11 @@ class HardeningSummary:
                 + (f", {withdrawn} withdrawn" if withdrawn else "")
             )
         return "\n".join(lines)
+
+    @staticmethod
+    def merged(views: BoardViews, task: ArtifactId) -> bool:
+        """Merged itself, or split into steps that are all merged: a split task never merges on its own."""
+        steps = views.children(task)
+        if not steps:
+            return views.merge_commit(task) is not None
+        return all(HardeningSummary.merged(views, step.id) for step in steps)

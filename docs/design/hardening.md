@@ -96,7 +96,7 @@ Then **YAML without labels** (97%), the self-supervised case.
 
 ## Second round on YAML without labels (2026-10-16, $4.81): combination focus, hidden 97% to 98%
 
-**Result:** 26 combination attacks (two rounds over the 14 chapter parts). 31 reported, 4 confirmed, 3 fixed and merged (separation tabs after indentation, percent escapes in verbatim tags, a BOM before `---` after a block scalar; key order in a flow mapping still open), and the round's three open fixes, now tried before any split, merged too. Hidden 663 to 668 of 681, the first gain on YAML; visible 327 to 529.
+**Result:** 26 combination attacks (two rounds over the 14 chapter parts). 31 reported, 4 confirmed, 3 fixed and merged (separation tabs after indentation, percent escapes in verbatim tags, a BOM before `---` after a block scalar; key order in a flow mapping still open), and the three fixes split in round 1 finished their steps (a split fix had counted as unmerged in the run's summary; it now counts once every step is merged): 7 of round 1 and 2's 8 fixes merged. Hidden 663 to 668 of 681, the first gain on YAML; visible 327 to 529.
 
 **Where reports were lost:** 27 dropped, 12 because the quote wasn't the spec's words verbatim (a combination rests on rules from several places, and a report allows one quote), 15 by the referee. Two claims came back again and again from different chapters (plain scalars starting with `:` after a tag or anchor in flow, 17 mentions; empty tagged keys right before `:`, 13): the red teams don't see what was already rejected.
 
