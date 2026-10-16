@@ -214,10 +214,8 @@ class Cli:
         try:
             for task in args.task:
                 project.create_artifact(task)
-            before = self.scored(project)
-            asyncio.run(project.run_until_idle(args.max_rounds))
+            before, after = asyncio.run(self.scored_run(project, args.max_rounds))
             self._show(Report.render(project.views()))
-            after = self.scored(project)
             if before is not None and after is not None:
                 self._show(Progress.render(before, after))
             hardening = HardeningSummary.render(project.board.current())
@@ -228,13 +226,21 @@ class Cli:
             project.close()
         return 0
 
+    @classmethod
+    async def scored_run(cls, project: Project, max_rounds: int) -> tuple[Scored | None, Scored | None]:
+        """Scores, runs until idle, scores again: in one event loop, since a model client made in one (a
+        reader that is also a writer, say) fails in the next (2026-10-16: "Event loop is closed")."""
+        before = await cls.scored(project)
+        await project.run_until_idle(max_rounds)
+        return before, await cls.scored(project)
+
     @staticmethod
-    def scored(project: Project) -> Scored | None:
+    async def scored(project: Project) -> Scored | None:
         """Scores the first shared level and records it on the board (None without a definition of done as
         numbers: no `score` or `questions` section)."""
         if project.progress is None:
             return None
-        scored = asyncio.run(project.progress.measure(project.views()))
+        scored = await project.progress.measure(project.views())
         project.board.append([scored])
         return scored
 
@@ -400,7 +406,7 @@ class Cli:
         if defined and args.check is None and not args.extra:  # the config's definition of done
             project = Project.open(config, Path(args.root).expanduser(), ProjectServices(teams=self._catalog))
             try:
-                scored = self.scored(project)
+                scored = asyncio.run(self.scored(project))
             finally:
                 project.close()
             assert scored is not None
