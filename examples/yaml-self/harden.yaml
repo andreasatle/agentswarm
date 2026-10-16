@@ -80,7 +80,7 @@ teams:
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
 score: {check: spec, held_out: [~/agentswarm-data/yaml/self/held_out]}  # all 681 tests, never shown
-budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-16 (UTC): $5 for the first hardening round (approved); next: the combination focus
+budgets: {usd_per_day: 10.0, reserve_usd: 0.3}  # 2026-10-16 (UTC): $5 for the first hardening round, $5 more for the combination focus (both approved)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether the task is split: by spec section
 hardening:
