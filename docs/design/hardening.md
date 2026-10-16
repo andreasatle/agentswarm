@@ -76,6 +76,14 @@ Then **YAML without labels** (97%), the self-supervised case.
 
 **What it says:** the new focuses find real failures the visible tests miss (52 new protected tests), but not the ones the held-out tests check; the held-out gap left (10 tests) isn't where boundaries, rejection and mutation look. Further rounds of the section focus, or a deeper attack on the sections with held-out failures, are the next measured step.
 
+## Third run on jq (2026-10-16, $4.74): section rounds 2 and 3, held out 92% to 93%
+
+**Result:** 18 section attacks (round 2 whole, round 3 seven of eleven before the budget ended it). 35 reported, 14 confirmed, 14 fixed and merged (Oniguruma regex syntax among them). Visible 817 to 946, all passing; held out 115 to 116 of 125. The guard (`Reconsidered`) never fired: no fix failed on every model.
+
+**Diminishing returns on the held-out score:** the section focus still confirms about 7 problems per round, real ones by the manual, but they're mostly not what the held-out tests check. Round 1 gained 6 held-out tests for $4.80; the next two runs gained 1 for $9.50. The 9 left: `debug/0` (the manual's I/O section, not attacked), `@base64d` without padding, slice assignment, NaN to integer, number literal precision (2), `split` with flags, identity on a large number, a path case. Each is narrow: an attack would have to land on that exact case.
+
+**Over the campaign:** held out 87% to 93% for $14.30, about $2.40 per held-out test, and 396 new protected tests from the red teams (550 to 946 visible).
+
 ## What gets built
 
 | Part | Size | Exists? |
