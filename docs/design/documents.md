@@ -87,3 +87,14 @@ Per perspective: coverage 20 of 21 confirmed, reader 19 of 20, facts 4 of 4, con
 - **The reviewers changed the guide a lot, but not toward what the questions ask.** Both arms doubled the guide to its length cap. The questions are practitioners' details (which baselines, which ROUGE variants, the dataset's size and source, how many annotators), while the brief asks for a guide a newcomer can understand; the coverage and reader reviewers filled the cap with method explanations, which serve the brief, and few of those details. The measure doesn't match the goal it is meant to measure: the exam has to ask what the brief promises.
 - **The referee confirmed almost everything** (84 of 88 findings). On software, a failing test and the spec's words gave it something to reject; a finding about a document is a judgment, and the referee agreed with nearly all of them. As a filter it did little here.
 - **Facts held:** the facts reviewer found 4 claims to fix in 12 reviews; the guide stayed cited throughout (`check_doc`).
+
+## Second try (2026-10-16, $1.27): a reference guide and a stricter referee; still no gain
+
+**Changes:** the brief asks for a reference guide (each paper's aim, method, data, baselines, metrics and results, with numbers), matching what the hidden questions ask; the referee sees the whole document and answers *shown*, *matters* and *fits* separately, a finding confirmed only if all three hold. The build took a retry (Haiku ran out of steps before the relations section): $0.32, 1,347 words, **10 of 22** questions answered (the newcomer guide answered 8).
+
+| Arm ($0.50 each) | Reviews | Confirmed / reported | Merged | Words | Hidden questions |
+| --- | --- | --- | --- | --- | --- |
+| Four perspectives | 15 (round 1 not finished) | 13 / 16 | 11 | 1,923 | 10 → 9 |
+| One broad reviewer | 11 (2 rounds) | 18 / 20 | 15 | 2,001 | 10 → 11 → 9 |
+
+**What it says:** the reference brief helped the first draft (10 vs 8), but reviewing still moved nothing beyond a question either way. The stricter referee confirmed a little less (31 of 36 vs 84 of 88). With 22 questions, one question is 4.5 points, and at $0.50 an arm the four perspectives didn't finish one round: the experiment can't separate the arms. Two things are missing to learn more: **per-question records** (which questions a revision gained or lost, to see whether revisions displace facts under the cap or add facts no question asks about) and **more questions** for the same money.
