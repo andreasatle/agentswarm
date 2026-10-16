@@ -25,7 +25,7 @@ Kept current: a goal is added when the user states one, changed when they change
 9. **Conventions that hold:** project layout, lint and types enforced by checks, not memory (Phase 9; the lesson of forge-rs).
 10. **Project types fully configurable in YAML,** one level of configuration (Phase 11, when a third type is wanted).
 11. **More compute than 24 GB,** at reasonable cost and minimal effort (BACKLOG.md).
-12. **Set a goal, and the product is hardened toward it (the user, 2026-10-13):** iteration toward a goal, "kind of like stochastic descent"; once it works it is a matter of iterating to get it right. The loss is the set of failing checks derived from the goal (self-supervised where there are no labels), each step is a sampled change accepted only if it improves (the ratchet), hidden tests measure generalization, and red teams keep growing the checks so the product hardens. Then on local models, left running for a week at most $1 a day all paid calls included (docs/design/self-supervised.md; first the local trial).
+12. **Set a goal, and the product is hardened toward it (the user, 2026-10-13):** iteration toward a goal, "kind of like stochastic descent"; once it works it is a matter of iterating to get it right. The loss is the set of failing checks derived from the goal (self-supervised where there are no labels), each step is a sampled change accepted only if it improves (the ratchet), hidden tests measure generalization, and red teams keep growing the checks so the product hardens. Local models left running for a week at most $1 a day all paid calls included is on the back burner (the user, 2026-10-16): for when the framework has stabilized (BACKLOG.md).
 
 ## Claude pushes back, by asking
 
