@@ -462,6 +462,14 @@ class Tally(Frozen):
         return self.passed / self.total if self.total else None
 
 
+class QuestionOutcome(Frozen):
+    """One hidden question at one score: whether the reader answered it correctly from the document."""
+
+    id: str
+    correct: bool
+    answer: str  # the reader's answer; empty when it found none (or the call failed)
+
+
 class Scored(Frozen):
     """How far a level is through the project's definition of done: measured at the start and end of every
     run, so each run reports what it bought (docs/design/best-practice-review.md, fix 8)."""
@@ -472,6 +480,8 @@ class Scored(Frozen):
     seen: Tally | None  # the tests the agents see; None when they see none (a guide: only hidden questions)
     held_out: Tally | None  # tests no agent has seen; None when the project has none
     spent_usd: float = Field(ge=0)  # all spend on the board when measured: the cost between two scores
+    # A document's hidden questions one by one, so a revision can be traced to what it gained or lost
+    questions: tuple[QuestionOutcome, ...] = ()
 
     @property
     def subject(self) -> None:

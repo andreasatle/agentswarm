@@ -7,6 +7,7 @@ memory, with no document at all, measures the model rather than the document: it
 first score, and the dropped ones are kept beside the questions so every later score uses the same set.
 """
 
+import itertools
 import json
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,7 +16,16 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.board.blackboard import BoardViews
-from agentswarm.core.domain import Level, Scored, Tally
+from agentswarm.core.domain import (
+    ArtifactCreated,
+    ArtifactId,
+    Envelope,
+    Level,
+    Promoted,
+    QuestionOutcome,
+    Scored,
+    Tally,
+)
 from agentswarm.evaluation.qasper import HiddenQuestion
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.workspace.git import Repository
@@ -84,12 +94,13 @@ read the paper. Any one reference may be the right one; they can differ in detai
         self._reader = reader
         self._grader = grader
 
-    async def answered(self, document: str, questions: Sequence[HiddenQuestion]) -> list[bool]:
-        """Whether the reader, seeing only the document, answers each question correctly."""
-        found: list[bool] = []
+    async def answered(self, document: str, questions: Sequence[HiddenQuestion]) -> list[QuestionOutcome]:
+        """Each question, answered by the reader from the document alone, and graded."""
+        found: list[QuestionOutcome] = []
         for question in questions:
             request = ReadingRequest(document=document, question=question.question)
-            found.append(await self.graded(self.READ, request, question))
+            correct, answer = await self.graded(self.READ, request, question)
+            found.append(QuestionOutcome(id=question.id, correct=correct, answer=answer))
         return found
 
     async def remembered(self, titles: dict[str, str], questions: Sequence[HiddenQuestion]) -> list[bool]:
@@ -99,22 +110,25 @@ read the paper. Any one reference may be the right one; they can differ in detai
             request = MemoryRequest(
                 paper=titles.get(question.paper, question.paper), question=question.question
             )
-            found.append(await self.graded(self.REMEMBER, request, question))
+            found.append((await self.graded(self.REMEMBER, request, question))[0])
         return found
 
-    async def graded(self, instructions: str, request: BaseModel, question: HiddenQuestion) -> bool:
-        """A failed call counts as not answered: it never raises the score."""
+    async def graded(
+        self, instructions: str, request: BaseModel, question: HiddenQuestion
+    ) -> tuple[bool, str]:
+        """Whether the answer is correct, and the answer. A failed call counts as not answered: it never
+        raises the score."""
         try:
             answer = await self._reader.run(instructions, request, ReaderAnswer)
         except WorkerError:
-            return False
+            return False, ""
         if not answer.found or not answer.answer.strip():
-            return False
+            return False, ""
         grade = GradeRequest(question=question.question, answer=answer.answer, references=question.answers)
         try:
-            return (await self._grader.run(self.GRADE, grade, GradeAnswer)).correct
+            return (await self._grader.run(self.GRADE, grade, GradeAnswer)).correct, answer.answer
         except WorkerError:
-            return False
+            return False, answer.answer
 
 
 class HiddenQuestions:
@@ -172,7 +186,8 @@ class QuestionProgress:
             level=self._level,
             commit=tip,
             seen=None,
-            held_out=Tally(passed=sum(answered), total=len(questions)),
+            held_out=Tally(passed=sum(o.correct for o in answered), total=len(questions)),
+            questions=tuple(answered),
             spent_usd=views.spent()[0],
         )
 
@@ -187,3 +202,55 @@ class QuestionProgress:
             memorized = {q.id for q, k in zip(questions, known, strict=True) if k}
             self._questions.remember(sorted(memorized))
         return [q for q in questions if q.id not in memorized]
+
+
+class QuestionTrace:
+    """Question by question across a project's scores, and the revisions merged between each two: what each
+    stretch of work gained and lost, to see whether revisions add what readers ask about or push it out."""
+
+    TASK = 110  # characters of a revision's task shown
+
+    @classmethod
+    def render(cls, envelopes: Sequence[Envelope], questions: Sequence[HiddenQuestion]) -> str:
+        asked = {q.id: q for q in questions}
+        tasks: dict[ArtifactId, str] = {}
+        merged: list[ArtifactId] = []  # merged since the last score
+        scores: list[tuple[Scored, list[ArtifactId]]] = []
+        for envelope in envelopes:
+            match envelope.event:
+                case ArtifactCreated(artifact=artifact):
+                    tasks[artifact.id] = artifact.task
+                case Promoted(artifact=id):
+                    merged.append(id)
+                case Scored() as scored if scored.questions:
+                    scores.append((scored, merged))
+                    merged = []
+                case _:
+                    pass
+        if not scores:
+            return "no score with questions on this board"
+        ids = [o.id for o in scores[0][0].questions]
+        lines = [f"{len(scores)} scores, {len(ids)} questions ('x' answered, '.' not), first score first:"]
+        for id in ids:
+            marks = "".join("x" if cls.correct(s, id) else "." for s, _ in scores)
+            question = asked.get(id)
+            text = f"{question.paper} {question.question}" if question is not None else id
+            lines.append(f"  {marks}  {text[:90]}")
+        for n, ((before, _), (after, between)) in enumerate(itertools.pairwise(scores), 2):
+            gained = [i for i in ids if cls.correct(after, i) and not cls.correct(before, i)]
+            lost = [i for i in ids if cls.correct(before, i) and not cls.correct(after, i)]
+            if not gained and not lost:
+                continue
+            lines.append(f"score {n - 1} -> {n} (${after.spent_usd - before.spent_usd:.2f}):")
+            for label, changed, scored in (("gained", gained, after), ("lost", lost, before)):
+                for i in changed:
+                    question = asked.get(i)
+                    answer = next((o.answer for o in scored.questions if o.id == i), "")
+                    lines.append(f"  {label}: {question.question if question else i} -> {answer[:80]!r}")
+            for id in between:
+                lines.append(f"  merged {id}: {tasks.get(id, '')[: cls.TASK]}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def correct(scored: Scored, id: str) -> bool:
+        return any(o.id == id and o.correct for o in scored.questions)

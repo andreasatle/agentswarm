@@ -4,6 +4,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from agentswarm.board.artifacts import ArtifactFactory
+from agentswarm.core.domain import Promoted, QuestionOutcome, Scored, TeamName
 from agentswarm.evaluation.qasper import HiddenQuestion
 from agentswarm.evaluation.questions import (
     GradeAnswer,
@@ -12,6 +14,7 @@ from agentswarm.evaluation.questions import (
     MemoryRequest,
     QuestionProgress,
     QuestionScore,
+    QuestionTrace,
     ReaderAnswer,
     ReadingRequest,
 )
@@ -66,7 +69,11 @@ class TestQuestionScore:
     def test_only_answers_the_grader_accepts_count(self) -> None:
         document = "Which dataset?: the PTB treebank\nIs it fast?: yes, very\n"
         answered = asyncio.run(score(Reader({})).answered(document, [DATASET, SPEED, SIZE]))
-        assert answered == [True, False, False]  # wrong, and not in the document
+        assert [(o.id, o.correct, o.answer) for o in answered] == [
+            ("q1", True, "the PTB treebank"),
+            ("q2", False, "yes, very"),  # wrong
+            ("q3", False, ""),  # not in the document
+        ]
 
     def test_memory_is_asked_without_the_document(self) -> None:
         reader = Reader({"Is it fast?": "No"})
@@ -92,7 +99,33 @@ class TestQuestionProgress:
         scored = asyncio.run(progress.measure(h.board.current()))
         assert scored.seen is None
         assert scored.held_out is not None and (scored.held_out.passed, scored.held_out.total) == (1, 2)
+        assert [(o.id, o.correct) for o in scored.questions] == [("q1", True), ("q3", False)]
         assert HiddenQuestions(path).memorized() == {"q2"}  # found once, kept beside the questions
         calls = reader.calls
         asyncio.run(progress.measure(h.board.current()))
         assert reader.calls - calls == 2  # the next score asks only the two kept questions
+
+
+class TestQuestionTrace:
+    def test_flips_between_scores_are_shown_with_the_revisions_merged_between(self, tmp_path: Path) -> None:
+        (tmp_path / "h").mkdir()
+        h = Harness(tmp_path / "h")
+        level, lowest, base = Harness.LADDER, Harness.LADDER.lowest, Harness.LADDER.base
+
+        def scored(*correct: bool) -> Scored:
+            outcomes = tuple(
+                QuestionOutcome(id=q.id, correct=c, answer="PTB" if c else "")
+                for q, c in zip((DATASET, SPEED), correct, strict=True)
+            )
+            return Scored(level=base, commit="c", seen=None, held_out=None, spent_usd=0.0, questions=outcomes)
+
+        h.board.append([scored(False, True)])
+        task = ArtifactFactory(h.board, level).create(
+            "Revise sections/01.md: name the dataset", TeamName("r")
+        )
+        h.board.append([Promoted(artifact=task.id, from_level=lowest, to_level=base, gate_decision=None)])
+        h.board.append([scored(True, False)])
+        text = QuestionTrace.render(h.log.read(), [DATASET, SPEED])
+        assert "  .x  p1 Which dataset?" in text and "  x.  p1 Is it fast?" in text
+        assert "gained: Which dataset? -> 'PTB'" in text and "lost: Is it fast?" in text
+        assert f"merged {task.id}: Revise sections/01.md: name the dataset" in text

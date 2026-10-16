@@ -45,6 +45,7 @@ from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.jsonpath import JsonPathImport
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
+from agentswarm.evaluation.questions import HiddenQuestions, QuestionTrace
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.score import Progress, Scoreboard
@@ -94,6 +95,7 @@ class Cli:
         import-guide QASPER --out DIR --topic TEXT --papers ID...
                                                    a guide to Qasper papers as a seed, questions held out
         qasper-papers QASPER WORD...               Qasper papers whose title or abstract holds every word
+        questions CONFIG --root DIR                a document's hidden questions, score by score
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         spend                                      today's spend of every run, per account, against the limits
@@ -177,6 +179,8 @@ class Cli:
                 return self.import_guide(args)
             case "qasper-papers":
                 return self.qasper_papers(args)
+            case "questions":
+                return self.questions(args)
             case "score":
                 return self.score(args)
             case "openrouter-models":
@@ -392,6 +396,18 @@ class Cli:
         """Candidate papers for a guide: id, answerable questions, title."""
         papers = QasperSet(Path(args.qasper).expanduser()).search(args.words)
         self._show("\n".join(f"{p.id}  {len(p.questions):>2}  {p.title}" for p in papers) or "none")
+        return 0
+
+    def questions(self, args: argparse.Namespace) -> int:
+        """Reads only the board and the questions file: no models, no money."""
+        config = ProjectConfig.load(Path(args.config))
+        if config.questions is None:
+            self._show("the project has no `questions` section")
+            return 2
+        root = Path(args.root).expanduser()
+        questions = HiddenQuestions(config.questions.path.expanduser()).all()
+        with SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), SystemClock()) as log:
+            self._show(QuestionTrace.render(log.read(), questions))
         return 0
 
     def import_jsonpath(self, args: argparse.Namespace) -> int:
@@ -677,6 +693,10 @@ class Cli:
         )
         papers.add_argument("qasper", help="one of Qasper's JSON files")
         papers.add_argument("words", nargs="+", help="words that must all appear, ignoring case")
+
+        traced = commands.add_parser("questions", help="a document's hidden questions, score by score")
+        traced.add_argument("config", help="the project's YAML configuration")
+        traced.add_argument("--root", required=True, help="directory holding the project's log")
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")
