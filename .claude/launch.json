@@ -5,18 +5,38 @@
       "name": "monitor",
       "runtimeExecutable": "uv",
       "runtimeArgs": [
-        "run", "agentswarm", "monitor",
-        "--project", "examples/toml/project.yaml=/Users/andreasatle/agentswarm-runs/toml",
-        "--project", "examples/commonmark/switch-over-cascade.yaml=/Users/andreasatle/agentswarm-runs/switch-over-3",
-        "--project", "examples/jq/project.yaml=/Users/andreasatle/agentswarm-runs/jq",
-        "--project", "examples/yaml/project.yaml=/Users/andreasatle/agentswarm-runs/yaml",
-        "--project", "examples/html5/project.yaml=/Users/andreasatle/agentswarm-runs/html5",
-        "--project", "examples/toml-self/project.yaml=/Users/andreasatle/agentswarm-runs/toml-self",
-        "--project", "examples/yaml-self/project.yaml=/Users/andreasatle/agentswarm-runs/yaml-self",
-        "--project", "examples/jsonpath-self/project.yaml=/Users/andreasatle/agentswarm-runs/jsonpath-self",
-        "--port", "8765"
+        "run",
+        "agentswarm",
+        "monitor",
+        "--project",
+        "examples/toml/project.yaml=/Users/andreasatle/agentswarm-runs/toml",
+        "--project",
+        "examples/commonmark/switch-over-cascade.yaml=/Users/andreasatle/agentswarm-runs/switch-over-3",
+        "--project",
+        "examples/jq/project.yaml=/Users/andreasatle/agentswarm-runs/jq",
+        "--project",
+        "examples/yaml/project.yaml=/Users/andreasatle/agentswarm-runs/yaml",
+        "--project",
+        "examples/html5/project.yaml=/Users/andreasatle/agentswarm-runs/html5",
+        "--project",
+        "examples/toml-self/project.yaml=/Users/andreasatle/agentswarm-runs/toml-self",
+        "--project",
+        "examples/yaml-self/project.yaml=/Users/andreasatle/agentswarm-runs/yaml-self",
+        "--project",
+        "examples/jsonpath-self/project.yaml=/Users/andreasatle/agentswarm-runs/jsonpath-self",
+        "--port",
+        "8765"
       ],
       "port": 8765
+    },
+    {
+      "name": "homepage",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/andreasatle/Projects/AgenticFramework && exec bash scripts/web-app.sh"
+      ],
+      "port": 8000
     }
   ]
 }
