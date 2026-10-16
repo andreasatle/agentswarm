@@ -174,6 +174,11 @@ class TestRounds:
         assert not hardener.done(one + two + three[:1], 2)  # the third round isn't whole yet
 
 
+class TestFocuses:
+    def test_every_focus_tells_the_red_team_what_to_attack(self) -> None:
+        assert set(Hardener.FOCUS) == set(AttackFocus)
+
+
 class TestHardener:
     async def test_a_confirmed_report_becomes_a_fix_task_with_the_failing_test(self, tmp_path: Path) -> None:
         c = Campaign(tmp_path, [attack(FAILING, "returns 'Goodbye, <name>!'")], [ruling(True), ruling(True)])

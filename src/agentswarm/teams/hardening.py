@@ -207,6 +207,14 @@ in the project too. Find where the product breaks the specification, within the 
             "Inputs this section says are invalid or must be rejected: check that each is rejected the way "
             "the specification says, and that nothing invalid is accepted."
         ),
+        AttackFocus.COMBINATION: (
+            "Valid inputs that combine this section's constructs with each other and with constructs from "
+            "other parts of the specification (read them in the project as needed): nested, in every style "
+            "the specification allows, with every property or modifier that may attach. Write many such "
+            "inputs, from simple to intricate. Make sure from the specification's rules that each is valid; "
+            "each must then be accepted, and give the result the specification defines where it is clear. "
+            "Quote the rule that makes the failing input valid."
+        ),
         AttackFocus.MUTATION: (
             "The leads in the data: bugs planted in the product that no test noticed, so the behaviour at "
             "each place is untested. For each, find what this section requires there, and test it."

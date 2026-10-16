@@ -80,7 +80,7 @@ teams:
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
 score: {check: spec, held_out: [~/agentswarm-data/yaml/self/held_out]}  # all 681 tests, never shown
-budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-16 (UTC): $5 for the first hardening round (approved)
+budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-16 (UTC): $5 for the first hardening round (approved); next: the combination focus
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether the task is split: by spec section
 hardening:
@@ -93,4 +93,4 @@ hardening:
   # the chapters that define the syntax and the loading, the parser first (the budget may end the round early)
   sections: ["Chapter #. Block Style Productions", "Chapter #. Flow Style Productions", "Chapter #. Structural Productions", "Chapter #. Document Stream Productions", "Chapter #. Character Productions", "Chapter #. Recommended Schemas", "Chapter #. Processes and Models"]
   check: spec
-  focuses: [section, boundaries]  # on jq, section moved the hidden score and boundaries found the most of the rest
+  focuses: [combination]  # round 1 (section, boundaries) found narrow cases; the hidden failures are mixes of features

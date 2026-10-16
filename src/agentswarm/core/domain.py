@@ -195,6 +195,9 @@ class AttackFocus(StrEnum):
     BOUNDARIES = "boundaries"  # edge values the spec names: empty, limits, just inside and just outside
     REJECTION = "rejection"  # inputs the spec says are invalid and must be rejected
     MUTATION = "mutation"  # behaviours no check covers, found by planting bugs that no check notices
+    # valid inputs that mix the section's constructs with each other and with the rest of the spec (Fuzz4All):
+    # YAML's hidden failures were such mixes, while the red teams tested one rule at a time (2026-10-16)
+    COMBINATION = "combination"
 
 
 class AttackFinding(Frozen):
