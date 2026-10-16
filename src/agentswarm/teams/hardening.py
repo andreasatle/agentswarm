@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     AttackFocus,
     Event,
     Reconsidered,
+    Sized,
     TeamName,
 )
 from agentswarm.evaluation.mutation import ChangedLines, MutantGenerator
@@ -450,7 +451,10 @@ in the project too. Find where the product breaks the specification, within the 
             task, written = self.fix_task(problem, source)
             tasks.append(task)
             findings.append(AttackFinding(task=task, claim=problem.claim, quote=problem.quote))
-            events.append(written)
+            # One failing test fits one branch: the builders try it first, and it is split only if every model
+            # fails it (ADaPT). Sized up front, YAML's fixes were split into 8 steps for 1 failing test, each
+            # step with checks of its own: $3.30 of a $5 round, 1 fix merged (2026-10-16).
+            events += [written, Sized(artifact=task, fits=True)]
         return [*events, attacked(len(problems), len(tasks), tasks, dropped, findings)]
 
     def fix_task(self, problem: AttackProblem, source: str) -> tuple[ArtifactId, AcceptanceWritten]:

@@ -84,6 +84,16 @@ Then **YAML without labels** (97%), the self-supervised case.
 
 **Over the campaign:** held out 87% to 93% for $14.30, about $2.40 per held-out test, and 396 new protected tests from the red teams (550 to 946 visible).
 
+## First round on YAML without labels (2026-10-16, $5.04): hidden score unchanged at 97%
+
+**A false start first:** the Hardener waited for the builders forever: YAML's first task was split into steps, one of them escalated, and the open parent counted as work in progress. Fixed: a task split into steps does no work itself.
+
+**Result:** 17 attacks (section 9, boundaries 8) before the budget ended the round. 16 reported, 4 confirmed, 1 fixed and merged (a byte-order mark inside block scalars), 3 still open. Hidden 663/681, unchanged. Visible 170 to 327, but mostly the check writer's tests for split steps, not the red team's.
+
+**Where the money went:** the project sizes tasks before building (Jev's size question active), so each fix task, one failing test, was split into 2 to 3 steps before any builder tried it, and the check writer (Sonnet, 64k) wrote checks for each step: about $3.30 of the $5 went to 8 steps from 3 fixes. Fixed: a red team's fix task is sized as fitting one branch when it is made; it is split only if every builder model fails it (ADaPT, as the executors already do).
+
+**What the red teams found:** narrow cases (block scalar indentation at the root, a BOM in a block scalar, a 5000-digit `%YAML` version, a BOM-less stream starting with a non-ASCII character). The 18 hidden failures are different: valid documents the parser rejects (anchors and tags in flow and block collections, indentation, tabs in a literal), in chapters that were attacked. The spec here has no examples, and the red teams test the rules one at a time; the hidden tests combine features.
+
 ## What gets built
 
 | Part | Size | Exists? |

@@ -14,6 +14,7 @@ from agentswarm.core.domain import (
     Event,
     Reconsidered,
     Resolution,
+    Sized,
     TeamName,
     Unbuildable,
 )
@@ -185,6 +186,7 @@ class TestHardener:
         assert task.level == Harness.LADDER.lowest and "Goodbye, <name>!" in task.task
         branch = c.h.repository.checkout_artifact(task)
         assert branch.read(written.files[0].path) == FAILING  # its acceptance test, protected from now
+        assert any(isinstance(e, Sized) and e.fits and e.artifact == task.id for e in events)  # try it first
         assert await c.hardener.step() == 0  # the builders have work: no attack until it's done
 
     async def test_a_split_task_waits_on_its_steps_not_on_itself(self, tmp_path: Path) -> None:
