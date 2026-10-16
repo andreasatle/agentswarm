@@ -29,7 +29,7 @@ def review(*evidence: Evidence, title: str = "wrong accuracy") -> Step[BaseModel
 
 def ruling(confirmed: bool) -> Step[BaseModel]:
     def step(toolbox: Toolbox | None) -> BaseModel:
-        return FindingAnswer(reason="the source says 97.1%", confirmed=confirmed)
+        return FindingAnswer(reason="the source says 97.1%", shown=confirmed, matters=True, fits=True)
 
     return step
 
@@ -74,6 +74,17 @@ class Review:
         return next(e for e in self.events() if isinstance(e, Attacked))
 
 
+class TestFindingAnswer:
+    def test_confirmed_only_when_shown_matters_and_fits(self) -> None:
+        def answer(shown: bool, matters: bool, fits: bool) -> bool:
+            return FindingAnswer(reason="r", shown=shown, matters=matters, fits=fits).confirmed
+
+        assert answer(True, True, True)
+        assert (
+            not answer(False, True, True) and not answer(True, False, True) and not answer(True, True, False)
+        )
+
+
 class TestReviewCampaign:
     async def test_a_confirmed_finding_becomes_a_revision_the_writer_tries_whole(
         self, tmp_path: Path
@@ -94,6 +105,7 @@ class TestReviewCampaign:
         assert isinstance(ruled, FindingRequest)
         assert [e.file for e in ruled.evidence] == ["sections/01-tagging.md", "sources/p1.md"]
         assert "97.1% accuracy" in ruled.evidence[1].context
+        assert "<sections/01-tagging.md>" in ruled.document  # the whole guide: is it missing everywhere?
 
     async def test_evidence_that_isnt_there_or_doesnt_fit_the_perspective_is_dropped_unruled(
         self, tmp_path: Path

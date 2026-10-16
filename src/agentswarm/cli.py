@@ -384,7 +384,8 @@ class Cli:
     def import_guide(self, args: argparse.Namespace) -> int:
         """A newcomer's guide to some Qasper papers as a seed project; their questions held out."""
         qasper, out = Path(args.qasper).expanduser(), Path(args.out).expanduser()
-        self._show(GuideImport(qasper, args.papers, args.topic, out, args.words).write().render())
+        guide = GuideImport(qasper, args.papers, args.topic, out, args.words, args.purpose)
+        self._show(guide.write().render())
         return 0
 
     def qasper_papers(self, args: argparse.Namespace) -> int:
@@ -668,6 +669,9 @@ class Cli:
         guide.add_argument("--topic", required=True, help="what the papers are about, for the brief")
         guide.add_argument("--papers", required=True, nargs="+", help="the papers' ids, in reading order")
         guide.add_argument("--words", type=int, default=3000, help="the guide's length cap")
+        guide.add_argument(
+            "--purpose", default="reference", choices=list(GuideImport.PURPOSES), help="what the guide is for"
+        )
         papers = commands.add_parser(
             "qasper-papers", help="Qasper papers whose title or abstract has the words"
         )

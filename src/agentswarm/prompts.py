@@ -242,6 +242,7 @@ class SampleData:
     def review_finding(cls) -> FindingRequest:
         return FindingRequest(
             perspective=ReviewCampaign.PERSPECTIVE[Perspective.FACTS],
+            document="<sections/01-tagging.md>\n## Tagging\n\nThe tagger reaches 99% accuracy [@1909.00001].",
             brief="# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
             title="Wrong accuracy",
             problem="The section says 99%; the paper reports 97.1%.",

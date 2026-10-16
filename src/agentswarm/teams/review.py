@@ -226,6 +226,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 FindingRequest(
                     perspective=self.PERSPECTIVE[focus],
                     brief=request.brief,
+                    document=self.document(worktree),
                     title=finding.title,
                     problem=finding.problem,
                     evidence=tuple(e for e in evidence if e is not None),
@@ -250,6 +251,10 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 Sized(artifact=task, fits=True)
             )  # one section's revision: the writer tries it whole
         return [*events, attacked(len(found), tasks, dropped, findings, rejections)]
+
+    def document(self, worktree: Worktree) -> str:
+        """Every section, in reading order, each under its file name."""
+        return "\n\n".join(f"<{p.title}>\n{p.text}" for p in self.parts(worktree))
 
     def brief(self, worktree: Worktree) -> str:
         try:

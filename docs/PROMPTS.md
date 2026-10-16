@@ -1863,11 +1863,11 @@ You are the referee for the reviewers of a document. A reviewer looks at one sec
 and says something is wrong, with quotes from the document or its sources as evidence (each checked to be
 there word for word; the text around each is shown). Rule on that finding alone, in a single answer.
 
-- Read the perspective, the brief, the finding and the evidence. Decide whether the evidence really shows the
-  problem the reviewer names, as the perspective defines a problem.
-- Confirm only if it clearly does, and fixing it serves the brief: a confirmed finding becomes work for the
-  writer. A matter of taste, a problem the evidence doesn't show, or a fix that would break the brief (its
-  length cap, its reader, its sources) is not confirmed.
+- Read the perspective, the brief, the finding, the evidence and the whole document.
+- Answer three questions, each on its own: is the problem shown (by the evidence, and true of the document as
+  a whole)? Does it matter for what the brief asks? Can it be fixed within the brief's rules, its length cap
+  included, without losing something that matters more? A finding becomes work for the writer only if all
+  three hold, so answer each strictly: most findings fail at least one.
 - Don't rewrite the document: rule on the finding.
 ```
 
@@ -1878,6 +1878,7 @@ there word for word; the text around each is shown). Rule on that finding alone,
 {
   "perspective": "Facts. Find statements in this section that the source they cite doesn't support: wrong numbers, names or results, claims the paper doesn't make, or a factual statement citing no source. Quote the statement from the section and, when it cites one, the source passage it misstates (or the passage that says otherwise).",
   "brief": "# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
+  "document": "<sections/01-tagging.md>\n## Tagging\n\nThe tagger reaches 99% accuracy [@1909.00001].",
   "title": "Wrong accuracy",
   "problem": "The section says 99%; the paper reports 97.1%.",
   "evidence": [
@@ -1904,6 +1905,7 @@ class FindingRequest(Frozen):
 
     perspective: str  # what the reviewer looks for, and what counts as a problem
     brief: str  # what the document is for
+    document: str  # the whole document as it is: content "missing" here may be in another section
     title: str
     problem: str  # what the reviewer says is wrong
     evidence: tuple[QuotedPassage, ...]
@@ -1921,12 +1923,27 @@ class QuotedPassage(Frozen):
 
 ```python
 class FindingAnswer(Frozen):
-    """Your ruling on one finding: first your reasoning, then the verdict it leads to."""
+    """Your ruling on one finding, question by question: first your reasoning, then each verdict."""
 
-    reason: str = Field(description="what the evidence shows, read with the brief and the perspective")
-    confirmed: bool = Field(
-        description="true only if the evidence clearly shows the problem, and fixing it serves the brief"
+    reason: str = Field(description="what the evidence and the document show, read with the brief")
+    shown: bool = Field(
+        description="the evidence shows the problem, and the document as a whole has it (content called "
+        "missing is missing everywhere, a claim called wrong is wrong)"
     )
+    matters: bool = Field(
+        description="the brief's reader would be worse off without the fix: it concerns what the brief asks "
+        "for, not taste or a nice-to-have"
+    )
+    fits: bool = Field(
+        description="it can be fixed within the brief's rules (its length cap included) without losing "
+        "something that matters more"
+    )
+
+    @property
+    def confirmed(self) -> bool:
+        """All three: decided by plain code, not by a single verdict that a model gives too easily
+        (2026-10-16: a single verdict confirmed 84 of 88 findings about a guide)."""
+        return self.shown and self.matters and self.fits
 ```
 
 <details><summary>JSON schema</summary>
@@ -1934,22 +1951,34 @@ class FindingAnswer(Frozen):
 ```json
 {
   "additionalProperties": false,
-  "description": "Your ruling on one finding: first your reasoning, then the verdict it leads to.",
+  "description": "Your ruling on one finding, question by question: first your reasoning, then each verdict.",
   "properties": {
     "reason": {
-      "description": "what the evidence shows, read with the brief and the perspective",
+      "description": "what the evidence and the document show, read with the brief",
       "title": "Reason",
       "type": "string"
     },
-    "confirmed": {
-      "description": "true only if the evidence clearly shows the problem, and fixing it serves the brief",
-      "title": "Confirmed",
+    "shown": {
+      "description": "the evidence shows the problem, and the document as a whole has it (content called missing is missing everywhere, a claim called wrong is wrong)",
+      "title": "Shown",
+      "type": "boolean"
+    },
+    "matters": {
+      "description": "the brief's reader would be worse off without the fix: it concerns what the brief asks for, not taste or a nice-to-have",
+      "title": "Matters",
+      "type": "boolean"
+    },
+    "fits": {
+      "description": "it can be fixed within the brief's rules (its length cap included) without losing something that matters more",
+      "title": "Fits",
       "type": "boolean"
     }
   },
   "required": [
     "reason",
-    "confirmed"
+    "shown",
+    "matters",
+    "fits"
   ],
   "title": "FindingAnswer",
   "type": "object"

@@ -122,12 +122,28 @@ class GuideImport:
     """A seed for a guide to the chosen papers, and their questions held out."""
 
     QUESTIONS: ClassVar[str] = "questions.json"
+    # What the guide is for. The hidden questions are practitioners' (data, baselines, metrics, numbers),
+    # so the exam matches the reference brief; a newcomer's guide spends its words on explanations they don't
+    # ask about (2026-10-16: two review arms doubled such a guide, and no question was gained).
+    PURPOSES: ClassVar[dict[str, str]] = {
+        "reference": (
+            "Write a reference guide to {topic} for a practitioner: someone who knows the field and wants "
+            "to look up what each of these papers did without reading it. For each paper, give its aim; its "
+            "method; its data (sources, size, how it was collected or annotated); the baselines it compares "
+            "with; its evaluation metrics; and its results, with the numbers. Then say how the papers "
+            "relate. Prefer the specific facts (names, numbers, settings) to general explanation."
+        ),
+        "newcomer": (
+            "Write a guide for a newcomer to {topic}: someone who knows programming and a little "
+            "machine learning, but hasn't read these papers. After reading it, they should understand what "
+            "each paper set out to do, how it went about it (the method, the data, how it was evaluated), "
+            "what it found, and how the papers relate."
+        ),
+    }
     BRIEF = """\
 # The brief
 
-Write a guide for a newcomer to {topic}: someone who knows programming and a little machine learning, \
-but hasn't read these papers. After reading it, they should understand what each paper set out to do, \
-how it went about it (the method, the data, how it was evaluated), what it found, and how the papers relate.
+{purpose}
 
 ## Sources
 
@@ -208,7 +224,18 @@ if __name__ == "__main__":
     sys.exit(1 if found else 0)
 '''
 
-    def __init__(self, qasper: Path, papers: Sequence[str], topic: str, out: Path, words: int = 3000) -> None:
+    def __init__(
+        self,
+        qasper: Path,
+        papers: Sequence[str],
+        topic: str,
+        out: Path,
+        words: int = 3000,
+        purpose: str = "reference",
+    ) -> None:
+        if purpose not in self.PURPOSES:
+            raise ValueError(f"purpose {purpose!r}: one of {', '.join(self.PURPOSES)}")
+        self._purpose = purpose
         self._qasper = qasper  # one of Qasper's JSON files
         self._ids = tuple(papers)
         self._topic = topic
@@ -231,7 +258,8 @@ if __name__ == "__main__":
             (seed / "sources" / f"{paper.id}.md").write_text(paper.markdown())
         (seed / "sections" / ".gitkeep").write_text("")
         listed = "\n".join(f"- `{p.id}`: {p.title}" for p in papers)
-        brief = self.BRIEF.format(topic=self._topic, papers=listed, words=self._words, example=papers[0].id)
+        purpose = self.PURPOSES[self._purpose].format(topic=self._topic)
+        brief = self.BRIEF.format(purpose=purpose, papers=listed, words=self._words, example=papers[0].id)
         (seed / "docs" / "brief.md").write_text(brief)
         (seed / "tools" / "check_doc.py").write_text(self.CHECK.format(words=self._words))
         questions = [q for p in papers for q in p.questions]
