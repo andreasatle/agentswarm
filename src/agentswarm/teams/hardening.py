@@ -91,8 +91,11 @@ class SpecSections:
         found: list[SpecSection] = []
         title: str | None = None
         lines: list[str] = []
+        fenced = False  # inside a code block a line may start like a heading: a YAML or shell comment
         for line in text.splitlines():
-            if line.startswith(heading):
+            if line.lstrip().startswith(("```", "~~~")):
+                fenced = not fenced
+            if line.startswith(heading) and not fenced:
                 if title is not None:
                     found.append(SpecSection(title=title, text="\n".join(lines).strip()))
                 title, lines = line[len(heading) :].strip(), [line]

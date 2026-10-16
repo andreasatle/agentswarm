@@ -1,0 +1,96 @@
+# Hardening YAML without labels (docs/design/hardening.md): the same project as examples/yaml-self/project.yaml,
+# whose product was built from the spec alone and scores 97% of the 681 hidden tests. Red teams attack it by spec
+# chapter (sections and boundaries), the referee confirms each report against the spec, and each confirmed failure
+# becomes a fix task with that test. Success: the hidden score rises from 97%. Run on the existing root:
+#   uv run agentswarm run examples/yaml-self/harden.yaml --root ~/agentswarm-runs/yaml-self --max-rounds 400
+project: yaml-self
+domain: software
+north_star: >-
+  A YAML 1.2 parser in pure Python: the package yamlpy, whose events(text) gives the parser's events in the
+  notation of docs/event-notation.md, whose load_all(text) gives every document as plain values (YAML 1.2's core
+  schema), and which raises YAMLError for every input the YAML 1.2.2 specification in docs/yaml-1.2.2.md rejects.
+  No tests with known answers are given: done when the specification is implemented.
+seed: ~/agentswarm-data/yaml/self/seed
+levels: [raw, experimental]
+sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
+models:
+  # Three families, so no one checks its own kind's work: Anthropic plans and writes the checks, OpenAI (and the
+  # local Gemma) builds, DeepSeek referees.
+  planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
+  checker: {model: "anthropic:claude-sonnet-5-5", max_tokens: 64000, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}  # thinking counts as output: 32k cut files off
+  gemma26: {model: "ollama:gemma4:26b", temperature: 0, max_tokens: 16384, timeout_s: 900, context_window: 65536}
+  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  referee: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
+checks:
+  spec: {command: [python, -m, pytest, -q, -p, "no:cacheprovider"], kind: test_failure, timeout_s: 300, failure_exit_codes: [1], ratchet: experimental, protected: [tests/acceptance/]}
+  # A YAML library would solve the task without doing it (the sandbox has none).
+  own-parser:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, re, sys
+        banned = re.compile(r"^\s*(import|from)\s+(yaml|ruamel|strictyaml|oyaml|yamlcore|subprocess)\b", re.M)
+        # Here the tests too: a YAML library in a check would give known answers, a label
+        found = [str(p) for d in ("yamlpy", "tests") for p in pathlib.Path(d).rglob("*.py") if banned.search(p.read_text())]
+        for path in found:
+            print(f"{path}: imports a YAML library or subprocess; in the parser it would do the work, in a test it would give the answers")
+        sys.exit(1 if found else 0)
+  layout:
+    kind: inconsistent
+    failure_exit_codes: [1]
+    timeout_s: 30
+    command:
+      - python
+      - -c
+      - |
+        import pathlib, sys
+        allowed = sys.argv[1:]
+        stray = sorted(p.name for p in pathlib.Path(".").iterdir() if not p.name.startswith(".") and p.name not in allowed)
+        for name in stray:
+            print(f"{name}: outside the project layout (only {', '.join(allowed)} belong at the root); delete it")
+        sys.exit(1 if stray else 0)
+      - yamlpy
+      - tests
+      - docs
+teams:
+  - {use: decomposer, watches: raw, model: planner, split_below: 0.7, max_depth: 1, build_at_max_depth: true}  # one level: a step per spec section (2 gave 26 steps, each with its checks)
+  - {use: acceptance_tester, watches: raw, model: checker, derived: true, checks: [spec]}
+  - use: executor
+    watches: raw
+    model_tiers: [gemma26, gpt-sol]  # ranked by the router; no Anthropic model, which writes the checks
+    routing: {ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}
+    checks: [spec, own-parser, layout]
+    max_model_calls: 60
+    attempts: 2
+    climb: true
+    split_on_failure: true
+    repairs: 2
+    partial: true
+    referee: referee
+    spec: [docs/yaml-1.2.2.md, docs/event-notation.md]
+    constraints:
+      - Use only the Python standard library; no YAML library, and no subprocess.
+      - Keep the code in the yamlpy package, split into modules as it grows (for example a reader, a scanner, a parser that gives the events, and a composer that builds the values).
+      - The YAML 1.2.2 spec is in docs/yaml-1.2.2.md (its examples left out; search and read the parts you need), the event notation in docs/event-notation.md; implement each rule the way the spec states it. Hidden tests check the rest.
+      - The tests in tests/acceptance/ were written by another model from the spec and can be wrong. If one contradicts the spec, don't work around it; name it in `disputes` with the spec's exact words. A referee rules, and a test ruled wrong is skipped.
+gates:
+  - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
+score: {check: spec, held_out: [~/agentswarm-data/yaml/self/held_out]}  # all 681 tests, never shown
+budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-16 (UTC): $5 for the first hardening round (approved)
+supervisor: {stall_after_minutes: 60}
+jev: {mode: shadow, active: ["size:*", "route:*"]}  # Jev decides whether the task is split: by spec section
+hardening:
+  # The red team: Sol, as on jq (the most reliable tool user in the ledger); the referee, DeepSeek, of a third
+  # family, judges every report against the spec. No labels here: the referee is the only check on a report.
+  model: gpt-sol
+  referee: referee
+  spec: docs/yaml-1.2.2.md
+  heading: "# "
+  # the chapters that define the syntax and the loading, the parser first (the budget may end the round early)
+  sections: ["Chapter #. Block Style Productions", "Chapter #. Flow Style Productions", "Chapter #. Structural Productions", "Chapter #. Document Stream Productions", "Chapter #. Character Productions", "Chapter #. Recommended Schemas", "Chapter #. Processes and Models"]
+  check: spec
+  focuses: [section, boundaries]  # on jq, section moved the hidden score and boundaries found the most of the rest

@@ -132,6 +132,10 @@ class TestSpecSections:
             ("B", "## B\nthree"),
         ]
 
+    def test_a_heading_inside_a_code_block_is_code(self) -> None:
+        sections = SpecSections.split("# A\n```\n# When n>=0\nx\n```\n# B\n", "# ")
+        assert [s.title for s in sections] == ["A", "B"]
+
     def test_a_long_section_is_cut_at_its_deeper_headings(self) -> None:
         text = (
             "## Builtins\nintro\n### a\n" + "x" * 50 + "\n### b\n" + "y" * 50 + "\n### c\n" + "z" * 50 + "\n"
