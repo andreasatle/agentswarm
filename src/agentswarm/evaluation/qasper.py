@@ -125,8 +125,8 @@ class GuideImport:
     BRIEF = """\
 # The brief
 
-Write a guide for a newcomer to {topic}: someone who knows programming and a little machine learning, but
-hasn't read these papers. After reading it, they should understand what each paper set out to do, how it went
+Write a guide for a newcomer to {topic}: someone who knows programming and a little machine learning, but \
+hasn't read these papers. After reading it, they should understand what each paper set out to do, how it went \
 about it (the method, the data, how it was evaluated), and what it found, and how the papers relate.
 
 ## Sources
@@ -137,11 +137,11 @@ The papers are in `sources/`, one file each. Use them, and nothing else, for eve
 
 ## Rules
 
-- The guide lives in `sections/`, one Markdown file per section, numbered in reading order
-  (`sections/01-introduction.md`, ...), each starting with a `## ` heading.
+- The guide lives in `sections/`, one Markdown file per section, numbered in reading order \
+(`sections/01-introduction.md`, ...), each starting with a `## ` heading.
 - At most {words} words in all.
-- Every factual statement cites the paper it comes from, like `[@{example}]`; a citation names a file in
-  `sources/` without its extension.
+- Every factual statement cites the paper it comes from, like `[@{example}]`; a citation names a file in \
+`sources/` without its extension.
 - One sentence per line.
 """
 
