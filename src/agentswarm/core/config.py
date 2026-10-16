@@ -403,6 +403,15 @@ class ScoreConfig(Strict):
     held_out: tuple[Path, ...] = ()  # folders of tests no agent sees, copied in only to score
 
 
+class QuestionsConfig(Strict):
+    """A document's definition of done as numbers: questions no agent sees, answered by a reader model from
+    the document alone and graded against known answers (evaluation/questions.py)."""
+
+    path: Path  # the questions file, e.g. ~/agentswarm-data/guide/out/held_out/questions.json
+    reader: str  # a name in `models`: answers from the document alone
+    grader: str  # a name in `models`: compares each answer with the references
+
+
 class ProjectConfig(Strict):
     project: str
     domain: Domain
@@ -420,6 +429,7 @@ class ProjectConfig(Strict):
     worklist: WorklistConfig | None = None  # failing tests of a ratchet check become work items
     score: ScoreConfig | None = None  # measured at the start and end of every run
     hardening: HardeningConfig | None = None  # red teams attack the product until nothing new is found
+    questions: QuestionsConfig | None = None  # a document's hidden questions, measured like `score`
 
     @model_validator(mode="before")
     @classmethod
@@ -474,6 +484,14 @@ class ProjectConfig(Strict):
                 raise ValueError(f"team {team.use!r}: split_on_failure needs climb and a decomposer team")
         if self.score is not None and self.score.check not in self.checks:
             raise ValueError(f"score uses undefined check {self.score.check!r}")
+        if self.questions is not None:
+            if self.score is not None:
+                raise ValueError(
+                    "a project is scored by tests (`score`) or by questions (`questions`), not both"
+                )
+            for model in (self.questions.reader, self.questions.grader):
+                if model not in self.models:
+                    raise ValueError(f"questions use undefined model {model!r}")
         if self.hardening is not None:
             for model in (self.hardening.model, self.hardening.referee):
                 if model not in self.models:

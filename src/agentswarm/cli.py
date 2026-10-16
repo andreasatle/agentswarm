@@ -206,11 +206,10 @@ class Cli:
         try:
             for task in args.task:
                 project.create_artifact(task)
-            progress = self.progress(config, Path(args.root).expanduser())
-            before = self.scored(progress, project)
+            before = self.scored(project)
             asyncio.run(project.run_until_idle(args.max_rounds))
             self._show(Report.render(project.views()))
-            after = self.scored(progress, project)
+            after = self.scored(project)
             if before is not None and after is not None:
                 self._show(Progress.render(before, after))
             hardening = HardeningSummary.render(project.board.current())
@@ -222,17 +221,12 @@ class Cli:
         return 0
 
     @staticmethod
-    def progress(config: ProjectConfig, root: Path) -> Progress | None:
-        if config.score is None:
+    def scored(project: Project) -> Scored | None:
+        """Scores the first shared level and records it on the board (None without a definition of done as
+        numbers: no `score` or `questions` section)."""
+        if project.progress is None:
             return None
-        return Progress(config, config.score, root / "repo", Sandboxes.build(config.sandbox))
-
-    @staticmethod
-    def scored(progress: Progress | None, project: Project) -> Scored | None:
-        """Scores the first shared level and records it on the board (None without a `score` section)."""
-        if progress is None:
-            return None
-        scored = progress.measure(project.views())
+        scored = asyncio.run(project.progress.measure(project.views()))
         project.board.append([scored])
         return scored
 
@@ -382,13 +376,14 @@ class Cli:
     def score(self, args: argparse.Namespace) -> int:
         """The share of a test suite that passes on the project's first shared level."""
         config = ProjectConfig.load(Path(args.config))
-        progress = self.progress(config, Path(args.root).expanduser())
-        if progress is not None and args.check is None and not args.extra:  # the config's definition of done
-            root = Path(args.root).expanduser()
-            with SqliteEventLog(root / "blackboard.sqlite", ProjectId(config.project), SystemClock()) as log:
-                board = Blackboard(log)
-                scored = progress.measure(board.current())
-                board.append([scored])
+        defined = config.score is not None or config.questions is not None
+        if defined and args.check is None and not args.extra:  # the config's definition of done
+            project = Project.open(config, Path(args.root).expanduser(), ProjectServices(teams=self._catalog))
+            try:
+                scored = self.scored(project)
+            finally:
+                project.close()
+            assert scored is not None
             self._show(Report.line(scored))
             return 0
         name = args.check or (config.worklist.check if config.worklist is not None else None)

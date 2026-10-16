@@ -38,7 +38,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.evaluation.mutation import ChangedLines, MutantGenerator
-from agentswarm.evaluation.score import Progress
+from agentswarm.evaluation.score import Measure
 from agentswarm.gating.checks import CheckStatus, CommandCheck, RatchetCheck
 from agentswarm.gating.ratchet import Progress as TestProgress
 from agentswarm.llm.workers import Worker, WorkerError
@@ -244,7 +244,7 @@ in the project too. Find where the product breaks the specification, within the 
         referee: Referee,
         check: CommandCheck,
         budget: Budget | None = None,
-        progress: Progress | None = None,
+        progress: Measure | None = None,
         review: RatchetCheck | None = None,
     ) -> None:
         self._config = config
@@ -293,7 +293,7 @@ in the project too. Find where the product breaks the specification, within the 
         self._board.append(events)
         attacked = [e for e in [*views.attacks(), *events] if isinstance(e, Attacked) and e.round == round]
         if len(attacked) == len(pairs) and self._progress is not None:  # a round is complete: measure it
-            self._board.append([self._progress.measure(self._board.current())])
+            self._board.append([await self._progress.measure(self._board.current())])
         return 1
 
     def unreviewed(self, views: BoardViews) -> list[AttackFinding]:

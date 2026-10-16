@@ -192,7 +192,7 @@ class MonitorState:
         progress = tuple(
             Point(
                 at=e.at,
-                seen=e.event.seen.share,
+                seen=e.event.seen.share if e.event.seen is not None else None,
                 held_out=e.event.held_out.share if e.event.held_out is not None else None,
                 spent_usd=e.event.spent_usd,
             )

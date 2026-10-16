@@ -72,8 +72,9 @@ class Report:
             case Unbuildable():
                 return f"every model of {event.team} failed, back to the planner: {event.reason}"
             case Scored():
+                seen = f", seen {Progress.tally(event.seen)}" if event.seen is not None else ""
                 held = f", held out {Progress.tally(event.held_out)}" if event.held_out is not None else ""
-                return f"scored {event.level} at {event.commit[:10]}: seen {Progress.tally(event.seen)}{held}"
+                return f"scored {event.level} at {event.commit[:10]}{seen}{held}"
             case Paused():
                 return f"PAUSED: {event.reason}"
             case Resumed():

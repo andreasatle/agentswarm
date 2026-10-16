@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -94,7 +95,7 @@ class TestProgress:
         assert config.score is not None
         progress = Progress(config, config.score, repository.path, LocalSandbox())
         (tmp_path / "h").mkdir()
-        scored = progress.measure(Harness(tmp_path / "h").board.current())
+        scored = asyncio.run(progress.measure(Harness(tmp_path / "h").board.current()))
         assert (scored.seen, scored.held_out) == (Tally(passed=1, total=4), Tally(passed=0, total=1))
         assert scored.spent_usd == 0.0
 

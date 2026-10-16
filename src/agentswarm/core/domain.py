@@ -456,7 +456,7 @@ class Scored(Frozen):
     kind: Literal["scored"] = "scored"
     level: Level
     commit: str
-    seen: Tally  # the tests the agents see
+    seen: Tally | None  # the tests the agents see; None when they see none (a guide: only hidden questions)
     held_out: Tally | None  # tests no agent has seen; None when the project has none
     spent_usd: float = Field(ge=0)  # all spend on the board when measured: the cost between two scores
 

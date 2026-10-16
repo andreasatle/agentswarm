@@ -5,12 +5,14 @@ The level's tip is copied without git metadata (`git archive`), extra test folde
 examples) are copied in beside its own tests, and the suite runs in the project's sandbox, like the ratchet.
 """
 
+import asyncio
 import io
 import shutil
 import tarfile
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -81,6 +83,12 @@ class Scoreboard:
         return Score(commit=commit, files=files)
 
 
+class Measure(Protocol):
+    async def measure(self, views: BoardViews) -> Scored:
+        """The first shared level against the definition of done, as numbers (not yet on the board)."""
+        ...
+
+
 class Progress:
     """The definition of done as numbers, measured on the first shared level and recorded on the board.
 
@@ -94,9 +102,9 @@ class Progress:
         self._level = config.levels.base
         self._board = Scoreboard(repository, sandbox, check.command, check.timeout_s)
 
-    def measure(self, views: BoardViews) -> Scored:
+    async def measure(self, views: BoardViews) -> Scored:
         held_out = [p.expanduser().resolve() for p in self._score.held_out]
-        score = self._board.score(self._level, held_out)
+        score = await asyncio.to_thread(self._board.score, self._level, held_out)
         hidden = [score.total(f"{Scoreboard.EXTRA}/{p.name}/") for p in held_out]
         return Scored(
             level=self._level,
@@ -117,14 +125,26 @@ class Progress:
     def render(cls, before: Scored, after: Scored) -> str:
         """What a run bought: the change in each tally, and its cost per example gained."""
         cost = after.spent_usd - before.spent_usd
-        gained = after.seen.passed - before.seen.passed
         lines = [f"progress on {after.level} (cost ${cost:.2f}):"]
-        lines.append(f"  seen tests: {cls.tally(before.seen)} -> {cls.tally(after.seen)} ({gained:+d})")
+        if before.seen is not None and after.seen is not None:
+            gained = after.seen.passed - before.seen.passed
+            lines.append(f"  seen tests: {cls.tally(before.seen)} -> {cls.tally(after.seen)} ({gained:+d})")
         if before.held_out is not None and after.held_out is not None:
             held = after.held_out.passed - before.held_out.passed
             lines.append(
                 f"  held out:   {cls.tally(before.held_out)} -> {cls.tally(after.held_out)} ({held:+d})"
             )
-        per = f"${cost / gained:.2f} per seen example gained" if gained > 0 else "no seen example gained"
+        units = [
+            (a.passed - b.passed, label)
+            for b, a, label in (
+                (before.seen, after.seen, "seen"),
+                (before.held_out, after.held_out, "held-out"),
+            )
+            if b is not None and a is not None
+        ]
+        gained, label = units[0] if units else (0, "seen")
+        per = (
+            f"${cost / gained:.2f} per {label} example gained" if gained > 0 else f"no {label} example gained"
+        )
         lines.append(f"  {per}")
         return "\n".join(lines)

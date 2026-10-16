@@ -39,6 +39,14 @@ from agentswarm.evaluation.probe import (
     ProjectFiles,
     SourceFile,
 )
+from agentswarm.evaluation.questions import (
+    GradeAnswer,
+    GradeRequest,
+    MemoryRequest,
+    QuestionScore,
+    ReaderAnswer,
+    ReadingRequest,
+)
 from agentswarm.jev.spec import QuestionSet
 from agentswarm.judging.deciders import LLMAnswers, LLMDecider, LLMQuestions
 from agentswarm.judging.judges import ChangeReadiness, Judge, JudgeCatalog, JudgeState
@@ -193,6 +201,25 @@ class SampleData:
             section="Greeting",
             passage="## Greeting\n\ngreet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
             focus=Hardener.FOCUS[AttackFocus.BOUNDARIES],
+        )
+
+    @classmethod
+    def reading(cls) -> ReadingRequest:
+        return ReadingRequest(
+            document="## Tagging\n\nThe tagger is trained on the Penn Treebank [@1909.00001].",
+            question="Which dataset do they train on?",
+        )
+
+    @classmethod
+    def memory(cls) -> MemoryRequest:
+        return MemoryRequest(paper="Tagging with Little Data", question="Which dataset do they train on?")
+
+    @classmethod
+    def grade(cls) -> GradeRequest:
+        return GradeRequest(
+            question="Which dataset do they train on?",
+            answer="The Penn Treebank.",
+            references=("PTB", "Penn Treebank Wall Street Journal section"),
         )
 
     @classmethod
@@ -373,6 +400,30 @@ class PromptCatalogue:
                 Referee,
                 SampleData.report(),
                 ReportAnswer,
+                None,
+            ),
+            CallFamily(
+                "Reader (scoring a document): answers a hidden question from the document alone",
+                (Caller("", QuestionScore, QuestionScore.READ),),
+                QuestionScore,
+                SampleData.reading(),
+                ReaderAnswer,
+                None,
+            ),
+            CallFamily(
+                "Reader (scoring a document): answers a hidden question from memory, to drop what it knows",
+                (Caller("", QuestionScore, QuestionScore.REMEMBER),),
+                QuestionScore,
+                SampleData.memory(),
+                ReaderAnswer,
+                None,
+            ),
+            CallFamily(
+                "Grader (scoring a document): compares the reader's answer with the references",
+                (Caller("", QuestionScore, QuestionScore.GRADE),),
+                QuestionScore,
+                SampleData.grade(),
+                GradeAnswer,
                 None,
             ),
             CallFamily(

@@ -41,6 +41,9 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Acceptance tester: tests written before the work (also its benchmark probe)](#acceptance-tester-tests-written-before-the-work-also-its-benchmark-probe) | `acceptance_tester` | `AcceptAnswer` |
 | [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
+| [Reader (scoring a document): answers a hidden question from the document alone](#reader-scoring-a-document-answers-a-hidden-question-from-the-document-alone) | (`QuestionScore`) | `ReaderAnswer` |
+| [Reader (scoring a document): answers a hidden question from memory, to drop what it knows](#reader-scoring-a-document-answers-a-hidden-question-from-memory-to-drop-what-it-knows) | (`QuestionScore`) | `ReaderAnswer` |
+| [Grader (scoring a document): compares the reader's answer with the references](#grader-scoring-a-document-compares-the-readers-answer-with-the-references) | (`QuestionScore`) | `GradeAnswer` |
 | [Referee: looks again at a confirmed report whose fix broke existing protected tests](#referee-looks-again-at-a-confirmed-report-whose-fix-broke-existing-protected-tests) | (`Referee`) | `ReconsiderAnswer` |
 | [Referee: rules on an acceptance test the builder disputes (projects without labels)](#referee-rules-on-an-acceptance-test-the-builder-disputes-projects-without-labels) | (`Referee`) | `RulingAnswer` |
 | [Probe: critique in one answer (benchmark)](#probe-critique-in-one-answer-benchmark) | (`Critiquing`) | `CritiqueAnswer` |
@@ -1665,6 +1668,238 @@ class ReportAnswer(Frozen):
 ### What happens to the answer
 
 `Referee`: 
+
+## Reader (scoring a document): answers a hidden question from the document alone
+
+### QuestionScore
+
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+
+```text
+You answer a question about some research papers using only the document in the data. Don't use anything
+you know from elsewhere: if the document doesn't answer the question, say it isn't found.
+
+- Answer in a sentence or two, as specifically as the document allows (names, numbers, yes or no).
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "document": "## Tagging\n\nThe tagger is trained on the Penn Treebank [@1909.00001].",
+  "question": "Which dataset do they train on?"
+}
+</data>
+```
+
+### Payload types
+
+```python
+class ReadingRequest(Frozen):
+    """The payload a reader receives: a document and one question about what it covers."""
+
+    document: str
+    question: str
+```
+
+### Answer
+
+```python
+class ReaderAnswer(Frozen):
+    found: bool = Field(description="true if you could answer; false if the answer isn't there")
+    answer: str = Field(description="the answer in a sentence or two; empty when not found")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "found": {
+      "description": "true if you could answer; false if the answer isn't there",
+      "title": "Found",
+      "type": "boolean"
+    },
+    "answer": {
+      "description": "the answer in a sentence or two; empty when not found",
+      "title": "Answer",
+      "type": "string"
+    }
+  },
+  "required": [
+    "found",
+    "answer"
+  ],
+  "title": "ReaderAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+
+## Reader (scoring a document): answers a hidden question from memory, to drop what it knows
+
+### QuestionScore
+
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+
+```text
+You answer a question about a research paper from what you know, without the paper. If you don't know the
+answer, say it isn't found rather than guess.
+
+- Answer in a sentence or two, as specifically as you can (names, numbers, yes or no).
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "paper": "Tagging with Little Data",
+  "question": "Which dataset do they train on?"
+}
+</data>
+```
+
+### Payload types
+
+```python
+class MemoryRequest(Frozen):
+    """The payload a reader receives to answer from what it already knows: no document."""
+
+    paper: str  # the title of the paper the question is about
+    question: str
+```
+
+### Answer
+
+```python
+class ReaderAnswer(Frozen):
+    found: bool = Field(description="true if you could answer; false if the answer isn't there")
+    answer: str = Field(description="the answer in a sentence or two; empty when not found")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "found": {
+      "description": "true if you could answer; false if the answer isn't there",
+      "title": "Found",
+      "type": "boolean"
+    },
+    "answer": {
+      "description": "the answer in a sentence or two; empty when not found",
+      "title": "Answer",
+      "type": "string"
+    }
+  },
+  "required": [
+    "found",
+    "answer"
+  ],
+  "title": "ReaderAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+
+## Grader (scoring a document): compares the reader's answer with the references
+
+### QuestionScore
+
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+
+```text
+You grade an answer to a question about a research paper against reference answers written by people who
+read the paper. Any one reference may be the right one; they can differ in detail.
+
+- The answer is correct if it agrees in substance with at least one reference: the same facts, names or
+  numbers, or the same yes or no. Wording doesn't matter; a vaguer answer that misses what the reference
+  states is not correct, and neither is one that adds a claim contradicting it.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "question": "Which dataset do they train on?",
+  "answer": "The Penn Treebank.",
+  "references": [
+    "PTB",
+    "Penn Treebank Wall Street Journal section"
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class GradeRequest(Frozen):
+    """The payload a grader receives."""
+
+    question: str
+    answer: str  # the reader's
+    references: tuple[str, ...]  # the annotators' answers, each acceptable
+```
+
+### Answer
+
+```python
+class GradeAnswer(Frozen):
+    """Your grade of one answer: first your reasoning, then the verdict it leads to."""
+
+    reason: str = Field(description="what the references say, and whether the answer says the same")
+    correct: bool = Field(description="true if the answer agrees with at least one reference in substance")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your grade of one answer: first your reasoning, then the verdict it leads to.",
+  "properties": {
+    "reason": {
+      "description": "what the references say, and whether the answer says the same",
+      "title": "Reason",
+      "type": "string"
+    },
+    "correct": {
+      "description": "true if the answer agrees with at least one reference in substance",
+      "title": "Correct",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "reason",
+    "correct"
+  ],
+  "title": "GradeAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
 
 ## Referee: looks again at a confirmed report whose fix broke existing protected tests
 

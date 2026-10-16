@@ -22,7 +22,8 @@ from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig, SpendLimits
 from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName, Usage
-from agentswarm.evaluation.score import Progress
+from agentswarm.evaluation.questions import HiddenQuestions, QuestionProgress, QuestionScore
+from agentswarm.evaluation.score import Measure, Progress
 from agentswarm.gating.checks import CheckSet, CommandCheck, RatchetCheck
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.join import JoinPromoter
@@ -87,8 +88,10 @@ class Project:
         outcomes: OutcomeRecorder | None = None,
         worklist: Worklist | None = None,
         hardener: Hardener | None = None,
+        progress: Measure | None = None,
     ) -> None:
         self._worklist = worklist
+        self.progress = progress  # the definition of done as numbers: tests or hidden questions
         self._hardener = hardener
         self.config = config
         self.board = board
@@ -251,12 +254,24 @@ class Project:
             check = checks.check(config.worklist.check)
             assert isinstance(check, RatchetCheck)  # checked by validate()
             worklist = Worklist(board, artifacts, repository, config.levels, check, config.worklist)
+
+        def metered(team: str, model: str) -> Meter:
+            return ledger.meter(team, model, config.models[model].usd_per_million)
+
+        progress: Measure | None = None
+        if config.score is not None:
+            progress = Progress(config, config.score, repository.path, sandbox)
+        elif config.questions is not None:
+            asked = config.questions
+            score = QuestionScore(
+                workers.worker(asked.reader, 1, metered("reader", asked.reader)),
+                workers.worker(asked.grader, 1, metered("grader", asked.grader)),
+            )
+            questions = HiddenQuestions(asked.path.expanduser())
+            progress = QuestionProgress(questions, score, repository, config.levels.base)
         hardener = None
         if config.hardening is not None:
             hardening = config.hardening
-
-            def metered(team: str, model: str) -> Meter:
-                return ledger.meter(team, model, config.models[model].usd_per_million)
 
             red_team = workers.worker(
                 hardening.model, hardening.max_model_calls, metered("red_team", hardening.model)
@@ -269,9 +284,6 @@ class Project:
             # The same tests test by test, against the base level: to see what a red team fix broke
             review = RatchetCheck(
                 hardening.check, config.checks[hardening.check], config.levels.base, sandbox
-            )
-            progress = (
-                Progress(config, config.score, repository.path, sandbox) if config.score is not None else None
             )
             hardener = Hardener(
                 hardening,
@@ -300,6 +312,7 @@ class Project:
             outcomes,
             worklist,
             hardener,
+            progress,
         )
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
