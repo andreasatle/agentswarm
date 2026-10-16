@@ -204,7 +204,7 @@ class SampleData:
         return ReportRequest(
             claim="greet('') returns 'Hello, !' instead of raising ValueError",
             test_file=test,
-            quote="an empty name raises ValueError",
+            quotes=("an empty name raises ValueError",),
             passage="## Greeting greet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
         )
 
@@ -215,7 +215,7 @@ class SampleData:
         return ReconsiderRequest(
             claim=report.claim,
             test_file=report.test_file,
-            quote=report.quote,
+            quotes=report.quotes,
             passage=report.passage,
             conflicts=(
                 ConflictingTest(

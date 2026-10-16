@@ -9,6 +9,7 @@ from agentswarm.core.domain import (
     AcceptanceWritten,
     ArtifactCreated,
     Attacked,
+    AttackFinding,
     AttackFocus,
     EscalationResolved,
     Event,
@@ -23,6 +24,7 @@ from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.hardening import (
     AttackProblem,
     AttackReport,
+    AttackRequest,
     AttackToolbox,
     Hardener,
     Leads,
@@ -46,12 +48,12 @@ FAILING = (
 PASSING = "from greeting import hello\n\n\ndef test_hello():\n    assert hello('Ada') == 'Hello, Ada!'\n"
 
 
-def attack(test: str, quote: str) -> Step[BaseModel]:
+def attack(test: str, quote: str, *more: str) -> Step[BaseModel]:
     def step(toolbox: Toolbox | None) -> BaseModel:
         assert isinstance(toolbox, AttackToolbox)
         toolbox.run_test("test_red.py", test)
         problem = AttackProblem(
-            title="goodbye", claim="goodbye ignores the name", test="test_red.py", quote=quote
+            title="goodbye", claim="goodbye ignores the name", test="test_red.py", quotes=(quote, *more)
         )
         return AttackReport(summary="attacked", problems=(problem,))
 
@@ -102,6 +104,7 @@ class Campaign:
         check = CommandCheck("spec", PYTEST, LocalSandbox())
         guarded = PYTEST.model_copy(update={"protected": ("tests/acceptance/",)})
         review = RatchetCheck("spec", guarded, Harness.LADDER.base, LocalSandbox())
+        self.red_team = FakeWorker(red_team)
         self.hardener = Hardener(
             config,
             Harness.NORTH_STAR,
@@ -109,7 +112,7 @@ class Campaign:
             self.h.repository,
             Harness.LADDER,
             ArtifactFactory(self.h.board, Harness.LADDER),
-            FakeWorker(red_team),
+            self.red_team,
             Referee(FakeWorker(referee), "deepseek", ["docs/spec.md"]),
             check,
             review=review,
@@ -263,3 +266,31 @@ class TestReconsider:
         assert not reconsidered.withdrawn and reconsidered.referee is None and not reconsidered.broken
         assert not c.h.board.current().dropped(task)
         assert not c.hardener.unreviewed(c.h.board.current())  # looked at once
+
+
+class TestReports:
+    async def test_a_report_may_rest_on_several_passages_each_word_for_word(self, tmp_path: Path) -> None:
+        both = ("returns 'Hello, <name>!'", "returns 'Goodbye, <name>!' for any name")
+        quoted = Campaign(tmp_path / "q", [attack(FAILING, *both)], [ruling(True), ruling(True)])
+        await quoted.hardener.step()
+        attacked = next(e for e in quoted.events() if isinstance(e, Attacked))
+        assert attacked.confirmed == 1 and attacked.findings[0].quotes == both
+        made_up = Campaign(tmp_path / "m", [attack(FAILING, both[0], "goodbye returns 'Bye'")], [])
+        await made_up.hardener.step()
+        assert "not in the spec" in next(e for e in made_up.events() if isinstance(e, Attacked)).dropped[0]
+
+    async def test_a_rejected_report_is_shown_to_later_red_teams(self, tmp_path: Path) -> None:
+        red_team = [attack(FAILING, "returns 'Goodbye, <name>!'")] * 2
+        c = Campaign(tmp_path, red_team, [ruling(False), ruling(False)])
+        await c.hardener.step()  # round 1: rejected
+        assert next(e for e in c.events() if isinstance(e, Attacked)).rejected[0].claim == (
+            "goodbye ignores the name"
+        )
+        await c.hardener.step()  # round 2: the same section, told what was rejected and why
+        request = c.red_team.calls[1][1]
+        assert isinstance(request, AttackRequest)
+        assert request.rejected == ("goodbye ignores the name (rejected: the spec names the greeting)",)
+
+    def test_a_finding_recorded_with_one_quote_still_reads(self) -> None:
+        finding = AttackFinding.model_validate({"task": "a-0001", "claim": "c", "quote": "q"})
+        assert finding.quotes == ("q",)

@@ -58,8 +58,8 @@ class ReportRequest(Frozen):
 
     claim: str  # what the red team says the product gets wrong
     test_file: str  # the red team's test, which fails on the product
-    quote: str
-    passage: str  # the spec around the quote, whitespace collapsed
+    quotes: tuple[str, ...]  # the spec's words it rests on: a combination of features may need several
+    passage: str  # the spec around each quote, whitespace collapsed
 
 
 class ReportAnswer(Frozen):
@@ -83,8 +83,8 @@ class ReconsiderRequest(Frozen):
 
     claim: str
     test_file: str  # the red team's test
-    quote: str
-    passage: str  # the spec around the quote, whitespace collapsed
+    quotes: tuple[str, ...]
+    passage: str  # the spec around each quote, whitespace collapsed
     conflicts: tuple[ConflictingTest, ...]
 
 
@@ -217,17 +217,17 @@ tests that the product passed. Rule again on that report alone, in a single answ
         return self._model
 
     async def confirm(
-        self, worktree: Worktree, claim: str, test_file: str, quote: str
+        self, worktree: Worktree, claim: str, test_file: str, quotes: Sequence[str]
     ) -> tuple[bool, str] | None:
         """Whether the spec backs a red team's report, and why; None when no ruling was had.
 
-        Plain code first: the quote must be the spec's own words, or the report is not confirmed.
+        Plain code first: every quote must be the spec's own words, or the report is not confirmed.
         """
-        passage = self.passage(worktree, quote)
+        passage = self.passages(worktree, quotes)
         if passage is None:
-            return False, "the quote is not in the spec, word for word"
+            return False, "a quote is not in the spec, word for word"
         request = ReportRequest(
-            claim=claim, test_file=test_file[: self.FILE_LIMIT], quote=quote, passage=passage
+            claim=claim, test_file=test_file[: self.FILE_LIMIT], quotes=tuple(quotes), passage=passage
         )
         answers: list[ReportAnswer] = []
         for _ in range(self.VOTES):
@@ -243,13 +243,13 @@ tests that the product passed. Rule again on that report alone, in a single answ
         return verdict, next(a.reason for a in answers if a.confirmed == verdict)
 
     async def reconsider(
-        self, worktree: Worktree, claim: str, test_file: str, quote: str, broken: Sequence[str]
+        self, worktree: Worktree, claim: str, test_file: str, quotes: Sequence[str], broken: Sequence[str]
     ) -> tuple[bool, str] | None:
         """Whether a confirmed report is withdrawn, given the protected tests its fix broke, and why; None
         when no ruling was had. `worktree` holds the broken tests."""
-        passage = self.passage(worktree, quote)
+        passage = self.passages(worktree, quotes)
         if passage is None:
-            return True, "the quote is not in the spec, word for word"
+            return True, "a quote is not in the spec, word for word"
         conflicts = tuple(
             ConflictingTest(test=test, excerpt=self.excerpt(worktree, test))
             for test in broken[: self.MAX_CONFLICTS]
@@ -257,7 +257,7 @@ tests that the product passed. Rule again on that report alone, in a single answ
         request = ReconsiderRequest(
             claim=claim,
             test_file=test_file[: self.FILE_LIMIT],
-            quote=quote,
+            quotes=tuple(quotes),
             passage=passage,
             conflicts=conflicts,
         )
@@ -323,8 +323,18 @@ tests that the product passed. Rule again on that report alone, in a single answ
             return None
         return next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == function), None)
 
-    def passage(self, worktree: Worktree, quote: str) -> str | None:
+    def passages(self, worktree: Worktree, quotes: Sequence[str]) -> str | None:
+        """The spec around each quote, one after the other, in about the context one quote gets; None when
+        there is no quote or one isn't in the spec word for word."""
+        context = self.CONTEXT // max(1, len(quotes))
+        found = [self.passage(worktree, quote, context) for quote in quotes]
+        if not found or any(p is None for p in found):
+            return None
+        return "\n[...]\n".join(p for p in found if p is not None)
+
+    def passage(self, worktree: Worktree, quote: str, context: int | None = None) -> str | None:
         """The spec around the quote, whitespace collapsed; None when no spec file holds it word for word."""
+        context = self.CONTEXT if context is None else context
         wanted = " ".join(quote.split())
         if not wanted:
             return None
@@ -335,7 +345,7 @@ tests that the product passed. Rule again on that report alone, in a single answ
                 continue
             at = text.find(wanted)
             if at >= 0:
-                return text[max(0, at - self.CONTEXT) : at + len(wanted) + self.CONTEXT]
+                return text[max(0, at - context) : at + len(wanted) + context]
         return None
 
     @classmethod

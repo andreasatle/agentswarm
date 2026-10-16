@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     AttackFocus,
     Event,
     Reconsidered,
+    RejectedReport,
     Sized,
     TeamName,
 )
@@ -116,13 +117,19 @@ class AttackRequest(Frozen):
     focus: str  # what to attack in it
     leads: tuple[str, ...] = ()  # planted bugs no check noticed: behaviours nothing tests yet
     withdrawn: tuple[str, ...] = ()  # reports confirmed once and withdrawn since: not problems, don't repeat
+    rejected: tuple[str, ...] = ()  # reports the referee ruled against: again only with new evidence
 
 
 class AttackProblem(Frozen):
     title: str = Field(description="one line")
     claim: str = Field(description="what the product gets wrong, for which input, and what the spec requires")
     test: str = Field(description="the name of the run_test file that fails because of this problem")
-    quote: str = Field(description="the spec's exact words the test rests on, copied from the spec")
+    quotes: tuple[str, ...] = Field(
+        min_length=1,
+        max_length=3,
+        description="the spec's exact words the test rests on, copied from the spec: one passage, or up to "
+        "three when the problem combines rules from several places",
+    )
 
 
 class AttackReport(Frozen):
@@ -180,6 +187,7 @@ class Hardener:
 
     NAME = TeamName("red_team")
     TEXT_LIMIT = 30_000  # characters of a spec section given to the red team
+    REJECTED_SHOWN = 20  # rejected reports shown to a red team, the latest
     INSTRUCTIONS = """\
 You are a red team. The product in the project is finished as far as its builders know; its specification is
 in the project too. Find where the product breaks the specification, within the section and focus in the data.
@@ -193,7 +201,10 @@ in the project too. Find where the product breaks the specification, within the 
 - Report the most important problems first. Don't report style, naming, or anything the specification doesn't
   require.
 - Reports listed as withdrawn in the data were found wrong after all (the project's existing tests show what
-  the specification means there): don't report them again."""
+  the specification means there): don't report them again.
+- Reports listed as rejected in the data were ruled not backed by the specification, for the reason given.
+  Report one again only with new evidence that answers that reason: another rule quoted, or a test that
+  avoids the objection."""
     FOCUS: ClassVar[dict[AttackFocus, str]] = {
         AttackFocus.SECTION: (
             "Every rule and stated behaviour of this section, one test each, including the ones no test of "
@@ -274,7 +285,9 @@ in the project too. Find where the product breaks the specification, within the 
                 return 0
             round, (title, focus) = self.next_attack(views.attacks(), pairs)
             section = next(s for s in sections if s.title == title)
-            events = await self.attack(worktree, tip, round, section, focus, self.withdrawn(views))
+            events = await self.attack(
+                worktree, tip, round, section, focus, self.withdrawn(views), self.rejected(views)
+            )
         finally:
             worktree.remove()
         self._board.append(events)
@@ -331,7 +344,9 @@ in the project too. Find where the product breaks the specification, within the 
                 test_file = worktree.read(own)
             except (OSError, UnicodeDecodeError, ValueError):
                 return settled(False, "the red team's test can't be read; the report stands", broken)
-            ruling = await self._referee.reconsider(worktree, finding.claim, test_file, finding.quote, broken)
+            ruling = await self._referee.reconsider(
+                worktree, finding.claim, test_file, finding.quotes, broken
+            )
         finally:
             worktree.remove()
         if ruling is None:
@@ -349,6 +364,13 @@ in the project too. Find where the product breaks the specification, within the 
             for e in views.history(finding.task)
             if isinstance(e, Reconsidered) and e.withdrawn
         )
+
+    @classmethod
+    def rejected(cls, views: BoardViews) -> tuple[str, ...]:
+        """The reports the referee ruled against, latest last, for the red teams: their claims and why
+        (2026-10-16: two rejected claims came back 30 times from different YAML chapters)."""
+        found = [f"{r.claim} (rejected: {r.reason})" for attack in views.attacks() for r in attack.rejected]
+        return tuple(dict.fromkeys(found))[-cls.REJECTED_SHOWN :]
 
     def building(self, views: BoardViews) -> bool:
         """Work is open at the lowest level. A task split into steps does no work itself: its steps count
@@ -398,6 +420,7 @@ in the project too. Find where the product breaks the specification, within the 
         section: SpecSection,
         focus: AttackFocus,
         withdrawn: Sequence[str] = (),
+        rejected: Sequence[str] = (),
     ) -> list[Event]:
         leads = (
             self._leads.find(worktree, f"{round}:{section.title}") if focus is AttackFocus.MUTATION else ()
@@ -409,6 +432,7 @@ in the project too. Find where the product breaks the specification, within the 
             focus=self.FOCUS[focus],
             leads=leads,
             withdrawn=tuple(withdrawn),
+            rejected=tuple(rejected),
         )
         toolbox = AttackToolbox(worktree, "", self._check)
 
@@ -418,6 +442,7 @@ in the project too. Find where the product breaks the specification, within the 
             tasks: Sequence[ArtifactId],
             dropped: Sequence[str],
             findings: Sequence[AttackFinding] = (),
+            rejections: Sequence[RejectedReport] = (),
         ) -> Attacked:
             return Attacked(
                 round=round,
@@ -430,6 +455,7 @@ in the project too. Find where the product breaks the specification, within the 
                 tasks=tuple(tasks),
                 dropped=tuple(dropped),
                 findings=tuple(findings),
+                rejected=tuple(rejections),
             )
 
         if focus is AttackFocus.MUTATION and not leads:
@@ -441,6 +467,7 @@ in the project too. Find where the product breaks the specification, within the 
         problems = report.problems[: self._config.max_problems]
         tasks: list[ArtifactId] = []
         findings: list[AttackFinding] = []
+        rejections: list[RejectedReport] = []
         events: list[Event] = []
         dropped: list[str] = []
         for problem in problems:
@@ -448,30 +475,33 @@ in the project too. Find where the product breaks the specification, within the 
                 dropped.append(f"{problem.title}: its test passed, or never ran")
                 continue
             source = toolbox.test_source(problem.test)
-            ruling = await self._referee.confirm(worktree, problem.claim, source, problem.quote)
+            ruling = await self._referee.confirm(worktree, problem.claim, source, problem.quotes)
             if ruling is None:
                 dropped.append(f"{problem.title}: no ruling")
                 continue
             confirmed, reason = ruling
             if not confirmed:
                 dropped.append(f"{problem.title}: not confirmed: {reason}")
+                if self._referee.passages(worktree, problem.quotes) is not None:  # not a quote failure
+                    rejections.append(RejectedReport(claim=problem.claim, reason=reason))  # the referee's
                 continue
             task, written = self.fix_task(problem, source)
             tasks.append(task)
-            findings.append(AttackFinding(task=task, claim=problem.claim, quote=problem.quote))
+            findings.append(AttackFinding(task=task, claim=problem.claim, quotes=problem.quotes))
             # One failing test fits one branch: the builders try it first, and it is split only if every model
             # fails it (ADaPT). Sized up front, YAML's fixes were split into 8 steps for 1 failing test, each
             # step with checks of its own: $3.30 of a $5 round, 1 fix merged (2026-10-16).
             events += [written, Sized(artifact=task, fits=True)]
-        return [*events, attacked(len(problems), len(tasks), tasks, dropped, findings)]
+        return [*events, attacked(len(problems), len(tasks), tasks, dropped, findings, rejections)]
 
     def fix_task(self, problem: AttackProblem, source: str) -> tuple[ArtifactId, AcceptanceWritten]:
         """A task at the lowest level whose acceptance test is the red team's failing test, protected."""
+        quoted = " ".join(f'"{quote}"' for quote in problem.quotes)
         task = (
             f"Fix what a red team found against the specification: {problem.title}. {problem.claim} "
-            f'The specification says: "{problem.quote}". The red team\'s test, which fails now, is the '
-            "acceptance test of this task; make it pass without breaking any other test, the way the "
-            "specification states it."
+            f"The specification says: {quoted}. The red team's test, which fails now, is the acceptance "
+            "test of this task; make it pass without breaking any other test, the way the specification "
+            "states it."
         )
         artifact = self._artifacts.create(task, self.NAME)
         path = AcceptanceTester.path_for(artifact.id)

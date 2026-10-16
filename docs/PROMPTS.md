@@ -1433,6 +1433,9 @@ in the project too. Find where the product breaks the specification, within the 
   require.
 - Reports listed as withdrawn in the data were found wrong after all (the project's existing tests show what
   the specification means there): don't report them again.
+- Reports listed as rejected in the data were ruled not backed by the specification, for the reason given.
+  Report one again only with new evidence that answers that reason: another rule quoted, or a test that
+  avoids the objection.
 ```
 
 ### User message (sample)
@@ -1445,7 +1448,8 @@ in the project too. Find where the product breaks the specification, within the 
   "passage": "## Greeting\n\ngreet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
   "focus": "Edge values the section names or implies: empty input, zero, limits and the values just inside and just outside them, the largest and smallest allowed.",
   "leads": [],
-  "withdrawn": []
+  "withdrawn": [],
+  "rejected": []
 }
 </data>
 ```
@@ -1462,6 +1466,7 @@ class AttackRequest(Frozen):
     focus: str  # what to attack in it
     leads: tuple[str, ...] = ()  # planted bugs no check noticed: behaviours nothing tests yet
     withdrawn: tuple[str, ...] = ()  # reports confirmed once and withdrawn since: not problems, don't repeat
+    rejected: tuple[str, ...] = ()  # reports the referee ruled against: again only with new evidence
 ```
 
 ### Tools
@@ -1488,7 +1493,12 @@ class AttackProblem(Frozen):
     title: str = Field(description="one line")
     claim: str = Field(description="what the product gets wrong, for which input, and what the spec requires")
     test: str = Field(description="the name of the run_test file that fails because of this problem")
-    quote: str = Field(description="the spec's exact words the test rests on, copied from the spec")
+    quotes: tuple[str, ...] = Field(
+        min_length=1,
+        max_length=3,
+        description="the spec's exact words the test rests on, copied from the spec: one passage, or up to "
+        "three when the problem combines rules from several places",
+    )
 ```
 
 <details><summary>JSON schema</summary>
@@ -1514,17 +1524,22 @@ class AttackProblem(Frozen):
           "title": "Test",
           "type": "string"
         },
-        "quote": {
-          "description": "the spec's exact words the test rests on, copied from the spec",
-          "title": "Quote",
-          "type": "string"
+        "quotes": {
+          "description": "the spec's exact words the test rests on, copied from the spec: one passage, or up to three when the problem combines rules from several places",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Quotes",
+          "type": "array"
         }
       },
       "required": [
         "title",
         "claim",
         "test",
-        "quote"
+        "quotes"
       ],
       "title": "AttackProblem",
       "type": "object"
@@ -1586,7 +1601,9 @@ test rests on. Rule on that report alone, from the specification, in a single an
 {
   "claim": "greet('') returns 'Hello, !' instead of raising ValueError",
   "test_file": "from greeter import greet\nimport pytest\n\n\ndef test_empty():\n    with pytest.raises(ValueError):\n        greet('')\n",
-  "quote": "an empty name raises ValueError",
+  "quotes": [
+    "an empty name raises ValueError"
+  ],
   "passage": "## Greeting greet(name) returns 'Hello, <name>!'; an empty name raises ValueError."
 }
 </data>
@@ -1600,8 +1617,8 @@ class ReportRequest(Frozen):
 
     claim: str  # what the red team says the product gets wrong
     test_file: str  # the red team's test, which fails on the product
-    quote: str
-    passage: str  # the spec around the quote, whitespace collapsed
+    quotes: tuple[str, ...]  # the spec's words it rests on: a combination of features may need several
+    passage: str  # the spec around each quote, whitespace collapsed
 ```
 
 ### Answer
@@ -1677,7 +1694,9 @@ tests that the product passed. Rule again on that report alone, in a single answ
 {
   "claim": "greet('') returns 'Hello, !' instead of raising ValueError",
   "test_file": "from greeter import greet\nimport pytest\n\n\ndef test_empty():\n    with pytest.raises(ValueError):\n        greet('')\n",
-  "quote": "an empty name raises ValueError",
+  "quotes": [
+    "an empty name raises ValueError"
+  ],
   "passage": "## Greeting greet(name) returns 'Hello, <name>!'; an empty name raises ValueError.",
   "conflicts": [
     {
@@ -1697,8 +1716,8 @@ class ReconsiderRequest(Frozen):
 
     claim: str
     test_file: str  # the red team's test
-    quote: str
-    passage: str  # the spec around the quote, whitespace collapsed
+    quotes: tuple[str, ...]
+    passage: str  # the spec around each quote, whitespace collapsed
     conflicts: tuple[ConflictingTest, ...]
 
 

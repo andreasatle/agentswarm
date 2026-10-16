@@ -100,6 +100,8 @@ Then **YAML without labels** (97%), the self-supervised case.
 
 **Where reports were lost:** 27 dropped, 12 because the quote wasn't the spec's words verbatim (a combination rests on rules from several places, and a report allows one quote), 15 by the referee. Two claims came back again and again from different chapters (plain scalars starting with `:` after a tag or anchor in flow, 17 mentions; empty tagged keys right before `:`, 13): the red teams don't see what was already rejected.
 
+**Fixed (2026-10-16):** a report may quote up to three passages, each checked word for word, and the referee sees each in its context; the reports the referee rejects are recorded (`Attacked.rejected`) and the latest 20 are shown to every later attack with the referee's reason, to be raised again only with new evidence that answers it (a rejection can be wrong, and rare finds are the point).
+
 ## What gets built
 
 | Part | Size | Exists? |

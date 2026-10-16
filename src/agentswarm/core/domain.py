@@ -3,9 +3,9 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Literal, NewType
+from typing import Annotated, Any, Literal, NewType, cast
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 ArtifactId = NewType("ArtifactId", str)  # e.g. "a-0042"
 TeamName = NewType("TeamName", str)
@@ -205,7 +205,23 @@ class AttackFinding(Frozen):
 
     task: ArtifactId
     claim: str
-    quote: str  # the spec's words it rests on
+    quotes: tuple[str, ...]  # the spec's words it rests on, each verbatim
+
+    @model_validator(mode="before")
+    @classmethod
+    def one_quote(cls, data: Any) -> Any:
+        """Findings recorded before a report could quote several passages had a single `quote`."""
+        if isinstance(data, dict) and "quote" in data:
+            fields = cast(dict[str, Any], data)
+            return {**{k: v for k, v in fields.items() if k != "quote"}, "quotes": (fields["quote"],)}
+        return cast(Any, data)
+
+
+class RejectedReport(Frozen):
+    """A red team report the referee ruled the spec doesn't back."""
+
+    claim: str
+    reason: str  # the referee's
 
 
 class Attacked(Frozen):
@@ -226,6 +242,7 @@ class Attacked(Frozen):
     tasks: tuple[ArtifactId, ...] = ()  # the fix tasks made from the confirmed ones
     dropped: tuple[str, ...] = ()  # why each unconfirmed report was dropped, one line each
     findings: tuple[AttackFinding, ...] = ()  # the confirmed reports, one per task
+    rejected: tuple[RejectedReport, ...] = ()  # the reports the referee ruled against
 
     @property
     def subject(self) -> None:
