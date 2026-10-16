@@ -342,7 +342,12 @@ in the project too. Find where the product breaks the specification, within the 
         )
 
     def building(self, views: BoardViews) -> bool:
-        return any(a.level == self._ladder.lowest and views.active(a.id) for a in views.artifacts())
+        """Work is open at the lowest level. A task split into steps does no work itself: its steps count
+        (2026-10-16: YAML's first task stayed open with a step escalated, and no attack ever started)."""
+        return any(
+            a.level == self._ladder.lowest and views.active(a.id) and not views.children(a.id)
+            for a in views.artifacts()
+        )
 
     def sections(self, worktree: Worktree) -> list[SpecSection]:
         try:

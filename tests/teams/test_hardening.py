@@ -7,10 +7,13 @@ from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import CheckConfig, HardeningConfig
 from agentswarm.core.domain import (
     AcceptanceWritten,
+    ArtifactCreated,
     Attacked,
     AttackFocus,
+    EscalationResolved,
     Event,
     Reconsidered,
+    Resolution,
     TeamName,
     Unbuildable,
 )
@@ -183,6 +186,16 @@ class TestHardener:
         branch = c.h.repository.checkout_artifact(task)
         assert branch.read(written.files[0].path) == FAILING  # its acceptance test, protected from now
         assert await c.hardener.step() == 0  # the builders have work: no attack until it's done
+
+    async def test_a_split_task_waits_on_its_steps_not_on_itself(self, tmp_path: Path) -> None:
+        c = Campaign(tmp_path, [], [])
+        factory = ArtifactFactory(c.h.board, Harness.LADDER)
+        parent = factory.create("the whole parser", TeamName("human"))
+        child = factory.child(parent, 1, "one step", TeamName("planner"))
+        c.h.board.append([ArtifactCreated(artifact=child)])
+        assert c.hardener.building(c.h.board.current())
+        c.h.board.append([EscalationResolved(artifact=child.id, resolution=Resolution.DROP)])
+        assert not c.hardener.building(c.h.board.current())  # the parent is open, but has no work of its own
 
     async def test_reports_without_a_failing_test_a_real_quote_or_a_ruling_are_dropped(
         self, tmp_path: Path
