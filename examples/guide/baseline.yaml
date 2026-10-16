@@ -43,6 +43,6 @@ review:
   model: gpt-sol
   referee: referee
   perspectives: [general]  # one broad reviewer: what the four perspectives must beat
-budgets: {usd_per_day: 5.0, reserve_usd: 0.3}
+budgets: {usd_per_day: 2.0, reserve_usd: 0.3}  # 2026-10-16: one review arm, within the $5 approved for the experiment (the build cost $0.05)
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "split:*", "join:*"]}  # the outliner splits the guide into sections
