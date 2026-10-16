@@ -71,3 +71,19 @@ About two to three days of work, no paid model calls (tests use fakes). Then: th
 - **Scoring is a `Measure`, now async,** so a score may call models: `QuestionProgress` reads the guide on the base level, drops the questions the reader answers from memory once (kept beside the questions as `memorized.json`), and scores the rest; `Scored.seen` is empty for a guide (the agents see no questions).
 - **The baseline is a perspective:** `general`, one broad reviewer, the same machinery (`examples/guide/baseline.yaml`), so the comparison is at equal cost on the same built guide.
 - **Models:** the writer by the router (Haiku 5.5, Sol), the outliner Sonnet, the reviewers Sol, the referee and the grader DeepSeek, the reader Haiku 5.5.
+
+## First experiment (2026-10-16, $3.40): no gain on the hidden questions in either arm
+
+**Setup:** six summarization papers (125,000 characters of sources), a guide capped at 3,000 words, 27 hidden questions of which 5 were dropped as answerable from memory, 22 kept. Built once by Haiku 5.5 for $0.05: 7 sections, 1,403 words, 8 of 22 questions answered. Then two arms on copies of it, $2 each: four perspectives, and one broad reviewer.
+
+| Arm | Cost | Reviews | Confirmed / reported | Revisions merged | Words | Hidden questions |
+| --- | --- | --- | --- | --- | --- | --- |
+| Four perspectives | $1.65 | 46 (2 rounds) | 43 / 46 | 41 | 3,074 | 8 → 8 (dipped to 7) |
+| One broad reviewer | $1.68 | 54 (8 rounds) | 41 / 42 | 40 | 2,889 | 8 → 6 (peaked at 10) |
+
+Per perspective: coverage 20 of 21 confirmed, reader 19 of 20, facts 4 of 4, consistency 0 of 1. Scoring the same text three times gave 8/22 each time, so the scorer is stable; the movement came from the edits.
+
+**What it says:**
+- **The reviewers changed the guide a lot, but not toward what the questions ask.** Both arms doubled the guide to its length cap. The questions are practitioners' details (which baselines, which ROUGE variants, the dataset's size and source, how many annotators), while the brief asks for a guide a newcomer can understand; the coverage and reader reviewers filled the cap with method explanations, which serve the brief, and few of those details. The measure doesn't match the goal it is meant to measure: the exam has to ask what the brief promises.
+- **The referee confirmed almost everything** (84 of 88 findings). On software, a failing test and the spec's words gave it something to reject; a finding about a document is a judgment, and the referee agreed with nearly all of them. As a filter it did little here.
+- **Facts held:** the facts reviewer found 4 claims to fix in 12 reviews; the guide stayed cited throughout (`check_doc`).
