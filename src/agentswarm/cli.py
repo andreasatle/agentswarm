@@ -44,6 +44,7 @@ from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, Import
 from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.jsonpath import JsonPathImport
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
+from agentswarm.evaluation.qasper import GuideImport, QasperSet
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.score import Progress, Scoreboard
@@ -90,6 +91,9 @@ class Cli:
                                 [--hide-all]       ... or every test held out (no labels)
         import-html5 DIR --out DIR [--spec MD]     html5lib's tree-construction tests as a seed, some held out
         import-jsonpath SUITE --rfc TXT --out DIR  the JSONPath compliance suite (RFC 9535) as a seed
+        import-guide QASPER --out DIR --topic TEXT --papers ID...
+                                                   a guide to Qasper papers as a seed, questions held out
+        qasper-papers QASPER WORD...               Qasper papers whose title or abstract holds every word
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
         spend                                      today's spend of every run, per account, against the limits
@@ -169,6 +173,10 @@ class Cli:
                 return self.import_html5(args)
             case "import-jsonpath":
                 return self.import_jsonpath(args)
+            case "import-guide":
+                return self.import_guide(args)
+            case "qasper-papers":
+                return self.qasper_papers(args)
             case "score":
                 return self.score(args)
             case "openrouter-models":
@@ -365,6 +373,18 @@ class Cli:
         self._show(
             Html5Import(Path(args.tests).expanduser(), Path(args.out).expanduser(), spec).write().render()
         )
+        return 0
+
+    def import_guide(self, args: argparse.Namespace) -> int:
+        """A newcomer's guide to some Qasper papers as a seed project; their questions held out."""
+        qasper, out = Path(args.qasper).expanduser(), Path(args.out).expanduser()
+        self._show(GuideImport(qasper, args.papers, args.topic, out, args.words).write().render())
+        return 0
+
+    def qasper_papers(self, args: argparse.Namespace) -> int:
+        """Candidate papers for a guide: id, answerable questions, title."""
+        papers = QasperSet(Path(args.qasper).expanduser()).search(args.words)
+        self._show("\n".join(f"{p.id}  {len(p.questions):>2}  {p.title}" for p in papers) or "none")
         return 0
 
     def import_jsonpath(self, args: argparse.Namespace) -> int:
@@ -635,6 +655,18 @@ class Cli:
         jsonpath.add_argument("--rfc", required=True, help="RFC 9535 as plain text, the spec for the agents")
         jsonpath.add_argument("--out", required=True, help="where the seed and the held-out tests go")
         jsonpath.add_argument("--hide-all", action="store_true", help="hold out every test (no labels)")
+
+        guide = commands.add_parser("import-guide", help="a guide to Qasper papers as a seed project")
+        guide.add_argument("qasper", help="one of Qasper's JSON files, e.g. qasper-test-v0.3.json")
+        guide.add_argument("--out", required=True, help="where the seed and the held-out questions go")
+        guide.add_argument("--topic", required=True, help="what the papers are about, for the brief")
+        guide.add_argument("--papers", required=True, nargs="+", help="the papers' ids, in reading order")
+        guide.add_argument("--words", type=int, default=3000, help="the guide's length cap")
+        papers = commands.add_parser(
+            "qasper-papers", help="Qasper papers whose title or abstract has the words"
+        )
+        papers.add_argument("qasper", help="one of Qasper's JSON files")
+        papers.add_argument("words", nargs="+", help="words that must all appear, ignoring case")
 
         score = commands.add_parser("score", help="how far the first shared level is through a test suite")
         score.add_argument("config", help="the project's YAML configuration")

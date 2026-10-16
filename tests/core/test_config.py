@@ -64,6 +64,11 @@ class TestProjectConfig:
     def test_minimal_config_is_valid(self) -> None:
         ProjectConfig.model_validate(Configs.minimal())
 
+    def test_the_guide_examples_load(self) -> None:
+        for name in ("project", "baseline"):
+            config = ProjectConfig.load(RepoPaths.EXAMPLES / "guide" / f"{name}.yaml")
+            assert config.review is not None and config.questions is not None
+
     @pytest.mark.parametrize(
         "overrides",
         [
@@ -84,6 +89,13 @@ class TestProjectConfig:
                 "teams": [{"use": "executor", "watches": "raw", "referee": "m"}],
             },
             {"hardening": {"model": "nope", "referee": "nope", "spec": "docs/s.md", "check": "unit_tests"}},
+            {"review": {"model": "nope", "referee": "nope"}},
+            {"questions": {"path": "q.json", "reader": "nope", "grader": "nope"}},
+            {
+                "models": {"m": {"model": "ollama:m"}},
+                "questions": {"path": "q.json", "reader": "m", "grader": "m"},
+                "score": {"check": "unit_tests"},
+            },
             {
                 "levels": ["raw", "experimental", "candidate"],
                 "gates": [{"from": "experimental", "to": "candidate", "requires": ["nobody"]}],
@@ -108,6 +120,9 @@ class TestProjectConfig:
             "undefined-referee",
             "referee-without-spec",
             "hardening-undefined-model",
+            "review-undefined-model",
+            "questions-undefined-model",
+            "scored-by-tests-and-questions",
             "required-team-not-watching",
             "judge-above-the-lowest-level",
         ],

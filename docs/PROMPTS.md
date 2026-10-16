@@ -41,6 +41,8 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Acceptance tester: tests written before the work (also its benchmark probe)](#acceptance-tester-tests-written-before-the-work-also-its-benchmark-probe) | `acceptance_tester` | `AcceptAnswer` |
 | [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
+| [Reviewer (documents): reviews one section from one perspective, with quotes as evidence](#reviewer-documents-reviews-one-section-from-one-perspective-with-quotes-as-evidence) | (`ReviewCampaign`) | `ReviewFindings` |
+| [Referee: rules on a document reviewer's finding before it becomes a revision](#referee-rules-on-a-document-reviewers-finding-before-it-becomes-a-revision) | (`Referee`) | `FindingAnswer` |
 | [Reader (scoring a document): answers a hidden question from the document alone](#reader-scoring-a-document-answers-a-hidden-question-from-the-document-alone) | (`QuestionScore`) | `ReaderAnswer` |
 | [Reader (scoring a document): answers a hidden question from memory, to drop what it knows](#reader-scoring-a-document-answers-a-hidden-question-from-memory-to-drop-what-it-knows) | (`QuestionScore`) | `ReaderAnswer` |
 | [Grader (scoring a document): compares the reader's answer with the references](#grader-scoring-a-document-compares-the-readers-answer-with-the-references) | (`QuestionScore`) | `GradeAnswer` |
@@ -1659,6 +1661,297 @@ class ReportAnswer(Frozen):
     "confirmed"
   ],
   "title": "ReportAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Referee`: 
+
+## Reviewer (documents): reviews one section from one perspective, with quotes as evidence
+
+### ReviewCampaign
+
+`agentswarm.teams.review.ReviewCampaign`
+
+```text
+You review one section of a document from one perspective, given in the data with the document's brief. The
+document is finished as far as its writer knows. Find what is wrong with this section from your perspective.
+
+- Read the section in the data; read the sources and other sections (list_files, read_file) as you need.
+- Report a problem only with evidence: the exact words from the files that show it, copied verbatim, with
+  the file each is from. What the perspective asks you to quote is in the data.
+- Report the most important problems first, and only real ones: a problem must matter for the brief and its
+  reader. If the section is fine from your perspective, report no findings: that is a good result.
+- Suggest a fix that keeps within the brief (its length cap included); don't ask for more text where less
+  would do.
+- Findings listed as rejected in the data were ruled not shown by their evidence, for the reason given.
+  Report one again only with new evidence that answers that reason.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "north_star": "A newcomer's guide to three papers on tagging with little data.",
+  "brief": "# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
+  "section": "sections/01-tagging.md",
+  "text": "## Tagging\n\nThe tagger reaches 99% accuracy [@1909.00001].",
+  "perspective": "Facts. Find statements in this section that the source they cite doesn't support: wrong numbers, names or results, claims the paper doesn't make, or a factual statement citing no source. Quote the statement from the section and, when it cites one, the source passage it misstates (or the passage that says otherwise).",
+  "sources": [
+    "sources/1909.00001.md"
+  ],
+  "rejected": []
+}
+</data>
+```
+
+### Payload types
+
+```python
+class ReviewRequest(Frozen):
+    """The payload a reviewer receives."""
+
+    north_star: str
+    brief: str  # what the document is for, who reads it, its sources and rules
+    section: str  # the section file to review
+    text: str  # that section as it is
+    perspective: str  # what to look for
+    sources: tuple[str, ...]  # the source files, to read as needed
+    rejected: tuple[str, ...] = ()  # findings the referee ruled against: again only with new evidence
+```
+
+### Tools
+
+`ReviewToolbox`:
+
+- `list_files() -> str`: List every file in the project, one relative path per line.
+- `read_file(path: str) -> str`: Return the content of the file at `path`, relative to the project root.
+
+### Answer
+
+```python
+class ReviewFindings(Frozen):
+    """What the reviewer found: only problems its quotes show."""
+
+    summary: str = Field(description="one line: what was reviewed")
+    findings: tuple[ReviewFinding, ...]
+
+
+class ReviewFinding(Frozen):
+    title: str = Field(description="one line")
+    problem: str = Field(description="what is wrong, and why it matters for the brief and its reader")
+    fix: str = Field(description="what the writer should change, briefly")
+    evidence: tuple[Evidence, ...] = Field(
+        min_length=1, max_length=3, description="quotes that show the problem, as the perspective asks"
+    )
+
+
+class Evidence(Frozen):
+    file: str = Field(description="the file the quote is from, relative to the project root")
+    quote: str = Field(description="the exact words, copied from that file (a phrase or a sentence or two)")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "description": "the file the quote is from, relative to the project root",
+          "title": "File",
+          "type": "string"
+        },
+        "quote": {
+          "description": "the exact words, copied from that file (a phrase or a sentence or two)",
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "quote"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "ReviewFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "one line",
+          "title": "Title",
+          "type": "string"
+        },
+        "problem": {
+          "description": "what is wrong, and why it matters for the brief and its reader",
+          "title": "Problem",
+          "type": "string"
+        },
+        "fix": {
+          "description": "what the writer should change, briefly",
+          "title": "Fix",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "quotes that show the problem, as the perspective asks",
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "problem",
+        "fix",
+        "evidence"
+      ],
+      "title": "ReviewFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What the reviewer found: only problems its quotes show.",
+  "properties": {
+    "summary": {
+      "description": "one line: what was reviewed",
+      "title": "Summary",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ReviewFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "summary",
+    "findings"
+  ],
+  "title": "ReviewFindings",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`ReviewCampaign`: 
+
+## Referee: rules on a document reviewer's finding before it becomes a revision
+
+### Referee
+
+`agentswarm.teams.referee.Referee`
+
+```text
+You are the referee for the reviewers of a document. A reviewer looks at one section from one perspective
+and says something is wrong, with quotes from the document or its sources as evidence (each checked to be
+there word for word; the text around each is shown). Rule on that finding alone, in a single answer.
+
+- Read the perspective, the brief, the finding and the evidence. Decide whether the evidence really shows the
+  problem the reviewer names, as the perspective defines a problem.
+- Confirm only if it clearly does, and fixing it serves the brief: a confirmed finding becomes work for the
+  writer. A matter of taste, a problem the evidence doesn't show, or a fix that would break the brief (its
+  length cap, its reader, its sources) is not confirmed.
+- Don't rewrite the document: rule on the finding.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "perspective": "Facts. Find statements in this section that the source they cite doesn't support: wrong numbers, names or results, claims the paper doesn't make, or a factual statement citing no source. Quote the statement from the section and, when it cites one, the source passage it misstates (or the passage that says otherwise).",
+  "brief": "# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
+  "title": "Wrong accuracy",
+  "problem": "The section says 99%; the paper reports 97.1%.",
+  "evidence": [
+    {
+      "file": "sections/01-tagging.md",
+      "quote": "The tagger reaches 99% accuracy",
+      "context": "## Tagging The tagger reaches 99% accuracy [@1909.00001]."
+    },
+    {
+      "file": "sources/1909.00001.md",
+      "quote": "reaches 97.1% accuracy on the test set",
+      "context": "## Results The tagger reaches 97.1% accuracy on the test set."
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class FindingRequest(Frozen):
+    """The payload a referee receives for a document reviewer's finding."""
+
+    perspective: str  # what the reviewer looks for, and what counts as a problem
+    brief: str  # what the document is for
+    title: str
+    problem: str  # what the reviewer says is wrong
+    evidence: tuple[QuotedPassage, ...]
+
+
+class QuotedPassage(Frozen):
+    """A reviewer's evidence: a quote, checked to be in its file word for word, and the text around it."""
+
+    file: str
+    quote: str
+    context: str  # the file around the quote, whitespace collapsed
+```
+
+### Answer
+
+```python
+class FindingAnswer(Frozen):
+    """Your ruling on one finding: first your reasoning, then the verdict it leads to."""
+
+    reason: str = Field(description="what the evidence shows, read with the brief and the perspective")
+    confirmed: bool = Field(
+        description="true only if the evidence clearly shows the problem, and fixing it serves the brief"
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your ruling on one finding: first your reasoning, then the verdict it leads to.",
+  "properties": {
+    "reason": {
+      "description": "what the evidence shows, read with the brief and the perspective",
+      "title": "Reason",
+      "type": "string"
+    },
+    "confirmed": {
+      "description": "true only if the evidence clearly shows the problem, and fixing it serves the brief",
+      "title": "Confirmed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "reason",
+    "confirmed"
+  ],
+  "title": "FindingAnswer",
   "type": "object"
 }
 ```

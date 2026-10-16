@@ -24,6 +24,7 @@ from agentswarm.core.domain import (
     FindingKind,
     Instruction,
     Level,
+    Perspective,
     Severity,
     TeamName,
 )
@@ -73,6 +74,9 @@ from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, ExecutorT
 from agentswarm.teams.hardening import AttackReport, AttackRequest, AttackToolbox, Hardener
 from agentswarm.teams.referee import (
     ConflictingTest,
+    FindingAnswer,
+    FindingRequest,
+    QuotedPassage,
     ReconsiderAnswer,
     ReconsiderRequest,
     Referee,
@@ -81,6 +85,7 @@ from agentswarm.teams.referee import (
     RulingAnswer,
     RulingRequest,
 )
+from agentswarm.teams.review import ReviewCampaign, ReviewFindings, ReviewRequest, ReviewToolbox
 from agentswarm.teams.stateless import BuildState, BuildStep, Outcome, StatelessBuilder
 
 type ToolboxClass = type[WorktreeToolbox] | type[AnalysisToolbox] | type[ReadingToolbox]
@@ -220,6 +225,38 @@ class SampleData:
             question="Which dataset do they train on?",
             answer="The Penn Treebank.",
             references=("PTB", "Penn Treebank Wall Street Journal section"),
+        )
+
+    @classmethod
+    def review(cls) -> ReviewRequest:
+        return ReviewRequest(
+            north_star="A newcomer's guide to three papers on tagging with little data.",
+            brief="# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
+            section="sections/01-tagging.md",
+            text="## Tagging\n\nThe tagger reaches 99% accuracy [@1909.00001].",
+            perspective=ReviewCampaign.PERSPECTIVE[Perspective.FACTS],
+            sources=("sources/1909.00001.md",),
+        )
+
+    @classmethod
+    def review_finding(cls) -> FindingRequest:
+        return FindingRequest(
+            perspective=ReviewCampaign.PERSPECTIVE[Perspective.FACTS],
+            brief="# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
+            title="Wrong accuracy",
+            problem="The section says 99%; the paper reports 97.1%.",
+            evidence=(
+                QuotedPassage(
+                    file="sections/01-tagging.md",
+                    quote="The tagger reaches 99% accuracy",
+                    context="## Tagging The tagger reaches 99% accuracy [@1909.00001].",
+                ),
+                QuotedPassage(
+                    file="sources/1909.00001.md",
+                    quote="reaches 97.1% accuracy on the test set",
+                    context="## Results The tagger reaches 97.1% accuracy on the test set.",
+                ),
+            ),
         )
 
     @classmethod
@@ -400,6 +437,22 @@ class PromptCatalogue:
                 Referee,
                 SampleData.report(),
                 ReportAnswer,
+                None,
+            ),
+            CallFamily(
+                "Reviewer (documents): reviews one section from one perspective, with quotes as evidence",
+                (Caller("", ReviewCampaign, ReviewCampaign.INSTRUCTIONS),),
+                ReviewCampaign,
+                SampleData.review(),
+                ReviewFindings,
+                ReviewToolbox,
+            ),
+            CallFamily(
+                "Referee: rules on a document reviewer's finding before it becomes a revision",
+                (Caller("", Referee, Referee.FINDING),),
+                Referee,
+                SampleData.review_finding(),
+                FindingAnswer,
                 None,
             ),
             CallFamily(

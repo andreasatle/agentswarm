@@ -1,6 +1,7 @@
 """One project with its north star: the board, the repository, its teams and its gates, wired together."""
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -37,9 +38,11 @@ from agentswarm.judging.judgement import Judgements, ModeTable
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, Meter, WorkerProvider
+from agentswarm.teams.campaign import Campaign
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
 from agentswarm.teams.hardening import Hardener
 from agentswarm.teams.referee import Referee
+from agentswarm.teams.review import ReviewCampaign
 from agentswarm.teams.runner import TeamRunner
 from agentswarm.workspace.git import Git, Repository
 from agentswarm.workspace.lock import RootIdentity, RootLock
@@ -87,12 +90,12 @@ class Project:
         owned: list[Closeable],
         outcomes: OutcomeRecorder | None = None,
         worklist: Worklist | None = None,
-        hardener: Hardener | None = None,
+        campaigns: Sequence[Campaign] = (),
         progress: Measure | None = None,
     ) -> None:
         self._worklist = worklist
         self.progress = progress  # the definition of done as numbers: tests or hidden questions
-        self._hardener = hardener
+        self._campaigns = tuple(campaigns)  # red teams and reviewers, attacking once the builders are idle
         self.config = config
         self.board = board
         self.repository = repository
@@ -269,7 +272,7 @@ class Project:
             )
             questions = HiddenQuestions(asked.path.expanduser())
             progress = QuestionProgress(questions, score, repository, config.levels.base)
-        hardener = None
+        campaigns: list[Campaign] = []
         if config.hardening is not None:
             hardening = config.hardening
 
@@ -299,6 +302,27 @@ class Project:
                 progress,
                 review,
             )
+            campaigns.append(hardener)
+        if config.review is not None:
+            reviewing = config.review
+            reviewer = workers.worker(
+                reviewing.model, reviewing.max_model_calls, metered("reviewer", reviewing.model)
+            )
+            judge = workers.worker(reviewing.referee, 3, metered("referee", reviewing.referee))
+            campaigns.append(
+                ReviewCampaign(
+                    reviewing,
+                    config.north_star,
+                    board,
+                    repository,
+                    config.levels,
+                    artifacts,
+                    reviewer,
+                    Referee(judge, config.models[reviewing.referee].model, ()),
+                    budget,
+                    progress,
+                )
+            )
         return cls(
             config,
             board,
@@ -311,7 +335,7 @@ class Project:
             owned,
             outcomes,
             worklist,
-            hardener,
+            campaigns,
             progress,
         )
 
@@ -324,8 +348,8 @@ class Project:
         actions = 0
         for runner in self._runners:
             actions += await runner.step()
-        if self._hardener is not None:  # red teams attack the product once the builders are idle
-            actions += await self._hardener.step()
+        for campaign in self._campaigns:  # red teams and reviewers attack once the builders are idle
+            actions += await campaign.step()
         # Gates, the router and the supervisor block (git, sandboxes, synchronous Jev): in a thread, so other
         # projects in the same process keep going meanwhile.
         actions += await asyncio.to_thread(self._publisher.recover)

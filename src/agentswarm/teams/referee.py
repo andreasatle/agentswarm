@@ -101,6 +101,33 @@ class ReconsiderAnswer(Frozen):
     )
 
 
+class QuotedPassage(Frozen):
+    """A reviewer's evidence: a quote, checked to be in its file word for word, and the text around it."""
+
+    file: str
+    quote: str
+    context: str  # the file around the quote, whitespace collapsed
+
+
+class FindingRequest(Frozen):
+    """The payload a referee receives for a document reviewer's finding."""
+
+    perspective: str  # what the reviewer looks for, and what counts as a problem
+    brief: str  # what the document is for
+    title: str
+    problem: str  # what the reviewer says is wrong
+    evidence: tuple[QuotedPassage, ...]
+
+
+class FindingAnswer(Frozen):
+    """Your ruling on one finding: first your reasoning, then the verdict it leads to."""
+
+    reason: str = Field(description="what the evidence shows, read with the brief and the perspective")
+    confirmed: bool = Field(
+        description="true only if the evidence clearly shows the problem, and fixing it serves the brief"
+    )
+
+
 class Referee:
     FOLDER = "tests/acceptance"
     CONTEXT = 1_500  # characters of spec on either side of the quote
@@ -142,6 +169,17 @@ tests that the product passed. Rule again on that report alone, in a single answ
   project's definition of done: where the specification is brief or imprecise, they show what it means.
   Withdraw the report unless the specification clearly contradicts the existing tests.
 - Don't judge the builders' code: it isn't shown, and doesn't matter here."""
+    FINDING = """\
+You are the referee for the reviewers of a document. A reviewer looks at one section from one perspective
+and says something is wrong, with quotes from the document or its sources as evidence (each checked to be
+there word for word; the text around each is shown). Rule on that finding alone, in a single answer.
+
+- Read the perspective, the brief, the finding and the evidence. Decide whether the evidence really shows the
+  problem the reviewer names, as the perspective defines a problem.
+- Confirm only if it clearly does, and fixing it serves the brief: a confirmed finding becomes work for the
+  writer. A matter of taste, a problem the evidence doesn't show, or a fix that would break the brief (its
+  length cap, its reader, its sources) is not confirmed.
+- Don't rewrite the document: rule on the finding."""
     EXCERPT_LINES = 12  # lines of a broken test's file on either side of its case
     EXCERPT_LIMIT = 3_000  # characters of each broken test given to the model
     MAX_CONFLICTS = 5
@@ -273,6 +311,31 @@ tests that the product passed. Rule again on that report alone, in a single answ
         if verdict is None:
             return None
         return verdict, next(a.reason for a in answers if a.withdrawn == verdict)
+
+    async def rule_finding(self, request: FindingRequest) -> tuple[bool, str] | None:
+        """Whether a document reviewer's finding is confirmed, and why; None when no ruling was had. The
+        evidence has been checked by plain code already: each quote is in its file."""
+        answers: list[FindingAnswer] = []
+        for _ in range(self.VOTES):
+            try:
+                answers.append(await self._worker.run(self.FINDING, request, FindingAnswer))
+            except WorkerError:
+                continue
+            if self.majority([a.confirmed for a in answers]) is not None:
+                break
+        verdict = self.majority([a.confirmed for a in answers])
+        if verdict is None:
+            return None
+        return verdict, next(a.reason for a in answers if a.confirmed == verdict)
+
+    @staticmethod
+    def around(text: str, quote: str, context: int) -> str | None:
+        """The text around the quote, whitespace collapsed; None when it isn't there word for word."""
+        wanted, whole = " ".join(quote.split()), " ".join(text.split())
+        at = whole.find(wanted) if wanted else -1
+        if at < 0:
+            return None
+        return whole[max(0, at - context) : at + len(wanted) + context]
 
     @classmethod
     def excerpt(cls, worktree: Worktree, test: str) -> str:

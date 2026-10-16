@@ -11,7 +11,7 @@ from typing import Any, ClassVar, Self, cast
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from agentswarm.core.domain import AttackFocus, FindingKind, Level, Usage
+from agentswarm.core.domain import AttackFocus, FindingKind, Level, Perspective, Usage
 
 
 class Strict(BaseModel):
@@ -295,6 +295,26 @@ class HardeningConfig(Strict):
     max_model_calls: int = Field(default=30, gt=0)  # per attack
 
 
+class ReviewConfig(Strict):
+    """Reviewers attack a finished document, one section and perspective at a time, until a round confirms
+    nothing new (docs/design/documents.md). Each confirmed finding becomes a writer's task."""
+
+    model: str  # the reviewers' model, a name in `models`
+    referee: str  # rules on each finding before it becomes a task, a name in `models`
+    brief: str = "docs/brief.md"  # what the document is for, in the project
+    sections: str = "sections"  # the folder of the document's section files
+    sources: str = "sources"  # the folder of the sources every fact must come from
+    perspectives: tuple[Perspective, ...] = (
+        Perspective.FACTS,
+        Perspective.COVERAGE,
+        Perspective.READER,
+        Perspective.CONSISTENCY,
+    )
+    max_findings: int = Field(default=3, ge=1)  # findings taken from one review
+    quiet_rounds: int = Field(default=2, ge=1)
+    max_model_calls: int = Field(default=30, gt=0)  # per review
+
+
 class SupervisorConfig(Strict):
     """When the supervisor steps in (§14.1)."""
 
@@ -430,6 +450,7 @@ class ProjectConfig(Strict):
     score: ScoreConfig | None = None  # measured at the start and end of every run
     hardening: HardeningConfig | None = None  # red teams attack the product until nothing new is found
     questions: QuestionsConfig | None = None  # a document's hidden questions, measured like `score`
+    review: ReviewConfig | None = None  # reviewers attack a finished document until nothing new is found
 
     @model_validator(mode="before")
     @classmethod
@@ -492,6 +513,10 @@ class ProjectConfig(Strict):
             for model in (self.questions.reader, self.questions.grader):
                 if model not in self.models:
                     raise ValueError(f"questions use undefined model {model!r}")
+        if self.review is not None:
+            for model in (self.review.model, self.review.referee):
+                if model not in self.models:
+                    raise ValueError(f"review uses undefined model {model!r}")
         if self.hardening is not None:
             for model in (self.hardening.model, self.hardening.referee):
                 if model not in self.models:
