@@ -43,6 +43,6 @@ review:
   model: gpt-sol
   referee: referee
   perspectives: [facts, coverage, reader, consistency]
-budgets: {usd_per_day: 0.85, reserve_usd: 0.05}  # 2026-10-16, second try (a reference guide): $0.75 per review arm plus the copied build, within the $5 approved
+budgets: {usd_per_day: 0.82, reserve_usd: 0.05}  # 2026-10-16, second try (a reference guide): $0.50 per review arm on top of the copied build ($0.32), within the $5 approved
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "split:*", "join:*"]}  # the outliner splits the guide into sections
