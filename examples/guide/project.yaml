@@ -11,7 +11,7 @@ domain: document
 north_star: >-
   A guide that lets a newcomer understand what each paper in sources/ set out to do, how, and what it found, and
   how the papers relate, as docs/brief.md describes it; every fact from the papers, cited.
-seed: ~/agentswarm-data/guide/seed
+seed: ~/agentswarm-data/guide10/seed
 levels: [draft, reviewed]
 sandbox: {kind: docker, image: "agentswarm/sandbox-python:3.13"}
 models:
@@ -42,7 +42,7 @@ teams:
       - "Cite every factual statement with the paper it comes from, like [@1909.00694], naming a file in sources/ without its extension."
 gates:
   - {from: draft, to: reviewed, hard_checks: [check_doc]}
-questions: {path: ~/agentswarm-data/guide/held_out/questions.json, reader: reader, grader: grader, votes: 3}
+questions: {path: ~/agentswarm-data/guide10/held_out/questions.json, reader: reader, grader: grader, votes: 3}
 review:
   model: gpt-sol
   referee: referee
