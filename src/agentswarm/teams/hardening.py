@@ -392,6 +392,7 @@ in the project too. Find where the product breaks the specification, within the 
             dropped: Sequence[str],
             findings: Sequence[AttackFinding] = (),
             rejections: Sequence[RejectedReport] = (),
+            failed: bool = False,
         ) -> Attacked:
             return Attacked(
                 round=round,
@@ -405,6 +406,7 @@ in the project too. Find where the product breaks the specification, within the 
                 dropped=tuple(dropped),
                 findings=tuple(findings),
                 rejected=tuple(rejections),
+                failed=failed,
             )
 
         if focus is AttackFocus.MUTATION and not leads:
@@ -412,7 +414,7 @@ in the project too. Find where the product breaks the specification, within the 
         try:
             report = await self._worker.run(self.INSTRUCTIONS, request, AttackReport, toolbox)
         except WorkerError as error:
-            return [attacked(0, 0, (), (f"the red team failed: {error}",))]
+            return [attacked(0, 0, (), (f"the red team failed: {error}",), failed=True)]
         problems = report.problems[: self._config.max_problems]
         tasks: list[ArtifactId] = []
         findings: list[AttackFinding] = []

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import ReviewConfig
-from agentswarm.core.domain import Attacked, Event, Perspective, Sized
+from agentswarm.core.domain import Attacked, Event, Perspective, Scored, Sized
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.referee import FindingAnswer, FindingRequest, Referee
 from agentswarm.teams.review import Evidence, ReviewCampaign, ReviewFinding, ReviewFindings, ReviewRequest
@@ -137,3 +137,20 @@ class TestReviewCampaign:
         parts = [p.title for p in r.campaign.parts(level)]
         level.remove()
         assert parts == ["sections/01-tagging.md", "sections/02-parsing.md"]  # .gitkeep is no section
+
+
+class TestFailures:
+    async def test_refused_calls_stop_the_run_with_a_notice_and_never_count_as_quiet(
+        self, tmp_path: Path
+    ) -> None:
+        r = Review(tmp_path, [], [])  # every review call fails: no credits, say
+        assert [await r.campaign.step() for _ in range(5)] == [1, 1, 1, 0, 0]
+        views = r.h.board.current()
+        assert all(a.failed for a in views.attacks()) and not r.campaign.mine(views)
+        assert not r.campaign.done(r.campaign.mine(views), 1)  # no quiet round was had
+        notices = [e for e in views.project_escalations() if "failed 3 times in a row" in e.reason]
+        assert len(notices) == 1
+        r.h.board.append(
+            [Scored(level=Harness.LADDER.base, commit="c", seen=None, held_out=None, spent_usd=0.0)]
+        )
+        assert await r.campaign.step() == 1  # a new run (it starts with a score) tries again

@@ -189,6 +189,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
             dropped: Sequence[str],
             findings: Sequence[AttackFinding] = (),
             rejections: Sequence[RejectedReport] = (),
+            failed: bool = False,
         ) -> Attacked:
             return Attacked(
                 round=round,
@@ -202,6 +203,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 dropped=tuple(dropped),
                 findings=tuple(findings),
                 rejected=tuple(rejections),
+                failed=failed,
             )
 
         try:
@@ -209,7 +211,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 self.INSTRUCTIONS, request, ReviewFindings, ReviewToolbox(worktree)
             )
         except WorkerError as error:
-            return [attacked(0, (), (f"the reviewer failed: {error}",))]
+            return [attacked(0, (), (f"the reviewer failed: {error}",), failed=True)]
         found = report.findings[: self._config.max_findings]
         tasks: list[ArtifactId] = []
         findings: list[AttackFinding] = []

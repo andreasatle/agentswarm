@@ -10,13 +10,14 @@ document's sections), the focuses, and how an attack gathers evidence and turns 
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.control.budget import Budget
 from agentswarm.core.config import LevelLadder
-from agentswarm.core.domain import Attacked, Event, Focus, TeamName
+from agentswarm.core.domain import Attacked, Escalated, Event, Focus, TeamName
 from agentswarm.evaluation.score import Measure
 from agentswarm.workspace.git import Repository, Worktree
 
@@ -34,6 +35,7 @@ class Part(Frozen):
 
 class Campaign(ABC):
     NAME: TeamName
+    FAILURES: ClassVar[int] = 3  # failed attempts in a row after which a run stops attacking
 
     def __init__(
         self,
@@ -80,6 +82,8 @@ class Campaign(ABC):
             return prepared
         if self.building(views):
             return 0  # the product is still changing: attack it once the work at the lowest level is done
+        if self.failing(views):
+            return self.halt(views)
         attacks = self.mine(views)
         tip = self._repository.tip(self._ladder.base)
         worktree = self._repository.checkout_detached(tip, f"_attack-{len(views.attacks()) + 1}")
@@ -101,8 +105,23 @@ class Campaign(ABC):
 
     def mine(self, views: BoardViews) -> list[Attacked]:
         """This campaign's attacks: those on its focuses (a campaign whose focuses changed starts its rounds
-        over, rather than counting the old focuses' attacks into the new rounds)."""
-        return [a for a in views.attacks() if a.focus in self.focuses]
+        over, rather than counting the old focuses' attacks into the new rounds), and only those that took
+        place: a failed model call is no attack, and never a quiet one."""
+        return [a for a in views.attacks() if a.focus in self.focuses and not a.failed]
+
+    def failing(self, views: BoardViews) -> bool:
+        """The last `FAILURES` attempts since the latest score (a run is scored when it starts) all failed:
+        the critic's model can't be reached (no credits, an outage), so attacking on would only record
+        failures. The next run tries again."""
+        tried = [a for a in views.attacks_since_score() if a.focus in self.focuses]
+        return len(tried) >= self.FAILURES and all(a.failed for a in tried[-self.FAILURES :])
+
+    def halt(self, views: BoardViews) -> int:
+        """Stops this run's attacks with a notice for a person, once; the next run tries again."""
+        reason = f"{self.NAME}: the critic's model failed {self.FAILURES} times in a row; attacks stopped"
+        if not any(e.reason == reason for e in views.project_escalations()):
+            self._board.append([Escalated(artifact=None, reason=reason, parks=False)])
+        return 0
 
     def building(self, views: BoardViews) -> bool:
         """Work is open at the lowest level. A task split into steps does no work itself: its steps count

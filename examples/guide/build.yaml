@@ -19,7 +19,7 @@ models:
   # The writer's family (Anthropic, OpenAI by the router) differs from the referee's and the grader's (DeepSeek).
   planner: {model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}
   haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
-  gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
+  gpt-sol: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:openai/gpt-6.1-sol', usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}  # via OpenRouter: the OpenAI account ran out of credits (2026-10-17)
   referee: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
   # The scorer's own entries, at temperature 0: a reading at the default varied by about two questions in 22 on
   # the same text (2026-10-16); each question is also decided by the majority of three readings (`votes`).

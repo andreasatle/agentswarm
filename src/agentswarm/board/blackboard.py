@@ -79,6 +79,7 @@ class BoardViews:
     _billed: float = 0.0  # the part of the spend the providers reported charging
     _scores: list[Scored] = field(default_factory=list[Scored])
     _attacks: list[Attacked] = field(default_factory=list[Attacked])
+    _scored_at: int = 0  # how many attacks there were at the latest score: a run starts with one
     _project_escalations: list[Escalated] = field(default_factory=list[Escalated])
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
     _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
@@ -121,6 +122,7 @@ class BoardViews:
                     self._umbrellas.add(event.artifact)
             case Scored():
                 self._scores.append(event)
+                self._scored_at = len(self._attacks)
             case Attacked():
                 self._attacks.append(event)
             case Spent():
@@ -237,8 +239,12 @@ class BoardViews:
         return list(self._scores)
 
     def attacks(self) -> list[Attacked]:
-        """Every red team attack of a hardening campaign, oldest first."""
+        """Every attack of a campaign (red teams, reviewers), oldest first."""
         return list(self._attacks)
+
+    def attacks_since_score(self) -> list[Attacked]:
+        """The attacks since the latest score, oldest first: a run is scored when it starts."""
+        return self._attacks[self._scored_at :]
 
     def project_escalations(self) -> list[Escalated]:
         """Escalations about the whole project, such as an exhausted budget, oldest first."""

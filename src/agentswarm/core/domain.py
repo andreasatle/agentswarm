@@ -256,6 +256,9 @@ class Attacked(Frozen):
     dropped: tuple[str, ...] = ()  # why each unconfirmed report was dropped, one line each
     findings: tuple[AttackFinding, ...] = ()  # the confirmed reports, one per task
     rejected: tuple[RejectedReport, ...] = ()  # the reports the referee ruled against
+    # The critic's model call failed (no credits, an outage): not an attack at all, so never a quiet one
+    # (2026-10-17: 110 refused reviews ended two "quiet" rounds and the campaign)
+    failed: bool = False
 
     @property
     def subject(self) -> None:
