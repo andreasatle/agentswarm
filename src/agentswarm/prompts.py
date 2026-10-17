@@ -212,6 +212,7 @@ class SampleData:
     def reading(cls) -> ReadingRequest:
         return ReadingRequest(
             document="## Tagging\n\nThe tagger is trained on the Penn Treebank [@1909.00001].",
+            paper="Tagging with Little Data (1909.00001)",
             question="Which dataset do they train on?",
         )
 

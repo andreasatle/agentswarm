@@ -36,9 +36,10 @@ class Frozen(BaseModel):
 
 
 class ReadingRequest(Frozen):
-    """The payload a reader receives: a document and one question about what it covers."""
+    """The payload a reader receives: a document and one question about one of the papers it covers."""
 
     document: str
+    paper: str  # the paper the question is about, its title and id: "Which is the baseline?" means its own
     question: str
 
 
@@ -75,8 +76,9 @@ class QuestionScore:
     questions in 22 on the same text, as large as any revision's effect (2026-10-16)."""
 
     READ = """\
-You answer a question about some research papers using only the document in the data. Don't use anything
-you know from elsewhere: if the document doesn't answer the question, say it isn't found.
+You answer a question about one research paper, named in the data, using only the document in the data (which
+may cover several papers: answer about the one named). Don't use anything you know from elsewhere: if the
+document doesn't answer the question for that paper, say it isn't found.
 
 - Answer in a sentence or two, as specifically as the document allows (names, numbers, yes or no)."""
     REMEMBER = """\
@@ -97,11 +99,17 @@ read the paper. Any one reference may be the right one; they can differ in detai
         self._grader = grader
         self._votes = votes
 
-    async def answered(self, document: str, questions: Sequence[HiddenQuestion]) -> list[QuestionOutcome]:
-        """Each question, answered by the reader from the document alone, and graded."""
+    async def answered(
+        self, document: str, questions: Sequence[HiddenQuestion], titles: dict[str, str] | None = None
+    ) -> list[QuestionOutcome]:
+        """Each question, answered by the reader from the document alone, and graded. Every question is about
+        one paper, named to the reader (2026-10-17: unnamed, "which is the baseline?" got "it depends on the
+        paper" from a guide to ten, and flipped between scores of the same text)."""
         found: list[QuestionOutcome] = []
         for question in questions:
-            request = ReadingRequest(document=document, question=question.question)
+            title = (titles or {}).get(question.paper, "")
+            paper = f"{title} ({question.paper})" if title else question.paper
+            request = ReadingRequest(document=document, paper=paper, question=question.question)
             correct, answer = await self.decided(self.READ, request, question)
             found.append(QuestionOutcome(id=question.id, correct=correct, answer=answer))
         return found
@@ -197,7 +205,8 @@ class QuestionProgress:
         finally:
             worktree.remove()
         questions = await self.kept(titles)
-        answered = await self._score.answered(document, questions) if document.strip() else []
+        named = {id: title.removeprefix("# ") for id, title in titles.items()}
+        answered = await self._score.answered(document, questions, named) if document.strip() else []
         return Scored(
             level=self._level,
             commit=tip,

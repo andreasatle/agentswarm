@@ -1998,8 +1998,9 @@ class FindingAnswer(Frozen):
 `agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
 
 ```text
-You answer a question about some research papers using only the document in the data. Don't use anything
-you know from elsewhere: if the document doesn't answer the question, say it isn't found.
+You answer a question about one research paper, named in the data, using only the document in the data (which
+may cover several papers: answer about the one named). Don't use anything you know from elsewhere: if the
+document doesn't answer the question for that paper, say it isn't found.
 
 - Answer in a sentence or two, as specifically as the document allows (names, numbers, yes or no).
 ```
@@ -2010,6 +2011,7 @@ you know from elsewhere: if the document doesn't answer the question, say it isn
 <data>
 {
   "document": "## Tagging\n\nThe tagger is trained on the Penn Treebank [@1909.00001].",
+  "paper": "Tagging with Little Data (1909.00001)",
   "question": "Which dataset do they train on?"
 }
 </data>
@@ -2019,9 +2021,10 @@ you know from elsewhere: if the document doesn't answer the question, say it isn
 
 ```python
 class ReadingRequest(Frozen):
-    """The payload a reader receives: a document and one question about what it covers."""
+    """The payload a reader receives: a document and one question about one of the papers it covers."""
 
     document: str
+    paper: str  # the paper the question is about, its title and id: "Which is the baseline?" means its own
     question: str
 ```
 

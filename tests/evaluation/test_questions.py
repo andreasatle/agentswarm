@@ -32,6 +32,7 @@ class Reader:
     def __init__(self, memory: dict[str, str]) -> None:
         self.memory = memory
         self.calls = 0
+        self.papers: list[str] = []
 
     async def run[T: BaseModel](
         self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
@@ -42,6 +43,7 @@ class Reader:
             answer = ReaderAnswer(found=bool(known), answer=known)
         else:
             assert isinstance(payload, ReadingRequest)
+            self.papers.append(payload.paper)
             line = next((ln for ln in payload.document.splitlines() if payload.question in ln), "")
             answer = ReaderAnswer(found=bool(line), answer=line.split(":", 1)[-1].strip())
         assert isinstance(answer, output)
@@ -101,6 +103,7 @@ class TestQuestionProgress:
         assert scored.held_out is not None and (scored.held_out.passed, scored.held_out.total) == (1, 2)
         assert [(o.id, o.correct) for o in scored.questions] == [("q1", True), ("q3", False)]
         assert HiddenQuestions(path).memorized() == {"q2"}  # found once, kept beside the questions
+        assert reader.papers[-1] == "Tagging with Little Data (p1)"  # each question names its paper
         calls = reader.calls
         asyncio.run(progress.measure(h.board.current()))
         assert reader.calls - calls == 2  # the next score asks only the two kept questions
