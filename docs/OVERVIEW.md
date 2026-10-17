@@ -13,7 +13,10 @@ A goal is written down once, in a project file. From then on, small independent 
 | **Project file** | One YAML file: the goal (the "north star"), the models, the checks, the teams, the budget | written by a person |
 | **Seed** | The starting repository: usually a stub plus the tests that define done | made by an importer |
 | **Board** | An append-only log of events (task created, claimed, committed, merged, failed, spent). Everything else is read from it | code |
-| **Teams** | Workers that each watch the board for one kind of work: the decomposer plans, the executor builds | models |
+| **Teams** | Workers that each watch the board for one kind of work: the decomposer plans, the executor builds, the check writer derives tests from a spec | models |
+| **Specifier** | Drafts the specification from a goal of a line or two, before anything is built (optional) | a model |
+| **Referee** | Rules on disputed checks and on critics' reports, quoting the spec; of another model family than the producer | a model |
+| **Campaigns** | Critics that attack the finished product, part by part, in rounds: red teams (demonstrate a failure) and perspective reviewers (argue a shortfall) | models, scheduled by code |
 | **Controllers** | Plain-code loops: the worklist, the router, the supervisor, the budget, escalations | code |
 | **Gates and checks** | Decide whether work moves up a level: tests, the ratchet, layout and hygiene checks | code |
 | **Levels** | Git branches the work climbs through: `raw` (being built), `experimental` (passed its gate), and further levels where a project needs them | code |
@@ -49,6 +52,17 @@ It then works like a developer: reads, edits, runs the tests, fixes, until the c
 
 **9. Repeat.** The worklist sees the next failing test file and posts the next task. When no test fails any more, the run ends and is scored again: 550 of 550 visible, 109 of 125 held out, $4.14.
 
+### Without tests: specs, derived checks, critics
+
+The jq run had tests from the start. Most goals don't, and the same loop runs with other sources of checks:
+
+- **A goal only:** the specifier writes `docs/spec.md` first, with the questions it had to assume (answered by a person, or left at their defaults). Nothing is planned or built before it exists.
+- **A spec, no tests (self-supervised):** the planner splits the work by spec section; a check writer of another model family derives each step's acceptance tests from the spec; the builder may dispute a test by quoting the spec, and the referee rules (majority of three). The official tests stay hidden and only score.
+- **Hardening:** once the builders are idle, red teams attack the merged product by spec section and focus (rules, boundaries, rejections, combinations, planted bugs). A report needs a failing test and the spec's own words; the referee confirms; each confirmed failure becomes a fix task whose test stays in the product for good.
+- **Documents:** the writer works from a brief and sources; reviewers look from one perspective each (facts against the sources, coverage of the brief, the reader, consistency), every finding quoting its evidence; the referee rules. The score is hidden questions a reader model answers from the document alone.
+
+Every campaign runs in rounds until two whole rounds find nothing new, or the budget ends; a failed model call never counts as a quiet round.
+
 ### When a task fails
 
 Failure has a ladder, so a person is the last resort:
@@ -58,7 +72,11 @@ Failure has a ladder, so a person is the last resort:
 3. **Split:** when every model has failed it, the decomposer (a planner model) splits the task into smaller steps, told why it failed. Steps are building blocks: only the last must make tests pass, the others must break nothing.
 4. **Escalate:** past the split depth, the task is parked for a person, who can retry, drop or change it.
 
-The supervisor watches for stalls (nothing happening for an hour) and an exhausted budget, and escalates those too.
+The supervisor watches for stalls (nothing happening for an hour) and an exhausted budget, and escalates those too. A provider that refuses calls (no credits, a key's limit) pauses the project.
+
+### When a run stops
+
+A run steps every team, gate and controller in turn, one at a time within a project (several projects can run side by side), and ends when a whole round takes no action. That isn't the same as success: the last line of every run says which it was, finished with no work left, stopped with tasks unfinished (and how many wait for a person), or paused (and why).
 
 ## How agents get their instructions
 
@@ -82,7 +100,7 @@ There is no conversation between agents and no long-running agent. Each call sta
 ## What keeps it cheap
 
 - The router picks the cheapest model expected to succeed, from measured outcomes.
-- A day's budget caps every run; spend is checked between attempts.
+- Each run has its own budget, the amount approved for it; spend is checked between attempts. A machine-wide limit is only a backstop.
 - A task already solved by earlier work closes without a model call.
 - Old tool output is trimmed by each model's own prices.
 - Each run reports its cost per test gained.
@@ -97,7 +115,7 @@ There is no conversation between agents and no long-running agent. Each call sta
 
 | Folder | What's there |
 | --- | --- |
-| `examples/<project>/project.yaml` | Each real problem's project file (commonmark, toml, jq, yaml) |
+| `examples/<project>/` | Each problem's project files: supervised (commonmark, toml, jq, yaml, html5), self-supervised (toml-self, yaml-self, jsonpath-self), hardening (`harden.yaml`), goals (jsonpath-goal), documents (guide) |
 | `src/agentswarm/board/` | The board: the event log and what is read from it |
 | `src/agentswarm/teams/` | Executor, decomposer, routing and the other teams |
 | `src/agentswarm/control/` | Worklist, supervisor, budgets, escalations, outcomes |

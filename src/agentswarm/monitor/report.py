@@ -1,6 +1,7 @@
 """Text reports of a board: one line per event, and every artifact's history (`agentswarm status`)."""
 
 from collections import Counter
+from collections.abc import Sequence
 
 from agentswarm.board.blackboard import BoardViews
 from agentswarm.core.domain import (
@@ -13,11 +14,13 @@ from agentswarm.core.domain import (
     CheckDisputed,
     Claimed,
     CommitPushed,
+    Envelope,
     Escalated,
     EscalationResolved,
     Event,
     FindingAdded,
     FindingResolved,
+    Level,
     OutcomeRecorded,
     Paused,
     Profiled,
@@ -191,3 +194,30 @@ class HardeningSummary:
         if not steps:
             return views.merge_commit(task) is not None
         return all(HardeningSummary.merged(views, step.id) for step in steps)
+
+
+class RunVerdict:
+    """The last line of a run: why it stopped. A run ends when a round takes no action, which isn't the same
+    as success: work may wait for a person, a provider may be down, or the budget spent (2026-10-17: a run
+    paused on a provider's spending limit said so only in its first line)."""
+
+    @staticmethod
+    def render(views: BoardViews, envelopes: Sequence[Envelope], lowest: Level) -> str:
+        open_work = [
+            a
+            for a in views.artifacts()
+            if a.level == lowest and not views.dropped(a.id) and not views.children(a.id)
+        ]
+        waiting = [a for a in open_work if views.open_escalation(a.id) is not None]
+        if views.paused:
+            reason = next((e.event.reason for e in reversed(envelopes) if isinstance(e.event, Paused)), "")
+            verdict = f"STOPPED, paused: {reason}"
+        elif open_work:
+            verdict = f"STOPPED with {len(open_work)} task(s) unfinished"
+        else:
+            verdict = "FINISHED: no work left at the lowest level"
+        lines = [verdict]
+        if waiting:
+            lines.append(f"  {len(waiting)} waiting for a person: agentswarm escalations")
+        lines += [f"  notice: {e.reason}" for e in views.project_escalations()[-3:]]
+        return "\n".join(lines)

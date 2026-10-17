@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from agentswarm.board.artifacts import ArtifactFactory
-from agentswarm.core.domain import Artifact, ArtifactCreated, Promoted, TeamName
-from agentswarm.monitor.report import HardeningSummary
+from agentswarm.core.domain import Artifact, ArtifactCreated, Escalated, Paused, Promoted, TeamName
+from agentswarm.monitor.report import HardeningSummary, RunVerdict
 from tests.support.harness import Harness
 
 
@@ -25,3 +25,20 @@ class TestHardeningSummary:
         assert not HardeningSummary.merged(h.board.current(), fix.id)  # one step still open
         merge(steps[1])
         assert HardeningSummary.merged(h.board.current(), fix.id)
+
+
+class TestRunVerdict:
+    def test_a_run_says_why_it_stopped(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+        lowest = Harness.LADDER.lowest
+
+        def verdict() -> str:
+            return RunVerdict.render(h.board.current(), h.log.read(), lowest)
+
+        assert verdict() == "FINISHED: no work left at the lowest level"
+        task = ArtifactFactory(h.board, Harness.LADDER).create("a task", TeamName("human"))
+        assert verdict() == "STOPPED with 1 task(s) unfinished"
+        h.board.append([Escalated(artifact=task.id, reason="every model failed")])
+        assert "1 waiting for a person" in verdict()
+        h.board.append([Paused(reason="the model provider is unavailable (haiku55)")])
+        assert verdict().startswith("STOPPED, paused: the model provider is unavailable (haiku55)")
