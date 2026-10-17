@@ -98,3 +98,9 @@ Per perspective: coverage 20 of 21 confirmed, reader 19 of 20, facts 4 of 4, con
 | One broad reviewer | 11 (2 rounds) | 18 / 20 | 15 | 2,001 | 10 → 11 → 9 |
 
 **What it says:** the reference brief helped the first draft (10 vs 8), but reviewing still moved nothing beyond a question either way. The stricter referee confirmed a little less (31 of 36 vs 84 of 88). With 22 questions, one question is 4.5 points, and at $0.50 an arm the four perspectives didn't finish one round: the experiment can't separate the arms. Two things are missing to learn more: **per-question records** (which questions a revision gained or lost, to see whether revisions displace facts under the cap or add facts no question asks about) and **more questions** for the same money.
+
+## The measure was the noise (2026-10-16/17, about $0.45)
+
+**Retrace:** every merged version of the four-perspective arm (12 versions) re-scored question by question. The first version scored 8 here and 10 when the arm ran: same text. Of the 22 questions, 4 were always answered and 6 never; the other 12 flipped 2 to 7 times across the versions, including every question about a paper whose section no revision touched. One reading per question at the models' default temperature varied by about two questions on the same text, as large as any revision's effect: neither arm's result could be read.
+
+**Fixed:** the reader and grader have their own model entries at temperature 0, and each question is decided by the majority of three readings, stopping once two agree (`questions.votes`). Three scores of the same guide then gave 10, 9, 10: the noise is down to about one question, not gone (the grader reasons before it answers, and temperature 0 doesn't make that fully repeatable). A comparison now needs an effect of more than two questions, or more questions; the next run should use more papers, so one question weighs less than 4.5 points.
