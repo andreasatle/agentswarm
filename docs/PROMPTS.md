@@ -1995,7 +1995,7 @@ class FindingAnswer(Frozen):
 
 ### QuestionScore
 
-`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
 
 ```text
 You answer a question about some research papers using only the document in the data. Don't use anything
@@ -2063,13 +2063,13 @@ class ReaderAnswer(Frozen):
 
 ### What happens to the answer
 
-`QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+`QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
 
 ## Reader (scoring a document): answers a hidden question from memory, to drop what it knows
 
 ### QuestionScore
 
-`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
 
 ```text
 You answer a question about a research paper from what you know, without the paper. If you don't know the
@@ -2137,13 +2137,13 @@ class ReaderAnswer(Frozen):
 
 ### What happens to the answer
 
-`QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+`QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
 
 ## Grader (scoring a document): compares the reader's answer with the references
 
 ### QuestionScore
 
-`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
 
 ```text
 You grade an answer to a question about a research paper against reference answers written by people who
@@ -2221,7 +2221,7 @@ class GradeAnswer(Frozen):
 
 ### What happens to the answer
 
-`QuestionScore`: Puts questions to a reader and grades its answers; one reader call and one grader call each.
+`QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
 
 ## Referee: looks again at a confirmed report whose fix broke existing protected tests
 
