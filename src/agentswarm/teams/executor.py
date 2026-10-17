@@ -75,12 +75,14 @@ class Traced:
     """Records each call of a toolbox's tools, by size, and stops a model that repeats itself.
 
     A read-only call (listing, reading, searching, running tests) repeated with the same arguments while no
-    file has changed returns the same answer, so it isn't run again: the model is told so. After
-    `REPEATS` such calls it is told to finish. Small models loop like this until their step limit (Phase 8:
+    file has changed returns the same answer, so after `RUNS` runs it isn't run again: the model is told so
+    (one repeat does run, since its earlier output may have been cleared from the conversation). After
+    `REPEATS` refusals it is told to finish. Small models loop like this until their step limit (Phase 8:
     one run listed the files 80 times in a row).
     """
 
     REPEATS: ClassVar[int] = 3
+    RUNS: ClassVar[int] = 2  # times the same read-only call is run between changes
     REPEATED = (
         "You already called {tool} with these arguments, and no file has changed since: the answer is the "
         "same. Do something else: change a file with edit_file or write_file, or give your final answer."
@@ -94,13 +96,15 @@ class Traced:
         @functools.wraps(method)
         def traced(self: "WorktreeToolbox", *args: object, **kwargs: object) -> str:
             key = (method.__name__, repr(args), repr(sorted(kwargs.items())))
-            if key in self.seen:
+            # One repeat runs again: its earlier output may have been cleared to keep the conversation
+            # short, the model told to call again (2026-10-17: refusing that stopped a writer's reading)
+            if self.seen.get(key, 0) >= Traced.RUNS:
                 self.repeats += 1
                 result = (
                     Traced.FINISH if self.repeats >= Traced.REPEATS else Traced.REPEATED.format(tool=key[0])
                 )
             else:
-                self.seen.add(key)
+                self.seen[key] = self.seen.get(key, 0) + 1
                 result = method(self, *args, **kwargs)
             given = sum(len(str(a)) for a in (*args, *kwargs.values()))
             self.calls.append(ToolCall(tool=method.__name__, input_chars=given, output_chars=len(result)))
@@ -158,7 +162,7 @@ class WorktreeToolbox:
         self._tests = tests
         self._budget = budget
         self.calls: list[ToolCall] = []  # every tool call so far, for the board (ToolsUsed)
-        self.seen: set[tuple[str, str, str]] = set()  # read-only calls made since the last change
+        self.seen: dict[tuple[str, str, str], int] = {}  # read-only calls since the last change: how often
         self.repeats = 0
         self.repairs: list[bool] = []  # each repair round of the attempt: whether the checks passed after it
         self.rulings: list[CheckDisputed] = []  # the referee's rulings on tests the builder disputed

@@ -112,12 +112,14 @@ class TestWorktreeToolbox:
         box = Toolboxes.of(Workspace(tmp_path).worktree)
         box.write_file("a.py", "x = 1\n")
         assert box.list_files() == "a.py"
+        assert box.list_files() == "a.py"  # once more: its first output may have been cleared since
         assert box.list_files() == Traced.REPEATED.format(tool="list_files")
         box.write_file("b.py", "y = 2\n")  # a change: the same call may be made again
         assert box.list_files() == "a.py\nb.py"
+        assert box.list_files() == "a.py\nb.py"
         assert box.list_files().startswith("You already called")
-        assert box.list_files() == Traced.FINISH  # the third repeat
-        assert [c.tool for c in box.calls].count("list_files") == 5
+        assert box.list_files() == Traced.FINISH  # the third refusal
+        assert [c.tool for c in box.calls].count("list_files") == 7
 
     @pytest.mark.parametrize(
         "path", ["/etc/passwd", "../outside.txt", "a/../../outside.txt", ".git/config", ""]
