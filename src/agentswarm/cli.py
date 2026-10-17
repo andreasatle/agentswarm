@@ -412,7 +412,8 @@ class Cli:
 
     def import_jsonpath(self, args: argparse.Namespace) -> int:
         """The JSONPath compliance test suite and RFC 9535 as a seed project; some or all tests held out."""
-        suite, rfc, out = (Path(p).expanduser() for p in (args.suite, args.rfc, args.out))
+        suite, out = Path(args.suite).expanduser(), Path(args.out).expanduser()
+        rfc = Path(args.rfc).expanduser() if args.rfc else None
         self._show(JsonPathImport(suite, rfc, out, args.hide_all).write().render())
         return 0
 
@@ -675,7 +676,7 @@ class Cli:
         jsonpath.add_argument(
             "suite", help="a checkout of github.com/jsonpath-standard/jsonpath-compliance-test-suite"
         )
-        jsonpath.add_argument("--rfc", required=True, help="RFC 9535 as plain text, the spec for the agents")
+        jsonpath.add_argument("--rfc", help="RFC 9535 as plain text, the spec for the agents; none: no spec")
         jsonpath.add_argument("--out", required=True, help="where the seed and the held-out tests go")
         jsonpath.add_argument("--hide-all", action="store_true", help="hold out every test (no labels)")
 

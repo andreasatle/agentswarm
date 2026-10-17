@@ -136,10 +136,12 @@ def test_invalid(name: str, selector: str) -> None:
         query(selector, None)
 """
 
-    def __init__(self, suite: Path, rfc: Path, out: Path, hide_all: bool = False) -> None:
+    def __init__(self, suite: Path, rfc: Path | None, out: Path, hide_all: bool = False) -> None:
         super().__init__(out)
         self._suite = suite  # a checkout of the compliance test suite
-        self._rfc = rfc  # RFC 9535 as plain text
+        self._rfc = (
+            rfc  # RFC 9535 as plain text; None: no spec in the seed (the swarm drafts one from a goal)
+        )
         self._hide_all = hide_all  # every test held out: the RFC and no labels (self-supervised)
 
     def groups(self) -> list[SeedGroup[JsonPathCase]]:
@@ -159,7 +161,7 @@ def test_invalid(name: str, selector: str) -> None:
             "tests/__init__.py": "",
             "tests/acceptance/__init__.py": "",
             "tests/acceptance/_json.py": self.JSON,
-            self.DOC: self._rfc.read_text(),
+            **({self.DOC: self._rfc.read_text()} if self._rfc is not None else {}),
         }
 
     def test(self, title: str, cases: Sequence[JsonPathCase]) -> str:

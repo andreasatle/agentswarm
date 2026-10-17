@@ -64,6 +64,11 @@ class TestProjectConfig:
     def test_minimal_config_is_valid(self) -> None:
         ProjectConfig.model_validate(Configs.minimal())
 
+    def test_the_goal_examples_load(self) -> None:
+        for name in ("goal", "asked"):
+            config = ProjectConfig.load(RepoPaths.EXAMPLES / "jsonpath-goal" / f"{name}.yaml")
+            assert config.specify is not None and (config.specify.answerer is not None) == (name == "asked")
+
     def test_the_guide_examples_load(self) -> None:
         for name in ("project", "baseline"):
             config = ProjectConfig.load(RepoPaths.EXAMPLES / "guide" / f"{name}.yaml")
@@ -90,6 +95,11 @@ class TestProjectConfig:
             },
             {"hardening": {"model": "nope", "referee": "nope", "spec": "docs/s.md", "check": "unit_tests"}},
             {"review": {"model": "nope", "referee": "nope"}},
+            {"specify": {"goal": "g", "model": "nope"}},
+            {
+                "models": {"m": {"model": "ollama:m"}},
+                "specify": {"goal": "g", "model": "m", "answerer": "m"},
+            },
             {"questions": {"path": "q.json", "reader": "nope", "grader": "nope"}},
             {
                 "models": {"m": {"model": "ollama:m"}},
@@ -121,6 +131,8 @@ class TestProjectConfig:
             "referee-without-spec",
             "hardening-undefined-model",
             "review-undefined-model",
+            "specify-undefined-model",
+            "simulated-user-without-reference",
             "questions-undefined-model",
             "scored-by-tests-and-questions",
             "required-team-not-watching",

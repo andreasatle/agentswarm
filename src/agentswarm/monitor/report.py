@@ -33,6 +33,7 @@ from agentswarm.core.domain import (
     Scored,
     SignedOff,
     Sized,
+    Specified,
     Spent,
     ToolsUsed,
     Unbuildable,
@@ -109,6 +110,12 @@ class Report:
                 return (
                     f'round {event.round}, {event.focus} attack on "{event.section}" by {event.model}: '
                     f"{event.reported} reported, {event.confirmed} confirmed{tasks}"
+                )
+            case Specified():
+                return (
+                    f"specification drafted by {event.model}: {event.path}, {event.sections} sections, "
+                    f"{event.characters:,} characters; {event.answered} of {len(event.questions)} questions "
+                    "answered"
                 )
             case Reconsidered():
                 verdict = "withdrawn, task dropped" if event.withdrawn else "stands"

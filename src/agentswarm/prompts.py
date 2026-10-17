@@ -86,6 +86,15 @@ from agentswarm.teams.referee import (
     RulingRequest,
 )
 from agentswarm.teams.review import ReviewCampaign, ReviewFindings, ReviewRequest, ReviewToolbox
+from agentswarm.teams.specifier import (
+    Answer,
+    AnswerRequest,
+    DraftRequest,
+    ReviseRequest,
+    SpecDraft,
+    Specifier,
+    UserAnswer,
+)
 from agentswarm.teams.stateless import BuildState, BuildStep, Outcome, StatelessBuilder
 
 type ToolboxClass = type[WorktreeToolbox] | type[AnalysisToolbox] | type[ReadingToolbox]
@@ -226,6 +235,27 @@ class SampleData:
             question="Which dataset do they train on?",
             answer="The Penn Treebank.",
             references=("PTB", "Penn Treebank Wall Street Journal section"),
+        )
+
+    @classmethod
+    def specify(cls) -> DraftRequest:
+        return DraftRequest(
+            goal="A greeter: hello(name) greets by name.", north_star=cls.NORTH_STAR, max_questions=10
+        )
+
+    @classmethod
+    def revise(cls) -> ReviseRequest:
+        return ReviseRequest(
+            goal="A greeter: hello(name) greets by name.",
+            draft="# Greeter\n\n## Interface\n\nhello(name) returns 'Hi, <name>': hello('Ada') == 'Hi, Ada'.",
+            answers=(Answer(question="What exactly does the greeting say?", answer="'Hello, <name>!'"),),
+        )
+
+    @classmethod
+    def user_answer(cls) -> AnswerRequest:
+        return AnswerRequest(
+            question="What exactly does the greeting say?",
+            reference="hello(name) returns 'Hello, ' followed by the name and '!'.",
         )
 
     @classmethod
@@ -439,6 +469,30 @@ class PromptCatalogue:
                 Referee,
                 SampleData.report(),
                 ReportAnswer,
+                None,
+            ),
+            CallFamily(
+                "Specifier: drafts the specification from the goal, with the questions it had to assume",
+                (Caller("", Specifier, Specifier.INSTRUCTIONS),),
+                Specifier,
+                SampleData.specify(),
+                SpecDraft,
+                None,
+            ),
+            CallFamily(
+                "Specifier: revises the draft with the answers to its questions",
+                (Caller("", Specifier, Specifier.REVISE),),
+                Specifier,
+                SampleData.revise(),
+                SpecDraft,
+                None,
+            ),
+            CallFamily(
+                "Simulated user (experiments): answers the specifier's question from a reference, quoting it",
+                (Caller("", Specifier, Specifier.ANSWER),),
+                Specifier,
+                SampleData.user_answer(),
+                UserAnswer,
                 None,
             ),
             CallFamily(

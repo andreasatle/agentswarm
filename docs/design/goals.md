@@ -1,4 +1,4 @@
-# Goals without a specification: design (draft, 2026-10-17)
+# Goals without a specification: design (built 2026-10-17)
 
 ## The question
 
@@ -45,3 +45,10 @@ Building the specifier, the question loop and the simulated user: about a day, n
 - **The drafter writes what it knows, confidently wrong:** the hidden tests measure it; arm C shows whether questions catch it.
 - **Answers that leak the tests:** the simulated user sees only the RFC, never the tests.
 - **A drafted spec too vague to derive checks from:** the check writer's existing disputes and the referee apply; the specifier is told to state each rule with an example.
+
+## Decisions made during implementation
+
+- **The specifier runs before everything, in plain code** (`teams/specifier.py`, `specify:` in the config): until the specification is on the base level, a project step runs only the specifier, so no planner or builder ever sees a project without one. It drafts once; a person may edit `docs/spec.md` afterwards like any file.
+- **Questions with defaults, answered or not:** the draft lists up to `max_questions` open questions, each with the default it wrote into the specification. Without an answerer the defaults stand (arm B). A simulated user (arm C) answers from the reference alone and must quote it; plain code checks the quote is in the reference word for word, and an answer without one counts as "not specified". With any answer, the specifier revises the whole draft once. The questions and answers are kept at the end of the specification, so builders and referees see what was decided and why.
+- **A person answering** (by escalation, `agentswarm answer`) is left for later: in real use the person can read and edit the drafted `docs/spec.md` before the building starts; the experiment needs only arms B and C.
+- **The experiment:** `examples/jsonpath-goal/goal.yaml` (B) and `asked.yaml` (C), a seed without the RFC (`import-jsonpath` without `--rfc`), the same teams and hidden tests as the RFC run (A, 99%); Sol via OpenRouter; local models left out (on the back burner).

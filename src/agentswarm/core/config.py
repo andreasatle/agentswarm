@@ -295,6 +295,19 @@ class HardeningConfig(Strict):
     max_model_calls: int = Field(default=30, gt=0)  # per attack
 
 
+class SpecifyConfig(Strict):
+    """The project's specification, drafted from its goal before anything is built (docs/design/goals.md)."""
+
+    goal: str  # what the user asked for, a line or two
+    model: str  # the specifier's model, a name in `models`
+    path: str = "docs/spec.md"  # where the specification goes; the teams' `spec` names it
+    max_questions: int = Field(default=10, ge=0)  # open questions asked
+    # A simulated user who has read this reference answers the questions from it alone (the experiment);
+    # without one the draft's defaults stand
+    answerer: str | None = None  # a name in `models`
+    reference: Path | None = None
+
+
 class ReviewConfig(Strict):
     """Reviewers attack a finished document, one section and perspective at a time, until a round confirms
     nothing new (docs/design/documents.md). Each confirmed finding becomes a writer's task."""
@@ -452,6 +465,7 @@ class ProjectConfig(Strict):
     hardening: HardeningConfig | None = None  # red teams attack the product until nothing new is found
     questions: QuestionsConfig | None = None  # a document's hidden questions, measured like `score`
     review: ReviewConfig | None = None  # reviewers attack a finished document until nothing new is found
+    specify: SpecifyConfig | None = None  # the specification drafted from the goal, before the building
 
     @model_validator(mode="before")
     @classmethod
@@ -514,6 +528,12 @@ class ProjectConfig(Strict):
             for model in (self.questions.reader, self.questions.grader):
                 if model not in self.models:
                     raise ValueError(f"questions use undefined model {model!r}")
+        if self.specify is not None:
+            for model in (self.specify.model, self.specify.answerer):
+                if model is not None and model not in self.models:
+                    raise ValueError(f"specify uses undefined model {model!r}")
+            if (self.specify.answerer is None) != (self.specify.reference is None):
+                raise ValueError("a simulated user needs both `answerer` and `reference`")
         if self.review is not None:
             for model in (self.review.model, self.review.referee):
                 if model not in self.models:

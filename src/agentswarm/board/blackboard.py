@@ -43,6 +43,7 @@ from agentswarm.core.domain import (
     Scored,
     SignedOff,
     Sized,
+    Specified,
     Spent,
     TeamName,
     ToolsUsed,
@@ -120,6 +121,8 @@ class BoardViews:
             case Sized():
                 if not event.fits:
                     self._umbrellas.add(event.artifact)
+            case Specified():
+                pass  # recorded for the report; the specification itself is in the repository
             case Scored():
                 self._scores.append(event)
                 self._scored_at = len(self._attacks)

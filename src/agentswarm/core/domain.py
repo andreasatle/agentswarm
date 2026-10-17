@@ -465,6 +465,24 @@ class Tally(Frozen):
         return self.passed / self.total if self.total else None
 
 
+class Specified(Frozen):
+    """The specifier drafted the project's specification from its goal and committed it on the base level
+    (docs/design/goals.md); the building starts after this."""
+
+    kind: Literal["specified"] = "specified"
+    path: str
+    commit: str
+    model: str | None
+    sections: int = Field(ge=0)
+    questions: tuple[str, ...]  # what the draft had to assume, asked
+    answered: int = Field(ge=0)  # of those, answered (the rest kept the draft's default)
+    characters: int = Field(ge=0)
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
 class QuestionOutcome(Frozen):
     """One hidden question at one score: whether the reader answered it correctly from the document."""
 
@@ -684,6 +702,7 @@ type Event = Annotated[
     | CheckDisputed
     | Attacked
     | Reconsidered
+    | Specified
     | Paused
     | Resumed
     | Spent

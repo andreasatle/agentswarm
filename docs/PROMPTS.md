@@ -41,6 +41,9 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Acceptance tester: tests written before the work (also its benchmark probe)](#acceptance-tester-tests-written-before-the-work-also-its-benchmark-probe) | `acceptance_tester` | `AcceptAnswer` |
 | [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
+| [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
+| [Specifier: revises the draft with the answers to its questions](#specifier-revises-the-draft-with-the-answers-to-its-questions) | (`Specifier`) | `SpecDraft` |
+| [Simulated user (experiments): answers the specifier's question from a reference, quoting it](#simulated-user-experiments-answers-the-specifiers-question-from-a-reference-quoting-it) | (`Specifier`) | `UserAnswer` |
 | [Reviewer (documents): reviews one section from one perspective, with quotes as evidence](#reviewer-documents-reviews-one-section-from-one-perspective-with-quotes-as-evidence) | (`ReviewCampaign`) | `ReviewFindings` |
 | [Referee: rules on a document reviewer's finding before it becomes a revision](#referee-rules-on-a-document-reviewers-finding-before-it-becomes-a-revision) | (`Referee`) | `FindingAnswer` |
 | [Reader (scoring a document): answers a hidden question from the document alone](#reader-scoring-a-document-answers-a-hidden-question-from-the-document-alone) | (`QuestionScore`) | `ReaderAnswer` |
@@ -1670,6 +1673,386 @@ class ReportAnswer(Frozen):
 ### What happens to the answer
 
 `Referee`: 
+
+## Specifier: drafts the specification from the goal, with the questions it had to assume
+
+### Specifier
+
+`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+
+```text
+You write the specification for a software project from its goal, before anything is built. Builders will
+implement it, another team will derive tests from it, and a referee will settle disputes by quoting it, so it
+must be precise enough to decide what is right for any input.
+
+- Write it in sections, in the order a reader needs them: the interface first, then the rules, then errors.
+- State each rule exactly, with an example or two (input and the expected result). Say what must be rejected,
+  and how.
+- Where the goal leaves something open, decide it, write it into the specification, and list it as an open
+  question with the default you chose. List the questions whose answers would change the most, at most the
+  number in the data.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "goal": "A greeter: hello(name) greets by name.",
+  "north_star": "A small greeting library",
+  "max_questions": 10
+}
+</data>
+```
+
+### Payload types
+
+```python
+class DraftRequest(Frozen):
+    """The payload a specifier receives."""
+
+    goal: str
+    north_star: str
+    max_questions: int
+```
+
+### Answer
+
+```python
+class SpecDraft(Frozen):
+    """The specification, in sections, and what it had to assume."""
+
+    title: str
+    sections: tuple[SpecPart, ...] = Field(min_length=1)
+    questions: tuple[OpenQuestion, ...] = ()
+
+
+class SpecPart(Frozen):
+    title: str = Field(description="the section's heading, without '#'")
+    text: str = Field(description="the section: each rule stated precisely, each with an example or two")
+
+
+class OpenQuestion(Frozen):
+    question: str = Field(description="what the goal leaves open, as a question a user could answer briefly")
+    default: str = Field(description="what the draft assumes until it is answered")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "OpenQuestion": {
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "description": "what the goal leaves open, as a question a user could answer briefly",
+          "title": "Question",
+          "type": "string"
+        },
+        "default": {
+          "type": "string",
+          "description": "what the draft assumes until it is answered",
+          "title": "Default"
+        }
+      },
+      "required": [
+        "question",
+        "default"
+      ],
+      "title": "OpenQuestion",
+      "type": "object"
+    },
+    "SpecPart": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "the section's heading, without '#'",
+          "title": "Title",
+          "type": "string"
+        },
+        "text": {
+          "description": "the section: each rule stated precisely, each with an example or two",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "text"
+      ],
+      "title": "SpecPart",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The specification, in sections, and what it had to assume.",
+  "properties": {
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/SpecPart"
+      },
+      "minItems": 1,
+      "title": "Sections",
+      "type": "array"
+    },
+    "questions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/OpenQuestion"
+      },
+      "title": "Questions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "sections"
+  ],
+  "title": "SpecDraft",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+
+## Specifier: revises the draft with the answers to its questions
+
+### Specifier
+
+`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+
+```text
+You revise a software project's specification with the answers to the questions it left open. Change what the
+answers decide; where an answer is "not specified", keep the default. Keep everything else, and keep it as
+precise: each rule stated exactly, with examples. Give the whole revised specification, with no questions.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "goal": "A greeter: hello(name) greets by name.",
+  "draft": "# Greeter\n\n## Interface\n\nhello(name) returns 'Hi, <name>': hello('Ada') == 'Hi, Ada'.",
+  "answers": [
+    {
+      "question": "What exactly does the greeting say?",
+      "answer": "'Hello, <name>!'"
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class ReviseRequest(Frozen):
+    """The payload a specifier receives to revise its draft with the answers."""
+
+    goal: str
+    draft: str  # the draft as Markdown
+    answers: tuple[Answer, ...]
+
+
+class Answer(Frozen):
+    question: str
+    answer: str  # "not specified" when nobody answered, or the reference is silent
+```
+
+### Answer
+
+```python
+class SpecDraft(Frozen):
+    """The specification, in sections, and what it had to assume."""
+
+    title: str
+    sections: tuple[SpecPart, ...] = Field(min_length=1)
+    questions: tuple[OpenQuestion, ...] = ()
+
+
+class SpecPart(Frozen):
+    title: str = Field(description="the section's heading, without '#'")
+    text: str = Field(description="the section: each rule stated precisely, each with an example or two")
+
+
+class OpenQuestion(Frozen):
+    question: str = Field(description="what the goal leaves open, as a question a user could answer briefly")
+    default: str = Field(description="what the draft assumes until it is answered")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "OpenQuestion": {
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "description": "what the goal leaves open, as a question a user could answer briefly",
+          "title": "Question",
+          "type": "string"
+        },
+        "default": {
+          "type": "string",
+          "description": "what the draft assumes until it is answered",
+          "title": "Default"
+        }
+      },
+      "required": [
+        "question",
+        "default"
+      ],
+      "title": "OpenQuestion",
+      "type": "object"
+    },
+    "SpecPart": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "the section's heading, without '#'",
+          "title": "Title",
+          "type": "string"
+        },
+        "text": {
+          "description": "the section: each rule stated precisely, each with an example or two",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "text"
+      ],
+      "title": "SpecPart",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The specification, in sections, and what it had to assume.",
+  "properties": {
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/SpecPart"
+      },
+      "minItems": 1,
+      "title": "Sections",
+      "type": "array"
+    },
+    "questions": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/OpenQuestion"
+      },
+      "title": "Questions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "sections"
+  ],
+  "title": "SpecDraft",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+
+## Simulated user (experiments): answers the specifier's question from a reference, quoting it
+
+### Specifier
+
+`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+
+```text
+You are the user who set a software project's goal, and you have read the reference in the data. Answer the
+question from the reference alone, briefly, and quote its exact words. If the reference doesn't decide it,
+answer "not specified" and leave the quote empty: don't guess, and don't add anything the reference doesn't
+say.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "question": "What exactly does the greeting say?",
+  "reference": "hello(name) returns 'Hello, ' followed by the name and '!'."
+}
+</data>
+```
+
+### Payload types
+
+```python
+class AnswerRequest(Frozen):
+    """The payload a simulated user receives: one question, and the reference they have read."""
+
+    question: str
+    reference: str
+```
+
+### Answer
+
+```python
+class UserAnswer(Frozen):
+    """Your answer, from the reference alone."""
+
+    answer: str = Field(description="a brief answer; 'not specified' if the reference doesn't say")
+    quote: str = Field(description="the reference's exact words the answer rests on; empty if not specified")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your answer, from the reference alone.",
+  "properties": {
+    "answer": {
+      "description": "a brief answer; 'not specified' if the reference doesn't say",
+      "title": "Answer",
+      "type": "string"
+    },
+    "quote": {
+      "description": "the reference's exact words the answer rests on; empty if not specified",
+      "title": "Quote",
+      "type": "string"
+    }
+  },
+  "required": [
+    "answer",
+    "quote"
+  ],
+  "title": "UserAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
 
 ## Reviewer (documents): reviews one section from one perspective, with quotes as evidence
 

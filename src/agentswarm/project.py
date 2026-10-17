@@ -44,6 +44,7 @@ from agentswarm.teams.hardening import Hardener
 from agentswarm.teams.referee import Referee
 from agentswarm.teams.review import ReviewCampaign
 from agentswarm.teams.runner import TeamRunner
+from agentswarm.teams.specifier import Specifier
 from agentswarm.workspace.git import Git, Repository
 from agentswarm.workspace.lock import RootIdentity, RootLock
 from agentswarm.workspace.sandbox import Sandboxes
@@ -92,7 +93,9 @@ class Project:
         worklist: Worklist | None = None,
         campaigns: Sequence[Campaign] = (),
         progress: Measure | None = None,
+        specifier: Specifier | None = None,
     ) -> None:
+        self._specifier = specifier  # drafts the specification from the goal before anything is built
         self._worklist = worklist
         self.progress = progress  # the definition of done as numbers: tests or hidden questions
         self._campaigns = tuple(campaigns)  # red teams and reviewers, attacking once the builders are idle
@@ -273,6 +276,22 @@ class Project:
             )
             questions = HiddenQuestions(asked.path.expanduser())
             progress = QuestionProgress(questions, score, repository, config.levels.base)
+        specifier = None
+        if config.specify is not None:
+            specifying = config.specify
+            reference = specifying.reference.expanduser().read_text() if specifying.reference else ""
+            specifier = Specifier(
+                specifying,
+                config.north_star,
+                board,
+                repository,
+                config.levels,
+                workers.worker(specifying.model, 1, metered("specifier", specifying.model)),
+                workers.worker(specifying.answerer, 1, metered("user", specifying.answerer))
+                if specifying.answerer is not None
+                else None,
+                reference,
+            )
         campaigns: list[Campaign] = []
         if config.hardening is not None:
             hardening = config.hardening
@@ -338,6 +357,7 @@ class Project:
             worklist,
             campaigns,
             progress,
+            specifier,
         )
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
@@ -346,6 +366,8 @@ class Project:
 
     async def step(self) -> int:
         """Run every team, gate and controller (outcome recorder included) once. Returns the actions taken."""
+        if self._specifier is not None and not self._specifier.done():
+            return await self._specifier.step()  # nothing is planned or built before the specification
         actions = 0
         for runner in self._runners:
             actions += await runner.step()
