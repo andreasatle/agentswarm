@@ -104,3 +104,21 @@ Per perspective: coverage 20 of 21 confirmed, reader 19 of 20, facts 4 of 4, con
 **Retrace:** every merged version of the four-perspective arm (12 versions) re-scored question by question. The first version scored 8 here and 10 when the arm ran: same text. Of the 22 questions, 4 were always answered and 6 never; the other 12 flipped 2 to 7 times across the versions, including every question about a paper whose section no revision touched. One reading per question at the models' default temperature varied by about two questions on the same text, as large as any revision's effect: neither arm's result could be read.
 
 **Fixed:** the reader and grader have their own model entries at temperature 0, and each question is decided by the majority of three readings, stopping once two agree (`questions.votes`). Three scores of the same guide then gave 10, 9, 10: the noise is down to about one question, not gone (the grader reasons before it answers, and temperature 0 doesn't make that fully repeatable). A comparison now needs an effect of more than two questions, or more questions; the next run should use more papers, so one question weighs less than 4.5 points.
+
+## Ten papers (2026-10-17, about $5.30 with the false starts)
+
+**Setup:** ten summarization papers (220,000 characters), 44 questions of which 8 were dropped as answerable from memory (36 kept), a 4,000-word cap. One task for the whole guide ran out of steps twice ($0.31: first a clash between the executor's guard against repeated reads and the context trimming that tells the model to read again, fixed; then simply too much reading for one task), so the guide was built as one task per paper plus an introduction: 11 tasks, all merged, $0.22, 2,928 words.
+
+**A false start:** the OpenAI account ran out of credits, every review by Sol was refused, and the refusals counted as quiet attacks until the campaign called itself done. Fixed: a failed call is no attack, three in a row stop the run with a notice; Sol via OpenRouter.
+
+**The arms, $1.75 each:** four perspectives made 35 reviews (round 1 not finished), 30 reported, 26 confirmed, 25 merged; one broad reviewer made 19 reviews (2 rounds), 30 reported, 29 confirmed, 27 merged. Both filled the 4,000-word cap.
+
+**One more flaw in the measure:** questions flipped with no change to the text, because the reader wasn't told which of the ten papers a question was about ("which is the baseline?" got "it depends on the paper"). Fixed: each question names its paper. Scored again, twice each:
+
+| Guide | Score 1 | Score 2 |
+| --- | --- | --- |
+| Built, before reviews | 18 / 36 | 15 / 36 |
+| After four perspectives | 19 / 36 | 19 / 36 |
+| After one broad reviewer | 17 / 36 | 17 / 36 |
+
+**What it says:** the four perspectives come out about two to three questions above the starting guide and the broad reviewer about one, but the same starting guide scored 18 and 15: the difference is suggestive, not shown. Naming the paper raised every score by about seven questions: most of the earlier "low" scores were the measure's fault. To decide the question, a run would score each version several times (the cost of scoring is now a large share of a run) and give the perspectives the budget to finish two rounds.
