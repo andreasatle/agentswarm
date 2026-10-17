@@ -269,6 +269,7 @@ class Project:
             score = QuestionScore(
                 workers.worker(asked.reader, 1, metered("reader", asked.reader)),
                 workers.worker(asked.grader, 1, metered("grader", asked.grader)),
+                asked.votes,
             )
             questions = HiddenQuestions(asked.path.expanduser())
             progress = QuestionProgress(questions, score, repository, config.levels.base)

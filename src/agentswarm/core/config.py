@@ -430,6 +430,7 @@ class QuestionsConfig(Strict):
     path: Path  # the questions file, e.g. ~/agentswarm-data/guide/out/held_out/questions.json
     reader: str  # a name in `models`: answers from the document alone
     grader: str  # a name in `models`: compares each answer with the references
+    votes: int = Field(default=3, ge=1)  # readings per question, decided by the majority
 
 
 class ProjectConfig(Strict):

@@ -129,3 +129,27 @@ class TestQuestionTrace:
         assert "  .x  p1 Which dataset?" in text and "  x.  p1 Is it fast?" in text
         assert "gained: Which dataset? -> 'PTB'" in text and "lost: Is it fast?" in text
         assert f"merged {task.id}: Revise sections/01.md: name the dataset" in text
+
+
+class TestVotes:
+    def test_a_question_is_decided_by_the_majority_of_its_readings(self) -> None:
+        class Flaky:
+            """Answers right, then wrong, then right."""
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def run[T: BaseModel](
+                self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
+            ) -> T:
+                self.calls += 1
+                answer = ReaderAnswer(found=True, answer="PTB" if self.calls != 2 else "WSJ")
+                assert isinstance(answer, output)
+                return answer
+
+        reader = Flaky()
+        outcome = asyncio.run(QuestionScore(reader, Grader(), votes=3).answered("doc", [DATASET]))[0]
+        assert (outcome.correct, outcome.answer, reader.calls) == (True, "PTB", 3)
+        steady = Reader({})
+        asyncio.run(QuestionScore(steady, Grader(), votes=3).answered("Which dataset?: PTB", [DATASET]))
+        assert steady.calls == 2  # two agreeing readings decide: the third isn't asked

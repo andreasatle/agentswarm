@@ -70,7 +70,9 @@ class GradeAnswer(Frozen):
 
 
 class QuestionScore:
-    """Puts questions to a reader and grades its answers; one reader call and one grader call each."""
+    """Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times
+    and decided by the majority, stopping once one side has it: one reading each varied by about two
+    questions in 22 on the same text, as large as any revision's effect (2026-10-16)."""
 
     READ = """\
 You answer a question about some research papers using only the document in the data. Don't use anything
@@ -90,16 +92,17 @@ read the paper. Any one reference may be the right one; they can differ in detai
   numbers, or the same yes or no. Wording doesn't matter; a vaguer answer that misses what the reference
   states is not correct, and neither is one that adds a claim contradicting it."""
 
-    def __init__(self, reader: Worker, grader: Worker) -> None:
+    def __init__(self, reader: Worker, grader: Worker, votes: int = 1) -> None:
         self._reader = reader
         self._grader = grader
+        self._votes = votes
 
     async def answered(self, document: str, questions: Sequence[HiddenQuestion]) -> list[QuestionOutcome]:
         """Each question, answered by the reader from the document alone, and graded."""
         found: list[QuestionOutcome] = []
         for question in questions:
             request = ReadingRequest(document=document, question=question.question)
-            correct, answer = await self.graded(self.READ, request, question)
+            correct, answer = await self.decided(self.READ, request, question)
             found.append(QuestionOutcome(id=question.id, correct=correct, answer=answer))
         return found
 
@@ -110,8 +113,21 @@ read the paper. Any one reference may be the right one; they can differ in detai
             request = MemoryRequest(
                 paper=titles.get(question.paper, question.paper), question=question.question
             )
-            found.append((await self.graded(self.REMEMBER, request, question))[0])
+            found.append((await self.decided(self.REMEMBER, request, question))[0])
         return found
+
+    async def decided(
+        self, instructions: str, request: BaseModel, question: HiddenQuestion
+    ) -> tuple[bool, str]:
+        """The majority of up to `votes` gradings, and an answer on the winning side."""
+        needed = self._votes // 2 + 1
+        verdicts: list[tuple[bool, str]] = []
+        while len(verdicts) < self._votes:
+            verdicts.append(await self.graded(instructions, request, question))
+            for side in (True, False):
+                if sum(v == side for v, _ in verdicts) >= needed:
+                    return side, next(a for v, a in verdicts if v == side)
+        return verdicts[-1]
 
     async def graded(
         self, instructions: str, request: BaseModel, question: HiddenQuestion

@@ -20,6 +20,10 @@ models:
   haiku55: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
   gpt-sol: {model: "openai:gpt-6.1-sol", max_tokens: 32768, usd_per_million: {input: 2.0, output: 10.0, cache_read: 0.1}}
   referee: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
+  # The scorer's own entries, at temperature 0: a reading at the default varied by about two questions in 22 on
+  # the same text (2026-10-16); each question is also decided by the majority of three readings (`votes`).
+  reader: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 4096, temperature: 0, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {cache_read: 0.01, input: 0.1, output: 0.5}}
+  grader: {api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 4096, temperature: 0, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {cache_read: 0.022, input: 0.66, output: 1.98}}
 checks:
   check_doc: {command: [python, tools/check_doc.py], kind: build_failure, timeout_s: 60}
 teams:
@@ -38,7 +42,7 @@ teams:
       - "Cite every factual statement with the paper it comes from, like [@1909.00694], naming a file in sources/ without its extension."
 gates:
   - {from: draft, to: reviewed, hard_checks: [check_doc]}
-questions: {path: ~/agentswarm-data/guide/held_out/questions.json, reader: haiku55, grader: referee}
+questions: {path: ~/agentswarm-data/guide/held_out/questions.json, reader: reader, grader: grader, votes: 3}
 review:
   model: gpt-sol
   referee: referee
