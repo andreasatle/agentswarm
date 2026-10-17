@@ -102,6 +102,12 @@ Then **YAML without labels** (97%), the self-supervised case.
 
 **Fixed (2026-10-16):** a report may quote up to three passages, each checked word for word, and the referee sees each in its context; the reports the referee rejects are recorded (`Attacked.rejected`) and the latest 20 are shown to every later attack with the referee's reason, to be raised again only with new evidence that answers it (a rejection can be wrong, and rare finds are the point).
 
+## Combination focus on jq (2026-10-17, $4.72): held out 93% to 94%
+
+**Result:** 17 combination attacks (one whole round of 11 sections and six of the next) before the budget ended it. 20 reported, 8 confirmed, 8 fixed and merged; held out 116 to 117 of 125; visible 946 to 996, all passing. The reconsider guard didn't fire (no fix failed on every model).
+
+**What it says:** the combination focus works on a second problem, at about the section focus's later-round yield (8 confirmed per round, one held-out test per $5). On YAML it gave the first gain; on jq, after five rounds of other focuses, the remaining 8 held-out failures are narrow cases that any focus reaches only by chance. Over the jq campaign: 87% to 94% held out for about $19, and 446 new protected tests.
+
 ## What gets built
 
 | Part | Size | Exists? |
