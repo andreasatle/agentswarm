@@ -85,7 +85,7 @@ teams:
 gates:
   - {from: raw, to: experimental, hard_checks: [spec, own-parser, layout]}
 score: {check: spec, held_out: [~/agentswarm-data/jsonpath/goal/held_out]}  # all 715 tests, never shown
-budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # one arm, after a yes
+budgets: {usd_per_day: 5.0, reserve_usd: 0.3}  # 2026-10-17: arm B, $5 approved
 supervisor: {stall_after_minutes: 60}
 jev: {mode: shadow, active: ["size:*", "route:*"]}
 specify:
