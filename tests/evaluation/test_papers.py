@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -87,6 +88,25 @@ class TestArxivSearch:
         assert found.abstract == "Process supervision beats outcome supervision."
 
 
+class TestCandidate:
+    def test_the_reference_comes_from_the_record(self) -> None:
+        r1 = Candidate(
+            id="2501.12948",
+            title="DeepSeek-R1",
+            authors=("DeepSeek-AI", "Daya Guo", *(f"A{n} B{n}" for n in range(10))),
+            year=2025,
+            abstract="",
+        )
+        reference = r1.reference("2501-12948")
+        assert reference.year == "2025" and reference.short == "DeepSeek-AI et al., 2025"
+        assert reference.authors.startswith("DeepSeek-AI, Guo, D., B0, A.") and reference.authors.endswith(
+            "et al."
+        )
+        assert reference.venue == "arXiv preprint 2501.12948"
+        two = Candidate(id="1", title="T", authors=("Ann Lee", "Bo Kim"), year=2020, abstract="")
+        assert two.reference("1").short == "Lee and Kim, 2020"
+
+
 class TestPaperFinder:
     async def test_candidates_from_every_query_are_pooled_once(self, tmp_path: Path) -> None:
         search = FakeSearch({"verifiers": [paper("1"), paper("2")], "search": [paper("2"), paper("3")]})
@@ -95,6 +115,8 @@ class TestPaperFinder:
         assert [c.id for c in asked[0].candidates] == ["1", "2", "3"]
         assert [f.paper.id for f in picked] == ["3", "1"]  # in the picker's order
         assert search.downloaded == ["3", "1"] and (tmp_path / "3.pdf").is_file()
+        records = [Candidate.model_validate(r) for r in json.loads((tmp_path / "papers.json").read_text())]
+        assert [r.id for r in records] == ["3", "1"]
 
     async def test_known_titles_come_first_and_only_when_found(self, tmp_path: Path) -> None:
         verify = paper("2305.20050", "Let's Verify Step by Step")
@@ -132,6 +154,21 @@ class TestDocumentFiles:
             (tmp_path / name).write_text("x")
         extra = tmp_path.parent / "extra.txt"
         assert DocumentImport.files([tmp_path, extra]) == [tmp_path / "a.pdf", tmp_path / "b.pdf", extra]
+
+    def test_an_arxiv_record_beside_a_paper_becomes_its_reference_in_the_seed(self, tmp_path: Path) -> None:
+        papers = tmp_path / "papers"
+        papers.mkdir()
+        (papers / "2501.12948.txt").write_text("DeepSeek-R1, a paper dated 2026 on its title page.")
+        (papers / "other.txt").write_text("A paper without a record.")
+        record = Candidate(
+            id="2501.12948", title="DeepSeek-R1", authors=("DeepSeek-AI",), year=2025, abstract=""
+        )
+        (papers / PaperFinder.RECORDS).write_text(json.dumps([record.model_dump()]))
+        files = DocumentImport.files([papers])
+        assert [f.name for f in files] == ["2501.12948.txt", "other.txt"]
+        DocumentImport(files, tmp_path / "out", "A tutorial.", perspectives=(), approve=False).write()
+        given = json.loads((tmp_path / "out" / "document" / "seed" / "docs" / "references.json").read_text())
+        assert [(r["document"], r["year"]) for r in given] == [("2501-12948", "2025")]
 
     def test_the_template_models_load(self) -> None:
         assert "planner" in DocumentImport.models()

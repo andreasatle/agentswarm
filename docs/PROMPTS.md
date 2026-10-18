@@ -2189,8 +2189,42 @@ class Candidate(Frozen):
     id: str  # arXiv's, without the version: 2305.20050
     title: str
     authors: tuple[str, ...]
-    year: int
+    year: int  # of its first version: a later version's PDF carries a later date (DeepSeek-R1 read as 2026)
     abstract: str
+
+    LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
+
+    def reference(self, document: str) -> Reference:
+        """The paper as a bibliography gives it, from arXiv's record rather than a model's reading."""
+        surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
+        listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
+        authors = listed + (", et al." if len(self.authors) > self.LISTED else "")
+        if len(surnames) == 1:
+            short = f"{surnames[0]}, {self.year}"
+        elif len(surnames) == 2:
+            short = f"{surnames[0]} and {surnames[1]}, {self.year}"
+        else:
+            short = f"{surnames[0]} et al., {self.year}"
+        return Reference(
+            document=document,
+            authors=authors,
+            title=self.title,
+            year=str(self.year),
+            venue=f"arXiv preprint {self.id}",
+            short=short,
+        )
+
+    @staticmethod
+    def surname(author: str) -> str:
+        return author.split()[-1] if author.split() else author
+
+    @classmethod
+    def initialled(cls, author: str) -> str:
+        """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") as it is."""
+        names = author.split()
+        if len(names) < 2:
+            return author
+        return f"{names[-1]}, " + " ".join(f"{n[0]}." for n in names[:-1])
 ```
 
 ### Answer

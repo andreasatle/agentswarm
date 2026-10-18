@@ -10,6 +10,7 @@ those the user adds by hand.
 """
 
 import asyncio
+import json
 import re
 import time
 import urllib.parse
@@ -21,6 +22,7 @@ from typing import ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentswarm.core.domain import Reference
 from agentswarm.llm.workers import Worker
 
 
@@ -32,8 +34,42 @@ class Candidate(Frozen):
     id: str  # arXiv's, without the version: 2305.20050
     title: str
     authors: tuple[str, ...]
-    year: int
+    year: int  # of its first version: a later version's PDF carries a later date (DeepSeek-R1 read as 2026)
     abstract: str
+
+    LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
+
+    def reference(self, document: str) -> Reference:
+        """The paper as a bibliography gives it, from arXiv's record rather than a model's reading."""
+        surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
+        listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
+        authors = listed + (", et al." if len(self.authors) > self.LISTED else "")
+        if len(surnames) == 1:
+            short = f"{surnames[0]}, {self.year}"
+        elif len(surnames) == 2:
+            short = f"{surnames[0]} and {surnames[1]}, {self.year}"
+        else:
+            short = f"{surnames[0]} et al., {self.year}"
+        return Reference(
+            document=document,
+            authors=authors,
+            title=self.title,
+            year=str(self.year),
+            venue=f"arXiv preprint {self.id}",
+            short=short,
+        )
+
+    @staticmethod
+    def surname(author: str) -> str:
+        return author.split()[-1] if author.split() else author
+
+    @classmethod
+    def initialled(cls, author: str) -> str:
+        """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") as it is."""
+        names = author.split()
+        if len(names) < 2:
+            return author
+        return f"{names[-1]}, " + " ".join(f"{n[0]}." for n in names[:-1])
 
 
 class PaperSearch(Protocol):
@@ -175,6 +211,7 @@ another, and influential original work over surveys of it or small variations. U
 candidates. Order them as a reader should meet them, and say in one sentence what each adds."""
 
     QUERIES = 5
+    RECORDS = "papers.json"  # beside the PDFs, read by `learn` for the references
     PER_QUERY = 8
     KNOWN = 10
     CANDIDATES = 40  # known titles first; 2026-10-18: about 80 full abstracts cost $0.15 a pick on Sonnet
@@ -226,6 +263,8 @@ candidates. Order them as a reader should meet them, and say in one sentence wha
                 continue
             done.append(found.model_copy(update={"file": path}))
         (out / "papers.md").write_text(self.render(topic, done))
+        known = [f.paper.model_dump() for f in done if f.file is not None]
+        (out / self.RECORDS).write_text(json.dumps(known, indent=1) + "\n")  # each PDF's arXiv record
         return done
 
     @staticmethod

@@ -358,7 +358,7 @@ without its extension. The sources are the only source of facts.
                 draft = await self._worker.run(self.INSTRUCTIONS, request, BriefDraft)
             except WorkerError as error:
                 raise SpecifierError(f"the briefer failed: {error}") from error
-            references = tuple(
+            drafted = tuple(
                 Reference(
                     document=r.document,
                     authors=r.authors,
@@ -369,6 +369,8 @@ without its extension. The sources are the only source of facts.
                 )
                 for r in draft.references
             )
+            given = self.given(level.read(self.REFERENCES) if self.REFERENCES in level.files() else "")
+            references = self.merged(drafted, given)
             level.write(self._config.path, self.markdown(draft, sources, self._config.words))
             level.write(self.REFERENCES, json.dumps([r.model_dump() for r in references], indent=1) + "\n")
             commit = level.commit(f"briefer: {self._config.path} drafted from the goal")
@@ -396,6 +398,19 @@ without its extension. The sources are the only source of facts.
             )
         self._board.append(events)
         return 1
+
+    @staticmethod
+    def given(text: str) -> tuple[Reference, ...]:
+        """References that came with the sources (an arXiv record, from `find-papers`)."""
+        return tuple(Reference.model_validate(r) for r in json.loads(text)) if text.strip() else ()
+
+    @staticmethod
+    def merged(drafted: Sequence[Reference], given: Sequence[Reference]) -> tuple[Reference, ...]:
+        """A given reference replaces the drafted one for its document: a record beats a model's reading of
+        a title page (the PDF of DeepSeek-R1's second version is dated 2026, the paper 2025)."""
+        known = {r.document: r for r in given}
+        kept = [known.pop(r.document, r) for r in drafted]
+        return tuple(kept + list(known.values()))
 
     @classmethod
     def summary(cls, name: str, text: str) -> SourceSummary:

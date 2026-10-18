@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import ModelConfig
 from agentswarm.core.domain import Reference
+from agentswarm.evaluation.papers import Candidate, PaperFinder
 from agentswarm.evaluation.qasper import GuideImport
 
 
@@ -192,7 +193,7 @@ review:
                     p
                     for p in path.iterdir()
                     if p.is_file()
-                    and p.name != "papers.md"
+                    and p.name not in ("papers.md", PaperFinder.RECORDS)
                     and not p.name.startswith(".")
                     and p.name != "README.md"
                 )
@@ -200,13 +201,26 @@ review:
                 found.append(path)
         return found
 
+    @staticmethod
+    def record(path: Path) -> Candidate | None:
+        """The paper's arXiv record, when `find-papers` downloaded it (papers.json beside it)."""
+        records = path.parent / PaperFinder.RECORDS
+        if not records.is_file():
+            return None
+        found = [Candidate.model_validate(r) for r in json.loads(records.read_text())]
+        return next((c for c in found if c.id == path.stem), None)
+
     def write(self) -> DocumentSummary:
         texts: dict[str, str] = {}
+        known: list[Reference] = []
         for path in self._files:
             name = SourceText.slug(path.stem, 30)
             while any(n == name or n.startswith(f"{name}-") for n in texts):
                 name += "-2"
             texts.update(SourceParts.split(name, path.stem, SourceText.read(path)))
+            record = self.record(path)
+            if record is not None:
+                known.append(record.reference(name))
         projects: list[Path] = []
         for audience in self._audiences or ("",):
             folder = self._out / (self._folder or (SourceText.slug(audience) if audience else "document"))
@@ -216,6 +230,11 @@ review:
             for name, text in texts.items():
                 (seed / "sources" / f"{name}.md").write_text(text)
             (seed / "sections" / ".gitkeep").write_text("")
+            if known:  # the briefer's references give way to these (Briefer.REFERENCES)
+                (seed / "docs").mkdir(exist_ok=True)
+                (seed / "docs" / "references.json").write_text(
+                    json.dumps([r.model_dump() for r in known], indent=1) + "\n"
+                )
             (seed / "tools" / "check_doc.py").write_text(GuideImport.CHECK.format(words=self._words))
             goal = f"{self._goal} For this audience: {audience}." if audience else self._goal
             config = folder / "project.yaml"

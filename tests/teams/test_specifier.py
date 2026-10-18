@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import BriefConfig, SpecifyConfig
-from agentswarm.core.domain import Resumed, Specified
+from agentswarm.core.domain import Reference, Resumed, Specified
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.specifier import (
     AnswerRequest,
@@ -158,6 +158,16 @@ class TestBriefer:
         tasks = [a.task for a in h.board.current().artifacts()]
         assert tasks[0].startswith('Write sections/01-revenue.md, the section "Revenue"')
         assert "sources/plan.md" in tasks[1] and "At most 200 words" in tasks[1]
+
+    def test_a_given_reference_replaces_the_drafted_one_for_its_document(self) -> None:
+        def ref(document: str, year: str) -> Reference:
+            return Reference(document=document, authors="A", title="T", year=year, short=f"A, {year}")
+
+        merged = Briefer.merged(
+            [ref("r1", "2026"), ref("q3", "2024")], [ref("r1", "2025"), ref("new", "2020")]
+        )
+        assert [(r.document, r.year) for r in merged] == [("r1", "2025"), ("q3", "2024"), ("new", "2020")]
+        assert Briefer.given("") == ()
 
     def test_a_documents_first_part_shows_its_title_page(self) -> None:
         text = "# Paper, pages 1-12\n\n" + " ".join(f"w{n}" for n in range(400))
