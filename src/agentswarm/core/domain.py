@@ -489,6 +489,20 @@ class Briefed(Frozen):
         return None
 
 
+class SectionAssigned(Frozen):
+    """A writing task's section of the outline: which file, what it covers, from which sources. The writer
+    reads these sources itself and gives the section in one answer (docs/design/documents.md)."""
+
+    kind: Literal["section_assigned"] = "section_assigned"
+    artifact: ArtifactId
+    path: str  # the section's file, e.g. sections/03-the-technical-cause.md
+    section: OutlineEntry
+
+    @property
+    def subject(self) -> ArtifactId:
+        return self.artifact
+
+
 class Specified(Frozen):
     """The specifier drafted the project's specification from its goal and committed it on the base level
     (docs/design/goals.md); the building starts after this."""
@@ -728,6 +742,7 @@ type Event = Annotated[
     | Reconsidered
     | Specified
     | Briefed
+    | SectionAssigned
     | Paused
     | Resumed
     | Spent

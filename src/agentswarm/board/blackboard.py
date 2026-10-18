@@ -42,6 +42,7 @@ from agentswarm.core.domain import (
     Resumed,
     Routed,
     Scored,
+    SectionAssigned,
     SignedOff,
     Sized,
     Specified,
@@ -167,6 +168,7 @@ class BoardViews:
                 | AcceptanceRestored()
                 | CheckDisputed()
                 | Reconsidered()
+                | SectionAssigned()
                 | Unbuildable()
                 | Repaired()
             ):

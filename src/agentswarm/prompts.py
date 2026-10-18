@@ -69,7 +69,16 @@ from agentswarm.teams.analyzer import (
     TextTester,
 )
 from agentswarm.teams.decomposer import Decomposer, Split, SplitRequest
-from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
+from agentswarm.teams.documents import (
+    AudienceReviewer,
+    ConsistencyChecker,
+    FactChecker,
+    Outliner,
+    SectionRequest,
+    SectionText,
+    SourcePart,
+    Writer,
+)
 from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, ExecutorTeam, WorktreeToolbox
 from agentswarm.teams.hardening import AttackReport, AttackRequest, AttackToolbox, Hardener
 from agentswarm.teams.referee import (
@@ -256,6 +265,19 @@ class SampleData:
                 SourceSummary(name="hiring-plan", title="Hiring plan 2027", words=1800),
             ),
             words=1500,
+        )
+
+    @classmethod
+    def section(cls) -> SectionRequest:
+        return SectionRequest(
+            brief="# The brief: Challenger for engineers\n\n## Audience\n\nPracticing engineers ...",
+            file="sections/03-the-technical-cause.md",
+            title="The technical cause",
+            covers="The field joint, its O-rings, and why cold mattered.",
+            words=400,
+            sources=(SourcePart(name="rogers-07", text="# Rogers Commission Report, part 7 of 26\n\n..."),),
+            current="",
+            must_fix=(),
         )
 
     @classmethod
@@ -492,6 +514,14 @@ class PromptCatalogue:
                 Specifier,
                 SampleData.specify(),
                 SpecDraft,
+                None,
+            ),
+            CallFamily(
+                "Writer (documents): one section of the outline in one answer, from its sources",
+                (Caller("", Writer, Writer.SECTION),),
+                Writer,
+                SampleData.section(),
+                SectionText,
                 None,
             ),
             CallFamily(

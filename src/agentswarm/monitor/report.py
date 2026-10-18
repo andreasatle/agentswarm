@@ -35,6 +35,7 @@ from agentswarm.core.domain import (
     Resumed,
     Routed,
     Scored,
+    SectionAssigned,
     SignedOff,
     Sized,
     Specified,
@@ -115,6 +116,8 @@ class Report:
                     f'round {event.round}, {event.focus} attack on "{event.section}" by {event.model}: '
                     f"{event.reported} reported, {event.confirmed} confirmed{tasks}"
                 )
+            case SectionAssigned():
+                return f"section {event.path}: {event.section.title}, from {', '.join(event.section.sources)}"
             case Briefed():
                 parts = ", ".join(f"{e.title} ({e.words})" for e in event.outline)
                 return f"brief drafted by {event.model}: {event.path}, {len(event.outline)} sections: {parts}"

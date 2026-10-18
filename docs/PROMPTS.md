@@ -42,6 +42,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
+| [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionText` |
 | [Briefer: drafts a document's brief and outline from the goal and the sources](#briefer-drafts-a-documents-brief-and-outline-from-the-goal-and-the-sources) | (`Briefer`) | `BriefDraft` |
 | [Specifier: revises the draft with the answers to its questions](#specifier-revises-the-draft-with-the-answers-to-its-questions) | (`Specifier`) | `SpecDraft` |
 | [Simulated user (experiments): answers the specifier's question from a reference, quoting it](#simulated-user-experiments-answers-the-specifiers-question-from-a-reference-quoting-it) | (`Specifier`) | `UserAnswer` |
@@ -1824,6 +1825,104 @@ class OpenQuestion(Frozen):
 ### What happens to the answer
 
 `Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+
+## Writer (documents): one section of the outline in one answer, from its sources
+
+### Writer
+
+`agentswarm.teams.documents.Writer`
+
+```text
+You write one section of a document. The data holds the document's brief (who it is for, what it must do,
+its rules), what this section covers and its length, and the full text of the sources it draws on: the only
+source of facts.
+
+- Write the whole section file: a '## ' heading with the section's title, then the text.
+- Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
+- Cite every factual statement with the source it comes from, like [@name], using the names in the data.
+  State only what a source says.
+- One sentence per line. Stay within the word count.
+- If `current` holds the section already, revise it to fix everything in `must_fix`; keep what is right.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "brief": "# The brief: Challenger for engineers\n\n## Audience\n\nPracticing engineers ...",
+  "file": "sections/03-the-technical-cause.md",
+  "title": "The technical cause",
+  "covers": "The field joint, its O-rings, and why cold mattered.",
+  "words": 400,
+  "sources": [
+    {
+      "name": "rogers-07",
+      "text": "# Rogers Commission Report, part 7 of 26\n\n..."
+    }
+  ],
+  "current": "",
+  "must_fix": []
+}
+</data>
+```
+
+### Payload types
+
+```python
+class SectionRequest(Frozen):
+    """The payload a section writer receives: everything it needs, read by plain code."""
+
+    brief: str  # who the document is for, what it must do, its rules
+    file: str  # the section's file
+    title: str
+    covers: str
+    words: int  # at most
+    sources: tuple[SourcePart, ...]  # the only facts to use
+    current: str  # the section as it is now; empty when it is first written
+    must_fix: tuple[str, ...]  # what failed last time: the checks' report, a reviewer's finding
+
+
+class SourcePart(Frozen):
+    name: str  # as cited: [@name]
+    text: str
+```
+
+### Answer
+
+```python
+class SectionText(Frozen):
+    """The whole section file."""
+
+    text: str = Field(description="the section file: a '## ' heading, then the text, one sentence per line")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "The whole section file.",
+  "properties": {
+    "text": {
+      "description": "the section file: a '## ' heading, then the text, one sentence per line",
+      "title": "Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "title": "SectionText",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Writer`: 
 
 ## Briefer: drafts a document's brief and outline from the goal and the sources
 

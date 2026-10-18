@@ -18,7 +18,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.board.blackboard import Blackboard
 from agentswarm.core.config import BriefConfig, LevelLadder, SpecifyConfig
-from agentswarm.core.domain import Briefed, Event, OutlineEntry, Paused, Sized, Specified, TeamName
+from agentswarm.core.domain import (
+    Briefed,
+    Event,
+    OutlineEntry,
+    Paused,
+    SectionAssigned,
+    Sized,
+    Specified,
+    TeamName,
+)
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.referee import Referee
 from agentswarm.workspace.git import Repository
@@ -309,11 +318,9 @@ without its extension. The sources are the only source of facts.
             return 0  # the user reads the brief; `agentswarm resume` starts the writing
         brief = briefs[-1]
         for number, part in enumerate(brief.outline, 1):
-            task = self.task(number, part)
-            artifact = self._artifacts.create(task, self.NAME)
-            self._board.append(
-                [Sized(artifact=artifact.id, fits=True)]
-            )  # one section: the writer tries it whole
+            artifact = self._artifacts.create(self.task(number, part), self.NAME)
+            assigned = SectionAssigned(artifact=artifact.id, path=self.path(number, part), section=part)
+            self._board.append([assigned, Sized(artifact=artifact.id, fits=True)])  # tried whole
         return 1
 
     async def draft(self) -> int:
@@ -362,11 +369,15 @@ without its extension. The sources are the only source of facts.
             opening=" ".join(body.split()[: cls.OPENING]),
         )
 
-    def task(self, number: int, part: OutlineEntry) -> str:
+    @staticmethod
+    def path(number: int, part: OutlineEntry) -> str:
         slug = re.sub(r"[^a-z0-9]+", "-", part.title.lower()).strip("-")[:40] or "section"
+        return f"sections/{number:02d}-{slug}.md"
+
+    def task(self, number: int, part: OutlineEntry) -> str:
         sources = ", ".join(f"sources/{s}.md" for s in part.sources) or "the sources"
         return (
-            f'Write sections/{number:02d}-{slug}.md, the section "{part.title}" of the document '
+            f'Write {self.path(number, part)}, the section "{part.title}" of the document '
             f"{self._config.path} describes: {part.covers} Draw on {sources}. At most {part.words} words; "
             "cite every fact; follow the brief's rules."
         )

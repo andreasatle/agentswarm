@@ -170,6 +170,13 @@ class WorktreeToolbox:
 
     FINISH_AT: ClassVar[int] = 5  # with this few calls left, the model is told to make its edits and finish
 
+    def text(self, path: str) -> str | None:
+        """A file's whole text for plain code (not a tool: no limit, no line numbers); None if unreadable."""
+        try:
+            return self._worktree.read(path)
+        except (OSError, UnicodeDecodeError, UnsafePath):
+            return None
+
     def left(self) -> str:
         """About how many calls the model has left; a nudge to act when it is nearly out (agents that knew it
         acted sooner, instead of reading until the limit)."""
