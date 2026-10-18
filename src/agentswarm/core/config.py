@@ -237,6 +237,9 @@ class TeamConfig(Strict):
     ] = ()  # instead of `model`: cheap first, moving up a tier per rejection (§13.3)
     checks: tuple[str, ...] = ()  # checks the team may run while working, by name
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
+    # False: old tool results stay in the model's context. A writer needs every source it read in view at
+    # once: trimmed, it read the same parts again until its calls ran out, and wrote nothing (2026-10-18)
+    trim: bool = True
     # executors: independent attempts per action; the first that passes its checks is kept
     attempts: int = Field(default=1, ge=1)
     # executors with model_tiers: each failed attempt moves one tier up (a cascade: cheap models try first,

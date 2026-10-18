@@ -1843,8 +1843,8 @@ document against your brief.
   sources it draws on (by name, as listed), and give it a share of the length cap; the shares add up to at
   most the cap.
 - Long documents come as parts (pages or chunks of one document, each listed with its opening words). A
-  section's writer reads only the parts you name, so name the ones that hold what it covers, at most about
-  ten (some 40,000 words), not every part of a long document.
+  section's writer reads only the parts you name, and must hold them all in mind at once, so name the ones
+  that hold what it covers, at most six (some 24,000 words), not every part of a long document.
 - Every document should be used somewhere; leave one out only if the goal makes it irrelevant.
 ```
 

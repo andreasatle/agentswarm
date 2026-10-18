@@ -48,7 +48,9 @@ class ProbingReviewers:
     def __init__(self, probe: str) -> None:
         self._probe = probe
 
-    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+    def worker(
+        self, model: str, max_model_calls: int, meter: Meter | None = None, trim: bool = True
+    ) -> Worker:
         return ProbingReviewer(self._probe, meter)
 
 

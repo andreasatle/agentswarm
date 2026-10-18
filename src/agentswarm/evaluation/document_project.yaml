@@ -26,7 +26,8 @@ teams:
     routing: {{ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}}
     checks: [check_doc]
     max_model_calls: 40
-    attempts: 2
+    trim: false  # a writer keeps every source it read in view (trimmed, writers re-read until their calls ran out)
+    attempts: 3  # Haiku twice (the second told that nothing changed), then Sol
     climb: true
     repairs: 2
     constraints:

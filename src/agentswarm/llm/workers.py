@@ -126,7 +126,9 @@ class LangChainWorker:
         meter: Meter | None = None,
         context_window: int | None = None,  # known for local models: history is trimmed well inside it
         price: Price | None = None,  # decides whether clearing old tool results pays (`Trimming`)
+        trim: bool = True,  # False: old tool results stay (a writer needs every source it read in view)
     ) -> None:
+        self._trim = trim
         self._model = model
         self._max_model_calls = max_model_calls
         self._context_window = context_window
@@ -194,7 +196,7 @@ class LangChainWorker:
             response_format=output if self._native else ToolStrategy(output),
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
-                Trimming(self._price, self._context_window, self._max_model_calls),
+                *([Trimming(self._price, self._context_window, self._max_model_calls)] if self._trim else []),
                 *self.caching(),
             ],
         )
@@ -422,7 +424,9 @@ class FakeWorker:
 
 
 class WorkerProvider(Protocol):
-    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+    def worker(
+        self, model: str, max_model_calls: int, meter: Meter | None = None, trim: bool = True
+    ) -> Worker:
         """The worker for the named model in the project configuration; `meter` hears its token usage."""
         ...
 
@@ -431,13 +435,16 @@ class LangChainWorkers:
     def __init__(self, models: ChatModels) -> None:
         self._models = models
 
-    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+    def worker(
+        self, model: str, max_model_calls: int, meter: Meter | None = None, trim: bool = True
+    ) -> Worker:
         return LangChainWorker(
             self._models.get(model),
             max_model_calls,
             meter,
             self._models.context_window(model),
             self._models.price(model),
+            trim,
         )
 
 
@@ -447,5 +454,7 @@ class FakeWorkers:
     def __init__(self, workers: Mapping[str, Worker]) -> None:
         self._workers = workers
 
-    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+    def worker(
+        self, model: str, max_model_calls: int, meter: Meter | None = None, trim: bool = True
+    ) -> Worker:
         return self._workers[model]

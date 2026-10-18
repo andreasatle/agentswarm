@@ -57,7 +57,9 @@ class CostlyWorkers:
     def __init__(self, flight: Flight) -> None:
         self._flight = flight
 
-    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+    def worker(
+        self, model: str, max_model_calls: int, meter: Meter | None = None, trim: bool = True
+    ) -> Worker:
         return CostlyWorker(meter, self._flight)
 
 
@@ -70,7 +72,9 @@ class BrokenWorkers:
         ) -> T:
             raise ValueError("boom")
 
-    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+    def worker(
+        self, model: str, max_model_calls: int, meter: Meter | None = None, trim: bool = True
+    ) -> Worker:
         return self.Broken()
 
 

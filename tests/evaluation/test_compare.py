@@ -52,7 +52,9 @@ class FarewellWorkers:
     def __init__(self, word: str) -> None:
         self._word = word
 
-    def worker(self, model: str, max_model_calls: int, meter: Meter | None = None) -> Worker:
+    def worker(
+        self, model: str, max_model_calls: int, meter: Meter | None = None, trim: bool = True
+    ) -> Worker:
         return FarewellWorker(self._word, meter)
 
 

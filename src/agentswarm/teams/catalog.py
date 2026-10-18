@@ -78,7 +78,9 @@ class TeamResources:
         if not models:
             raise ValueError(f"team {team.use!r} needs a model; set `model:` or `model_tiers:`")
         return [
-            Tier(model, self._workers.worker(model, team.max_model_calls, self._meter(team, model)))
+            Tier(
+                model, self._workers.worker(model, team.max_model_calls, self._meter(team, model), team.trim)
+            )
             for model in models
         ]
 
@@ -122,7 +124,7 @@ class TeamResources:
         model = team.model or (team.model_tiers[0] if team.model_tiers else None)
         if model is None:
             raise ValueError(f"team {team.use!r} needs a model; set `model:` in its configuration")
-        return self._workers.worker(model, team.max_model_calls, self._meter(team, model))
+        return self._workers.worker(model, team.max_model_calls, self._meter(team, model), team.trim)
 
     def referee_for(self, team: TeamConfig) -> Referee | None:
         """The referee an executor's disputed tests go to, metered as its own team; None without one."""
