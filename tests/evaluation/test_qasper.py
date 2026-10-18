@@ -108,6 +108,11 @@ class TestGuideCheck:
         good = "## Tagging\n\nThe paper tags words [@1909.00001].\nIt uses little data [@1909.00001].\n"
         assert self.check(tmp_path / "out" / "seed", {"01-tagging.md": good}) == []
 
+    def test_abbreviations_and_page_citations_pass(self, qasper: Path, tmp_path: Path) -> None:
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=50).write()
+        line = "## Launch\n\nThe call began at 8:45 p.m. EST, as Dr. Lund said [@1909.00001, page 3].\n"
+        assert self.check(tmp_path / "out" / "seed", {"01-launch.md": line}) == []
+
     def test_uncited_unknown_long_and_crowded_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
         GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
         problems = self.check(

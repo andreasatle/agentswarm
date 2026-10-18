@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from agentswarm.core.domain import Instruction, OutlineEntry, SectionAssigned
 from agentswarm.llm.workers import FakeWorker, Toolbox
-from agentswarm.teams.documents import SectionRequest, SectionText, SectionWriting, Writer
+from agentswarm.teams.documents import Citations, SectionRequest, SectionText, SectionWriting, Writer
 from agentswarm.teams.executor import WorktreeToolbox
 from tests.support.harness import Harness
 
@@ -40,3 +40,35 @@ class TestSectionWriter:
         assert "below 53 F" in sent.sources[0].text and sent.brief.startswith("# The brief")
         assert len(worker.calls) == 1  # one answer, no tool loop
         worktree.remove()
+
+    async def test_a_section_far_over_its_budget_is_rewritten_once(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+        artifact = h.create(task="Write sections/03-cause.md")
+        worktree = h.repository.checkout_artifact(artifact)
+        long = SectionText(text="## Cause\n\n" + "word " * 20 + "[@rogers-07].")
+        short = SectionText(text="## Cause\n\nThe joint failed [@rogers-07].")
+        worker = FakeWorker([lambda _: long, lambda _: short])
+        entry = OutlineEntry(title="Cause", covers="the joint", sources=("rogers-07",), words=10)
+        request = SectionWriting(
+            north_star="a report",
+            instruction=Instruction(goal="Write sections/03-cause.md", must_fix=(), constraints=()),
+            files=(),
+            diff_summary="",
+            assignment=SectionAssigned(artifact=artifact.id, path="sections/03-cause.md", section=entry),
+        )
+        await Writer(worker, [], Harness.LADDER.lowest).work(worker, request, WorktreeToolbox(worktree, []))
+        again = worker.calls[1][1]
+        assert (
+            isinstance(again, SectionRequest) and "has 21 words; it may have at most 10" in again.must_fix[-1]
+        )
+        assert worktree.read("sections/03-cause.md") == "## Cause\n\nThe joint failed [@rogers-07].\n"
+        worktree.remove()
+
+
+class TestCitations:
+    def test_a_page_cited_as_a_source_points_to_the_part_that_holds_it(self) -> None:
+        names = ["report-p001", "report-p118", "report-p136", "memo"]
+        text = "It failed [@report-p123]. See [@report-p118] and [@memo]. Odd [@other-p005]."
+        assert Citations.mend(text, names) == (
+            "It failed [@report-p118, page 123]. See [@report-p118] and [@memo]. Odd [@other-p005]."
+        )

@@ -1839,8 +1839,9 @@ source of facts.
 
 - Write the whole section file: a '## ' heading with the section's title, then the text.
 - Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
-- Cite every factual statement with the source it comes from, like [@name], using the names in the data.
-  State only what a source says.
+- Cite every factual statement with the source it comes from, like [@name], using the names in the data
+  exactly. Where a source marks its pages ([page 121]), name the page too: [@name, page 121]. State only
+  what a source says.
 - One sentence per line. Stay within the word count.
 - If `current` holds the section already, revise it to fix everything in `must_fix`; keep what is right.
 ```

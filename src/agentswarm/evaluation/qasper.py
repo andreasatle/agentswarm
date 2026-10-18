@@ -176,8 +176,11 @@ import sys
 from pathlib import Path
 
 WORDS = {words}
-CITATION = re.compile(r"\\[@([^\\]\\s]+)\\]")
+CITATION = re.compile(r"\\[@([^\\],\\s]+)(?:,[^\\]]*)?\\]")  # [@name] or [@name, page 121]
 TWO_SENTENCES = re.compile(r"[.!?] +[A-Z]")
+# Abbreviations end in a dot without ending the sentence: a.m., p.m., U.S., Dr., e.g.
+TITLES = "Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|cf|al|Inc|Co|Corp|Ltd"
+ABBREVIATIONS = re.compile(r"\\b(?:[A-Za-z]\\.){{2,}}|\\b(?:" + TITLES + r")\\.")
 
 
 class GuideCheck:
@@ -206,7 +209,8 @@ class GuideCheck:
         if not text:
             self.problems.append(f"{{name}}: has no text under its heading")
         for number, line in enumerate(text, 1):
-            if TWO_SENTENCES.search(CITATION.sub("", line)) and not line.lstrip().startswith(("-", "*", "|")):
+            plain = ABBREVIATIONS.sub("", CITATION.sub("", line))
+            if TWO_SENTENCES.search(plain) and not line.lstrip().startswith(("-", "*", "|")):
                 self.problems.append(f"{{name}}: one sentence per line: {{line[:60]!r}}")
         cited = CITATION.findall("\\n".join(text))
         for source in cited:

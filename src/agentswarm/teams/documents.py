@@ -4,6 +4,8 @@ G2: domains are configuration, not separate code. A writer is an executor, an ou
 the three reviewers are reviewing analyzers, whose evidence is a verbatim quote instead of a failing test.
 """
 
+import re
+from collections.abc import Sequence
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -56,6 +58,34 @@ class SectionText(Frozen):
     text: str = Field(description="the section file: a '## ' heading, then the text, one sentence per line")
 
 
+class Citations:
+    """Mends citations that name a page as if it were a source: [@report-p123] becomes
+    [@report-p118, page 123] when the part report-p118 holds pages 118 to 135 (2026-10-18: a writer cited pages that way three times
+    in a row; the page is right, only the form is wrong)."""
+
+    PAGED: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)-p(\d{3})\]")
+
+    @classmethod
+    def mend(cls, text: str, names: Sequence[str]) -> str:
+        known = set(names)
+        starts: dict[str, list[int]] = {}
+        for name in names:
+            if (paged := re.fullmatch(r"(.+)-p(\d{3})", name)) is not None:
+                starts.setdefault(paged.group(1), []).append(int(paged.group(2)))
+
+        def fixed(match: re.Match[str]) -> str:
+            whole = f"{match.group(1)}-p{match.group(2)}"
+            if whole in known or match.group(1) not in starts:
+                return match.group(0)
+            page = int(match.group(2))
+            first = max((p for p in starts[match.group(1)] if p <= page), default=None)
+            if first is None:
+                return match.group(0)
+            return f"[@{match.group(1)}-p{first:03d}, page {page}]"
+
+        return cls.PAGED.sub(fixed, text)
+
+
 class Writer(ExecutorTeam):
     SECTION = """\
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
@@ -64,8 +94,9 @@ source of facts.
 
 - Write the whole section file: a '## ' heading with the section's title, then the text.
 - Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
-- Cite every factual statement with the source it comes from, like [@name], using the names in the data.
-  State only what a source says.
+- Cite every factual statement with the source it comes from, like [@name], using the names in the data
+  exactly. Where a source marks its pages ([page 121]), name the page too: [@name, page 121]. State only
+  what a source says.
 - One sentence per line. Stay within the word count.
 - If `current` holds the section already, revise it to fix everything in `must_fix`; keep what is right."""
     INSTRUCTIONS = """\
@@ -80,6 +111,15 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
 - Run run_checks and fix what it reports until every check passes.
 - When you are done, give your final answer in the required structured format: a one-line summary of the
   change, and whether the task is complete. Do not finish with a plain-text reply."""
+
+    OVER: ClassVar[float] = 1.15  # a section this far over its word budget is rewritten once
+    CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@[^\],\s]+(?:,[^\]]*)?\]")
+
+    @classmethod
+    def words(cls, text: str) -> int:
+        """Words of text under the heading, citations left out: as the document checker counts them."""
+        body = [line for line in text.splitlines()[1:] if line.strip() and not line.startswith("#")]
+        return sum(len(cls.CITATION.sub("", line).split()) for line in body)
 
     def request(
         self,
@@ -123,7 +163,22 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
             must_fix=tuple(f.detail for f in request.instruction.must_fix),
         )
         answer = await worker.run(self.SECTION, section, SectionText)
-        result = toolbox.write_file(assigned.path, answer.text.strip() + "\n")
+        words = self.words(answer.text)
+        if words > assigned.section.words * self.OVER:  # one rewrite told the numbers: writers ran 40% long
+            too_long = (
+                f"The section has {words} words; it may have at most {assigned.section.words}. Shorten it."
+            )
+            again = section.model_copy(
+                update={"current": answer.text, "must_fix": (*section.must_fix, too_long)}
+            )
+            answer = await worker.run(self.SECTION, again, SectionText)
+        names = [
+            f.removeprefix("sources/").removesuffix(".md")
+            for f in toolbox.list_files().splitlines()
+            if f.startswith("sources/") and f.endswith(".md")
+        ]
+        text = Citations.mend(answer.text.strip(), names)
+        result = toolbox.write_file(assigned.path, text + "\n")
         if result.startswith("error:"):
             return ExecutorReport(summary=f"could not write {assigned.path}: {result}", complete=False)
         return ExecutorReport(summary=f"{assigned.path}: {assigned.section.title}", complete=True)
