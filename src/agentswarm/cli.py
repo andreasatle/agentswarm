@@ -438,6 +438,11 @@ class Cli:
 
     def learn(self, args: argparse.Namespace) -> int:
         """Papers to a tutorial for one reader, in one command: import, brief, writing, a reader review."""
+        for folder in (Path(f).expanduser() for f in args.files):
+            listed = DocumentImport.refresh(folder) if folder.is_dir() else None
+            missing = [f.paper.title for f in listed.papers if f.file is None] if listed is not None else []
+            if missing:
+                self._show(f"not in {folder} yet (see papers.md): {'; '.join(missing)}")
         files = DocumentImport.files([Path(f).expanduser() for f in args.files])
         missing = [str(f) for f in files if not f.is_file()]
         if missing or not files:
@@ -489,7 +494,7 @@ class Cli:
         finally:
             if shared is not None:
                 shared.close()
-        self._show((out / "papers.md").read_text() if found else "no papers picked")
+        self._show(found.render() if found.papers else "no papers picked")
         self._show(f"cost ${sum(spent):.3f}; check the list, add or remove PDFs in {out}, then:")
         self._show(f'  uv run agentswarm learn {out} --know "{args.know}" --want "..."')
         return 0

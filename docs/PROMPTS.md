@@ -2202,6 +2202,21 @@ class Candidate(Frozen):
     page: str = ""  # its landing page (the DOI), for a person to fetch it from
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
+    NAME: ClassVar[int] = 70  # characters of a file name, about
+
+    @property
+    def file(self) -> str:
+        """Its PDF's name, readable: stickgold-2005-sleep-dependent-memory-consolidation.pdf (the user,
+        2026-10-18, on names like W2086162146.pdf)."""
+        first = self.surname(self.authors[0]) if self.authors else "anonymous"
+        plain = unicodedata.normalize("NFKD", f"{first} {self.year} {self.title}").encode("ascii", "ignore")
+        words = re.findall(r"[a-z0-9]+", plain.decode().lower())
+        kept: list[str] = []
+        for word in words:  # whole words, to about 70 characters
+            if kept and len("-".join([*kept, word])) > self.NAME:
+                break
+            kept.append(word)
+        return "-".join(kept) + ".pdf"
 
     def reference(self, document: str) -> Reference:
         """The paper as a bibliography gives it, from the service's record rather than a model's reading."""

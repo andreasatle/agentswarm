@@ -8,11 +8,13 @@ from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.evaluation.papers import (
     ArxivSearch,
     Candidate,
+    Found,
     OpenAlexSearch,
     OpenAlexWork,
     PaperFinder,
     PickedPaper,
     PickRequest,
+    ReadingFolder,
     ReadingList,
     SearchQueries,
 )
@@ -159,6 +161,16 @@ class TestCandidate:
         two = Candidate(id="1", title="T", authors=("Ann Lee", "Bo Kim"), year=2020, abstract="")
         assert two.reference("1").short == "Lee and Kim, 2020"
 
+    def test_a_file_name_is_readable_plain_and_cut_at_a_word(self) -> None:
+        replay = Candidate(
+            id="W1",
+            title="Replay and Time Compression of Recurring Spike Sequences in the Hippocampus",
+            authors=("Zoltán Nádasdy",),
+            year=1999,
+            abstract="",
+        )
+        assert replay.file == "nadasdy-1999-replay-and-time-compression-of-recurring-spike-sequences.pdf"
+
 
 class TestPaperFinder:
     async def test_candidates_from_every_query_are_pooled_once(self, tmp_path: Path) -> None:
@@ -166,10 +178,9 @@ class TestPaperFinder:
         found, asked = finder(["3", "1"], search)
         picked = await found.find("test-time compute", "ML", 5, tmp_path)
         assert [c.id for c in asked[0].candidates] == ["1", "2", "3"]
-        assert [f.paper.id for f in picked] == ["3", "1"]  # in the picker's order
-        assert search.downloaded == ["3", "1"] and (tmp_path / "3.pdf").is_file()
-        records = [Candidate.model_validate(r) for r in json.loads((tmp_path / "papers.json").read_text())]
-        assert [r.id for r in records] == ["3", "1"]
+        assert [f.paper.id for f in picked.papers] == ["3", "1"]  # in the picker's order
+        assert search.downloaded == ["3", "1"] and (tmp_path / paper("3").file).is_file()
+        assert ReadingFolder.load(tmp_path) == picked
 
     async def test_known_titles_come_first_and_only_when_found(self, tmp_path: Path) -> None:
         verify = paper("2305.20050", "Let's Verify Step by Step")
@@ -199,25 +210,27 @@ class TestPaperFinder:
         assert (
             asked[0].candidates[0].pdfs == () and asked[0].candidates[0].page == ""
         )  # no links for the picker
-        assert picked[0].file is None and picked[1].file == tmp_path / "1.pdf"
-        listing = (tmp_path / "papers.md").read_text()
-        assert (
-            "Download these by hand" in listing
-            and "- `W7.pdf`: https://journal/x.pdf, https://doi.org/1" in listing
+        assert picked.papers[0].file is None and picked.papers[1].file == "author-2024-here.pdf"
+        listing = (tmp_path / ReadingFolder.LISTING).read_text()
+        assert "**Gone** (A. Author, 2024), W7: **not here yet**." in listing
+        assert "- Gone: https://journal/x.pdf, https://doi.org/1" in listing
+        (tmp_path / "x.full.pdf").write_text("x")  # fetched by hand, the publisher's name
+        refreshed = picked.refreshed(
+            [("x.full.pdf", "Journal 2024\nGone\nA. Author"), ("author-2024-here.pdf", "")]
         )
-        records = json.loads((tmp_path / PaperFinder.RECORDS).read_text())
-        assert [r["id"] for r in records] == ["W7", "1"]  # a PDF fetched by hand still finds its record
+        assert [f.file for f in refreshed.papers] == ["x.full.pdf", "author-2024-here.pdf"]
+        assert "not here yet" not in refreshed.render()
 
     async def test_invented_ids_and_repeats_are_dropped_and_the_count_kept(self, tmp_path: Path) -> None:
         search = FakeSearch({"verifiers": [paper("1"), paper("2"), paper("3")]})
         found, _ = finder(["9999.0001", "1v2", "1", "2", "3"], search)
         picked = await found.find("topic", "ML", 2, tmp_path)
-        assert [f.paper.id for f in picked] == ["1", "2"]
+        assert [f.paper.id for f in picked.papers] == ["1", "2"]
 
 
 class TestDocumentFiles:
     def test_a_folder_stands_for_its_documents_without_the_reading_list(self, tmp_path: Path) -> None:
-        for name in ("b.pdf", "a.pdf", "papers.md", "README.md", ".DS_Store"):
+        for name in ("b.pdf", "a.pdf", "papers.md", "papers.json", "README.md", ".DS_Store"):
             (tmp_path / name).write_text("x")
         extra = tmp_path.parent / "extra.txt"
         assert DocumentImport.files([tmp_path, extra]) == [tmp_path / "a.pdf", tmp_path / "b.pdf", extra]
@@ -240,7 +253,8 @@ class TestDocumentFiles:
             year=1999,
             abstract="",
         )
-        (papers / PaperFinder.RECORDS).write_text(json.dumps([record.model_dump(), replay.model_dump()]))
+        listed = (Found(paper=record, why="", file=None), Found(paper=replay, why="", file=None))
+        ReadingFolder(topic="t", papers=listed).save(papers)
         files = DocumentImport.files([papers])
         assert [f.name for f in files] == ["2501.12948.txt", "9497.full.txt", "other.txt"]
         DocumentImport(files, tmp_path / "out", "A tutorial.", perspectives=(), approve=False).write()

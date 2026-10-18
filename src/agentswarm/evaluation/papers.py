@@ -10,9 +10,9 @@ keeps only works with an open PDF); those the user adds by hand.
 """
 
 import asyncio
-import json
 import re
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ElementTree
@@ -43,6 +43,21 @@ class Candidate(Frozen):
     page: str = ""  # its landing page (the DOI), for a person to fetch it from
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
+    NAME: ClassVar[int] = 70  # characters of a file name, about
+
+    @property
+    def file(self) -> str:
+        """Its PDF's name, readable: stickgold-2005-sleep-dependent-memory-consolidation.pdf (the user,
+        2026-10-18, on names like W2086162146.pdf)."""
+        first = self.surname(self.authors[0]) if self.authors else "anonymous"
+        plain = unicodedata.normalize("NFKD", f"{first} {self.year} {self.title}").encode("ascii", "ignore")
+        words = re.findall(r"[a-z0-9]+", plain.decode().lower())
+        kept: list[str] = []
+        for word in words:  # whole words, to about 70 characters
+            if kept and len("-".join([*kept, word])) > self.NAME:
+                break
+            kept.append(word)
+        return "-".join(kept) + ".pdf"
 
     def reference(self, document: str) -> Reference:
         """The paper as a bibliography gives it, from the service's record rather than a model's reading."""
@@ -322,7 +337,74 @@ class ReadingList(Frozen):
 class Found(Frozen):
     paper: Candidate
     why: str
-    file: Path | None  # None: the download failed
+    file: str | None  # its file in the folder; None: not there yet (the download failed)
+
+
+class ReadingFolder(Frozen):
+    """The papers picked for a topic, as kept beside their PDFs: papers.json for programs, papers.md for the
+    user. Refreshed from the files actually there, whatever their names (the user, 2026-10-18: a PDF fetched
+    by hand keeps the publisher's name, such as 9497.full.pdf)."""
+
+    topic: str
+    papers: tuple[Found, ...]
+
+    RECORDS: ClassVar[str] = "papers.json"
+    LISTING: ClassVar[str] = "papers.md"
+    OPENING: ClassVar[int] = 3000  # characters of a document searched for a paper's title
+
+    @classmethod
+    def load(cls, folder: Path) -> "ReadingFolder | None":
+        path = folder / cls.RECORDS
+        return cls.model_validate_json(path.read_text()) if path.is_file() else None
+
+    def save(self, folder: Path) -> None:
+        (folder / self.RECORDS).write_text(self.model_dump_json(indent=1) + "\n")
+        (folder / self.LISTING).write_text(self.render())
+
+    def match(self, name: str, text: str) -> Found | None:
+        """The paper a file holds: by its name, else by the paper's title on its first page."""
+        named = next((f for f in self.papers if name in (f.file, f.paper.file)), None)
+        if named is not None:
+            return named
+        opening = self.letters(text[: self.OPENING])
+        return next((f for f in self.papers if self.letters(f.paper.title) in opening), None)
+
+    def refreshed(self, files: Sequence[tuple[str, str]]) -> "ReadingFolder":
+        """With each paper's file as found among (name, text) of the folder's documents."""
+        held: dict[str, str] = {}
+        for name, text in files:
+            found = self.match(name, text)
+            if found is not None:
+                held.setdefault(found.paper.id, name)
+        papers = tuple(f.model_copy(update={"file": held.get(f.paper.id)}) for f in self.papers)
+        return self.model_copy(update={"papers": papers})
+
+    @staticmethod
+    def letters(text: str) -> str:
+        """Lower-case letters and digits only: a title broken over lines or hyphenated still matches."""
+        return re.sub(r"[^a-z0-9]", "", text.lower()) or "-"
+
+    def render(self) -> str:
+        lines = [f"# Papers for: {self.topic}", ""]
+        for n, f in enumerate(self.papers, 1):
+            authors = ", ".join(f.paper.authors[:3]) + (" et al." if len(f.paper.authors) > 3 else "")
+            where = f.paper.venue or f.paper.id
+            state = f"`{f.file}`" if f.file is not None else "**not here yet**"
+            lines.append(f"{n}. **{f.paper.title}** ({authors}, {f.paper.year}), {where}: {state}.")
+            lines.append(f"   {f.why}")
+        missing = [f for f in self.papers if f.file is None]
+        if missing:
+            lines += [
+                "",
+                "**Download these by hand** (the publisher refused a program); any file name works:",
+                "",
+            ]
+            for f in missing:
+                links = (
+                    ", ".join([*f.paper.pdfs, *([f.paper.page] if f.paper.page else [])]) or "(no link known)"
+                )
+                lines.append(f"- {f.paper.title}: {links}")
+        return "\n".join(lines) + "\n"
 
 
 class PaperFinder:
@@ -346,7 +428,6 @@ review may anchor the set. Use only ids from the candidates. Order them as a rea
 in one sentence what each adds."""
 
     QUERIES = 5
-    RECORDS = "papers.json"  # beside the PDFs, read by `learn` for the references
     PER_QUERY = 8
     KNOWN = 10
     CANDIDATES = 40  # known titles first; 2026-10-18: about 80 full abstracts cost $0.15 a pick on Sonnet
@@ -393,44 +474,18 @@ in one sentence what each adds."""
                 picked.append(Found(paper=known[name], why=paper.why, file=None))
         return picked[:papers]
 
-    async def find(self, topic: str, know: str, papers: int, out: Path) -> list[Found]:
-        """Searches, picks and downloads into `out`, and writes the reading list there (papers.md)."""
+    async def find(self, topic: str, know: str, papers: int, out: Path) -> ReadingFolder:
+        """Searches, picks and downloads into `out`, and writes the reading list there."""
         picked = await self.pick(topic, know, papers, await self.candidates(topic, know))
         out.mkdir(parents=True, exist_ok=True)
         done: list[Found] = []
         for found in picked:
-            path = out / f"{found.paper.id}.pdf"
             try:
-                await asyncio.to_thread(self._search.download, found.paper, path)
+                await asyncio.to_thread(self._search.download, found.paper, out / found.paper.file)
             except OSError:
-                done.append(found)  # the user fetches it by hand, under the same name
+                done.append(found)  # the user fetches it by hand
                 continue
-            done.append(found.model_copy(update={"file": path}))
-        (out / "papers.md").write_text(self.render(topic, done))
-        records = [f.paper.model_dump() for f in done]  # a PDF fetched by hand finds its record too
-        (out / self.RECORDS).write_text(json.dumps(records, indent=1) + "\n")
-        return done
-
-    @staticmethod
-    def render(topic: str, found: Sequence[Found]) -> str:
-        lines = [f"# Papers for: {topic}", ""]
-        for n, f in enumerate(found, 1):
-            authors = ", ".join(f.paper.authors[:3]) + (" et al." if len(f.paper.authors) > 3 else "")
-            where = f.paper.venue or f.paper.id
-            lines.append(
-                f"{n}. **{f.paper.title}** ({authors}, {f.paper.year}), {where}: `{f.paper.id}.pdf`."
-            )
-            lines.append(f"   {f.why}")
-        missing = [f for f in found if f.file is None]
-        if missing:
-            lines += [
-                "",
-                "**Download these by hand** (the publisher refused a program); any file name works:",
-                "",
-            ]
-            for f in missing:
-                links = (
-                    ", ".join([*f.paper.pdfs, *([f.paper.page] if f.paper.page else [])]) or "(no link known)"
-                )
-                lines.append(f"- `{f.paper.id}.pdf`: {links}")
-        return "\n".join(lines) + "\n"
+            done.append(found.model_copy(update={"file": found.paper.file}))
+        folder = ReadingFolder(topic=topic, papers=tuple(done))
+        folder.save(out)
+        return folder

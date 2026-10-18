@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import ModelConfig
 from agentswarm.core.domain import Reference
-from agentswarm.evaluation.papers import Candidate, PaperFinder
+from agentswarm.evaluation.papers import Candidate, ReadingFolder
 from agentswarm.evaluation.qasper import GuideImport
 
 
@@ -193,7 +193,7 @@ review:
                     p
                     for p in path.iterdir()
                     if p.is_file()
-                    and p.name not in ("papers.md", PaperFinder.RECORDS)
+                    and p.name not in (ReadingFolder.LISTING, ReadingFolder.RECORDS)
                     and not p.name.startswith(".")
                     and p.name != "README.md"
                 )
@@ -201,27 +201,23 @@ review:
                 found.append(path)
         return found
 
-    OPENING: ClassVar[int] = 3000  # characters of a document searched for a record's title
+    @staticmethod
+    def record(path: Path, text: str) -> Candidate | None:
+        """The paper's record, when `find-papers` found it (papers.json beside it)."""
+        folder = ReadingFolder.load(path.parent)
+        found = folder.match(path.name, text) if folder is not None else None
+        return found.paper if found is not None else None
 
     @classmethod
-    def record(cls, path: Path, text: str) -> Candidate | None:
-        """The paper's record, when `find-papers` found it (papers.json beside it): by the file name it gave,
-        else by the title on the first page (a PDF fetched by hand keeps the publisher's name, such as
-        9497.full.pdf)."""
-        records = path.parent / PaperFinder.RECORDS
-        if not records.is_file():
+    def refresh(cls, folder: Path) -> ReadingFolder | None:
+        """The folder's reading list brought up to date with the documents actually there."""
+        listed = ReadingFolder.load(folder)
+        if listed is None:
             return None
-        found = [Candidate.model_validate(r) for r in json.loads(records.read_text())]
-        named = next((c for c in found if c.id == path.stem), None)
-        if named is not None:
-            return named
-        opening = cls.letters(text[: cls.OPENING])
-        return next((c for c in found if cls.letters(c.title) and cls.letters(c.title) in opening), None)
-
-    @staticmethod
-    def letters(text: str) -> str:
-        """Lower-case letters and digits only: a title broken over lines or hyphenated still matches."""
-        return re.sub(r"[^a-z0-9]", "", text.lower())
+        files = [(p.name, SourceText.read(p)) for p in cls.files([folder])]
+        listed = listed.refreshed(files)
+        listed.save(folder)
+        return listed
 
     def write(self) -> DocumentSummary:
         texts: dict[str, str] = {}
