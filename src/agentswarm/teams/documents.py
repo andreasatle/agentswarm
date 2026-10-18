@@ -65,8 +65,21 @@ class Citations:
 
     PAGED: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)-p(\d{3})(?:,\s*page\s+(\d+))?\]")
 
+    GROUP: ClassVar[re.Pattern[str]] = re.compile(r"\[(@[^\]]*?;?\s*@[^\]]*)\]")
+
+    @classmethod
+    def separate(cls, text: str) -> str:
+        """[@a, @b] or [@a; @b, page 3] as one citation each: [@a] [@b, page 3]."""
+
+        def apart(match: re.Match[str]) -> str:
+            pieces = [p.strip() for p in re.split(r"[;,]\s*(?=@)", match.group(1))]
+            return " ".join(f"[{p}]" for p in pieces if p)
+
+        return cls.GROUP.sub(apart, text)
+
     @classmethod
     def mend(cls, text: str, names: Sequence[str]) -> str:
+        text = cls.separate(text)
         known = set(names)
         starts: dict[str, list[int]] = {}
         for name in names:

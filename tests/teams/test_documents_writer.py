@@ -125,3 +125,9 @@ class TestOverlap:
             and "\n[the start of the part after, for context ...]\nstart" in text
         )
         assert len(text.split()) < 700
+
+    def test_several_sources_in_one_bracket_are_cited_one_by_one(self) -> None:
+        names = ["rep-p001", "rep-p008"]
+        assert Citations.mend("A [@rep-p001, @rep-p012]. B [@rep-p001; @rep-p008, page 9].", names) == (
+            "A [@rep-p001] [@rep-p008, page 12]. B [@rep-p001] [@rep-p008, page 9]."
+        )
