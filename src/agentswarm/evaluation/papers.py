@@ -175,8 +175,10 @@ another, and influential original work over surveys of it or small variations. U
 candidates. Order them as a reader should meet them, and say in one sentence what each adds."""
 
     QUERIES = 5
-    PER_QUERY = 15
+    PER_QUERY = 8
     KNOWN = 10
+    CANDIDATES = 40  # known titles first; 2026-10-18: about 80 full abstracts cost $0.15 a pick on Sonnet
+    ABSTRACT = 600  # characters of each abstract the picker reads
 
     def __init__(self, worker: Worker, search: PaperSearch) -> None:
         self._worker = worker
@@ -194,7 +196,10 @@ candidates. Order them as a reader should meet them, and say in one sentence wha
         for query in planned.queries[: self.QUERIES]:
             for candidate in await asyncio.to_thread(self._search.search, query, self.PER_QUERY):
                 found.setdefault(candidate.id, candidate)
-        return list(found.values())
+        return [
+            c.model_copy(update={"abstract": c.abstract[: self.ABSTRACT]})
+            for c in list(found.values())[: self.CANDIDATES]
+        ]
 
     async def pick(self, topic: str, know: str, papers: int, candidates: Sequence[Candidate]) -> list[Found]:
         request = PickRequest(topic=topic, reader_knows=know, papers=papers, candidates=tuple(candidates))

@@ -99,6 +99,14 @@ class TestPaperFinder:
         await found.find("topic", "ML", 5, tmp_path)
         assert [c.id for c in asked[0].candidates] == ["2305.20050", "1"]
 
+    async def test_the_candidates_are_capped_with_short_abstracts(self, tmp_path: Path) -> None:
+        many = [paper(str(n)).model_copy(update={"abstract": "x" * 2000}) for n in range(60)]
+        found, asked = finder(["1"], FakeSearch({"verifiers": many}))
+        found.PER_QUERY = 60
+        await found.find("topic", "ML", 5, tmp_path)
+        assert len(asked[0].candidates) == PaperFinder.CANDIDATES
+        assert all(len(c.abstract) == PaperFinder.ABSTRACT for c in asked[0].candidates)
+
     async def test_invented_ids_and_repeats_are_dropped_and_the_count_kept(self, tmp_path: Path) -> None:
         search = FakeSearch({"verifiers": [paper("1"), paper("2"), paper("3")]})
         found, _ = finder(["9999.0001", "1v2", "1", "2", "3"], search)
