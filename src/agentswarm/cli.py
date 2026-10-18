@@ -38,6 +38,7 @@ from agentswarm.evaluation.compare import (
     ExperimentKind,
 )
 from agentswarm.evaluation.difficulty import DifficultyRater, DifficultyRatings
+from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
@@ -95,6 +96,8 @@ class Cli:
         import-guide QASPER --out DIR --topic TEXT --papers ID...
                                                    a guide to Qasper papers as a seed, questions held out
         qasper-papers QASPER WORD...               Qasper papers whose title or abstract holds every word
+        import-docs FILE... --out DIR --goal TEXT [--audience TEXT]...
+                                                   your documents as sources, a project per audience
         questions CONFIG --root DIR                a document's hidden questions, score by score
         score CONFIG --root DIR [--extra DIR]...   how far the first shared level is through a test suite
         openrouter-models ID...                    model entries for OpenRouter models, with today's prices
@@ -179,6 +182,8 @@ class Cli:
                 return self.import_guide(args)
             case "qasper-papers":
                 return self.qasper_papers(args)
+            case "import-docs":
+                return self.import_docs(args)
             case "questions":
                 return self.questions(args)
             case "score":
@@ -399,6 +404,17 @@ class Cli:
         """Candidate papers for a guide: id, answerable questions, title."""
         papers = QasperSet(Path(args.qasper).expanduser()).search(args.words)
         self._show("\n".join(f"{p.id}  {len(p.questions):>2}  {p.title}" for p in papers) or "none")
+        return 0
+
+    def import_docs(self, args: argparse.Namespace) -> int:
+        """The user's own documents as sources, and a project per audience that drafts a brief first."""
+        files = [Path(f).expanduser() for f in args.files]
+        missing = [str(f) for f in files if not f.is_file()]
+        if missing:
+            self._show(f"not found: {', '.join(missing)}")
+            return 2
+        imported = DocumentImport(files, Path(args.out).expanduser(), args.goal, args.audience, args.words)
+        self._show(imported.write().render())
         return 0
 
     def questions(self, args: argparse.Namespace) -> int:
@@ -697,6 +713,15 @@ class Cli:
         )
         papers.add_argument("qasper", help="one of Qasper's JSON files")
         papers.add_argument("words", nargs="+", help="words that must all appear, ignoring case")
+
+        docs = commands.add_parser("import-docs", help="your documents as sources, a project per audience")
+        docs.add_argument("files", nargs="+", help="the documents: PDF, Word, HTML, text, Markdown")
+        docs.add_argument("--out", required=True, help="where the seed and the project files go")
+        docs.add_argument("--goal", required=True, help="what you want, e.g. 'A summary of these reports.'")
+        docs.add_argument(
+            "--audience", action="append", default=[], help="a reader to write for; repeat for several"
+        )
+        docs.add_argument("--words", type=int, default=3000, help="the document's length cap")
 
         traced = commands.add_parser("questions", help="a document's hidden questions, score by score")
         traced.add_argument("config", help="the project's YAML configuration")

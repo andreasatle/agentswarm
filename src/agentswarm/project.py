@@ -44,7 +44,7 @@ from agentswarm.teams.hardening import Hardener
 from agentswarm.teams.referee import Referee
 from agentswarm.teams.review import ReviewCampaign
 from agentswarm.teams.runner import TeamRunner
-from agentswarm.teams.specifier import Specifier
+from agentswarm.teams.specifier import Briefer, Specifier
 from agentswarm.workspace.git import Git, Repository
 from agentswarm.workspace.lock import RootIdentity, RootLock
 from agentswarm.workspace.sandbox import Sandboxes
@@ -93,7 +93,7 @@ class Project:
         worklist: Worklist | None = None,
         campaigns: Sequence[Campaign] = (),
         progress: Measure | None = None,
-        specifier: Specifier | None = None,
+        specifier: Specifier | Briefer | None = None,
     ) -> None:
         self._specifier = specifier  # drafts the specification from the goal before anything is built
         self._worklist = worklist
@@ -276,7 +276,17 @@ class Project:
             )
             questions = HiddenQuestions(asked.path.expanduser())
             progress = QuestionProgress(questions, score, repository, config.levels.base)
-        specifier = None
+        specifier: Specifier | Briefer | None = None
+        if config.brief is not None:
+            briefing = config.brief
+            specifier = Briefer(
+                briefing,
+                board,
+                repository,
+                config.levels,
+                artifacts,
+                workers.worker(briefing.model, 1, metered("briefer", briefing.model)),
+            )
         if config.specify is not None:
             specifying = config.specify
             reference = specifying.reference.expanduser().read_text() if specifying.reference else ""

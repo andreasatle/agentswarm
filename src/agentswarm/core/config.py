@@ -308,6 +308,18 @@ class SpecifyConfig(Strict):
     reference: Path | None = None
 
 
+class BriefConfig(Strict):
+    """A document's brief and outline, drafted from the user's goal before anything is written; the project
+    pauses for the user to read and edit it (`approve`), then a writing task starts per section."""
+
+    goal: str  # what the user wants, a line or two: the document, for whom
+    model: str  # the briefer's model, a name in `models`
+    path: str = "docs/brief.md"
+    sources: str = "sources"  # the folder of the documents to work from
+    words: int = Field(default=3000, gt=0)  # the document's length cap (tools/check_doc.py holds the same)
+    approve: bool = True  # pause after the brief, for the user to read it and `agentswarm resume`
+
+
 class ReviewConfig(Strict):
     """Reviewers attack a finished document, one section and perspective at a time, until a round confirms
     nothing new (docs/design/documents.md). Each confirmed finding becomes a writer's task."""
@@ -466,6 +478,7 @@ class ProjectConfig(Strict):
     questions: QuestionsConfig | None = None  # a document's hidden questions, measured like `score`
     review: ReviewConfig | None = None  # reviewers attack a finished document until nothing new is found
     specify: SpecifyConfig | None = None  # the specification drafted from the goal, before the building
+    brief: BriefConfig | None = None  # a document's brief and outline drafted from the goal, before writing
 
     @model_validator(mode="before")
     @classmethod
@@ -534,6 +547,13 @@ class ProjectConfig(Strict):
                     raise ValueError(f"specify uses undefined model {model!r}")
             if (self.specify.answerer is None) != (self.specify.reference is None):
                 raise ValueError("a simulated user needs both `answerer` and `reference`")
+        if self.brief is not None:
+            if self.brief.model not in self.models:
+                raise ValueError(f"brief uses undefined model {self.brief.model!r}")
+            if self.specify is not None:
+                raise ValueError(
+                    "a project drafts a specification (`specify`) or a brief (`brief`), not both"
+                )
         if self.review is not None:
             for model in (self.review.model, self.review.referee):
                 if model not in self.models:

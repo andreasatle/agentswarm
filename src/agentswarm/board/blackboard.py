@@ -14,6 +14,7 @@ from agentswarm.core.domain import (
     ArtifactId,
     Attacked,
     AttemptFailed,
+    Briefed,
     CheckDisputed,
     Claim,
     Claimed,
@@ -80,6 +81,7 @@ class BoardViews:
     _billed: float = 0.0  # the part of the spend the providers reported charging
     _scores: list[Scored] = field(default_factory=list[Scored])
     _attacks: list[Attacked] = field(default_factory=list[Attacked])
+    _briefs: list[Briefed] = field(default_factory=list[Briefed])
     _scored_at: int = 0  # how many attacks there were at the latest score: a run starts with one
     _project_escalations: list[Escalated] = field(default_factory=list[Escalated])
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
@@ -123,6 +125,8 @@ class BoardViews:
                     self._umbrellas.add(event.artifact)
             case Specified():
                 pass  # recorded for the report; the specification itself is in the repository
+            case Briefed():
+                self._briefs.append(event)
             case Scored():
                 self._scores.append(event)
                 self._scored_at = len(self._attacks)
@@ -240,6 +244,10 @@ class BoardViews:
     def scores(self) -> list[Scored]:
         """Every measurement of the definition of done, oldest first."""
         return list(self._scores)
+
+    def briefs(self) -> list[Briefed]:
+        """Every drafted brief of a document, oldest first."""
+        return list(self._briefs)
 
     def attacks(self) -> list[Attacked]:
         """Every attack of a campaign (red teams, reviewers), oldest first."""

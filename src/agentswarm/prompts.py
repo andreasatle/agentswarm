@@ -89,8 +89,12 @@ from agentswarm.teams.review import ReviewCampaign, ReviewFindings, ReviewReques
 from agentswarm.teams.specifier import (
     Answer,
     AnswerRequest,
+    BriefDraft,
+    Briefer,
+    BriefRequest,
     DraftRequest,
     ReviseRequest,
+    SourceSummary,
     SpecDraft,
     Specifier,
     UserAnswer,
@@ -241,6 +245,17 @@ class SampleData:
     def specify(cls) -> DraftRequest:
         return DraftRequest(
             goal="A greeter: hello(name) greets by name.", north_star=cls.NORTH_STAR, max_questions=10
+        )
+
+    @classmethod
+    def brief(cls) -> BriefRequest:
+        return BriefRequest(
+            goal="A summary of these reports for managers.",
+            sources=(
+                SourceSummary(name="q3-report", title="Q3 Report", words=4200),
+                SourceSummary(name="hiring-plan", title="Hiring plan 2027", words=1800),
+            ),
+            words=1500,
         )
 
     @classmethod
@@ -477,6 +492,14 @@ class PromptCatalogue:
                 Specifier,
                 SampleData.specify(),
                 SpecDraft,
+                None,
+            ),
+            CallFamily(
+                "Briefer: drafts a document's brief and outline from the goal and the sources",
+                (Caller("", Briefer, Briefer.INSTRUCTIONS),),
+                Briefer,
+                SampleData.brief(),
+                BriefDraft,
                 None,
             ),
             CallFamily(

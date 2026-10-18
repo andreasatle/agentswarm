@@ -465,6 +465,30 @@ class Tally(Frozen):
         return self.passed / self.total if self.total else None
 
 
+class OutlineEntry(Frozen):
+    """One section of a document's outline: what it covers, from which sources, in how many words."""
+
+    title: str
+    covers: str
+    sources: tuple[str, ...]  # source names, without folder or extension
+    words: int = Field(ge=1)
+
+
+class Briefed(Frozen):
+    """The briefer drafted a document's brief and outline from the goal and committed the brief on the base
+    level (docs/design/documents.md, real use). Writing tasks follow, one per section, once it is approved."""
+
+    kind: Literal["briefed"] = "briefed"
+    path: str
+    commit: str
+    model: str | None
+    outline: tuple[OutlineEntry, ...]
+
+    @property
+    def subject(self) -> None:
+        return None
+
+
 class Specified(Frozen):
     """The specifier drafted the project's specification from its goal and committed it on the base level
     (docs/design/goals.md); the building starts after this."""
@@ -703,6 +727,7 @@ type Event = Annotated[
     | Attacked
     | Reconsidered
     | Specified
+    | Briefed
     | Paused
     | Resumed
     | Spent

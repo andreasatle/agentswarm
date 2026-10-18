@@ -11,6 +11,7 @@ from agentswarm.core.domain import (
     ArtifactId,
     Attacked,
     AttemptFailed,
+    Briefed,
     CheckDisputed,
     Claimed,
     CommitPushed,
@@ -114,6 +115,9 @@ class Report:
                     f'round {event.round}, {event.focus} attack on "{event.section}" by {event.model}: '
                     f"{event.reported} reported, {event.confirmed} confirmed{tasks}"
                 )
+            case Briefed():
+                parts = ", ".join(f"{e.title} ({e.words})" for e in event.outline)
+                return f"brief drafted by {event.model}: {event.path}, {len(event.outline)} sections: {parts}"
             case Specified():
                 return (
                     f"specification drafted by {event.model}: {event.path}, {event.sections} sections, "

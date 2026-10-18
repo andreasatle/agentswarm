@@ -1,0 +1,48 @@
+# A document from your own files: {goal}
+# Made by `agentswarm import-docs`. Run it (the brief comes first; the project pauses for you to read it):
+#   uv run agentswarm run {config} --root {root}
+#   ... read and edit levels/reviewed/docs/brief.md under the root, then:
+#   uv run agentswarm resume {config} --root {root}
+#   uv run agentswarm run {config} --root {root}
+# The finished document is in levels/reviewed/sections/ under the root.
+project: {project}
+domain: document
+north_star: >-
+  {north_star}
+seed: seed
+levels: [draft, reviewed]
+sandbox: {{kind: docker, image: "agentswarm/sandbox-python:3.13"}}
+models:
+  planner: {{model: "anthropic:claude-sonnet-5-5", max_tokens: 16384, usd_per_million: {{input: 2.0, output: 10.0, cache_read: 0.2, cache_write: 2.5}}}}
+  haiku55: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:anthropic/claude-haiku-5.5', usd_per_million: {{cache_read: 0.01, input: 0.1, output: 0.5}}}}
+  gpt-sol: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:openai/gpt-6.1-sol', usd_per_million: {{input: 2.0, output: 10.0, cache_read: 0.1}}}}
+  referee: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {{cache_read: 0.022, input: 0.66, output: 1.98}}}}
+checks:
+  check_doc: {{command: [python, tools/check_doc.py], kind: build_failure, timeout_s: 60}}
+teams:
+  - use: writer
+    watches: draft
+    model_tiers: [haiku55, gpt-sol]
+    routing: {{ledger: ~/agentswarm-data/routing.sqlite, target: 0.8, half_life_calls: 200, explore_usd: 1.0}}
+    checks: [check_doc]
+    max_model_calls: 40
+    attempts: 2
+    climb: true
+    repairs: 2
+    constraints:
+      - "docs/brief.md says who the document is for, what it must do, its outline and its rules; sources/ holds the only source of facts."
+      - "Cite every factual statement with the source it comes from, like [@{example}], naming a file in sources/ without its extension."
+gates:
+  - {{from: draft, to: reviewed, hard_checks: [check_doc]}}
+brief:
+  goal: >-
+    {goal}
+  model: planner
+  words: {words}
+review:
+  model: gpt-sol
+  referee: referee
+  perspectives: [facts, coverage, reader, consistency]
+  quiet_rounds: 1
+budgets: {{usd_per_day: 2.0, reserve_usd: 0.05}}  # this run's cap: set it to what you approve for the run
+jev: {{mode: shadow, active: []}}

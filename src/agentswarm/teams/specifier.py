@@ -10,13 +10,15 @@ users from a reference the same way). The draft is revised with the answers and 
 and only then does the building start: the planner, check writer, builders and red teams take it as spec.
 """
 
+import re
 from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.board.blackboard import Blackboard
-from agentswarm.core.config import LevelLadder, SpecifyConfig
-from agentswarm.core.domain import Specified
+from agentswarm.core.config import BriefConfig, LevelLadder, SpecifyConfig
+from agentswarm.core.domain import Briefed, Event, OutlineEntry, Paused, Sized, Specified, TeamName
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.referee import Referee
 from agentswarm.workspace.git import Repository
@@ -208,3 +210,167 @@ say."""
 
 class SpecifierError(RuntimeError):
     """No specification could be drafted: the project can't start without one."""
+
+
+class SourceSummary(Frozen):
+    name: str  # the source's name: its file in the sources folder, without the extension
+    title: str  # its first line
+    words: int
+
+
+class BriefRequest(Frozen):
+    """The payload a briefer receives."""
+
+    goal: str
+    sources: tuple[SourceSummary, ...]
+    words: int  # the document's length cap
+
+
+class OutlinePart(Frozen):
+    title: str = Field(description="the section's heading")
+    covers: str = Field(description="what the section must cover, specifically, for the audience")
+    sources: tuple[str, ...] = Field(
+        description="the names of the sources it draws on, as listed in the data"
+    )
+    words: int = Field(gt=0, description="its share of the length cap")
+
+
+class BriefDraft(Frozen):
+    """The brief: who the document is for and what it must do, and its outline."""
+
+    title: str
+    audience: str = Field(description="who reads it, what they know already, and what they will use it for")
+    purpose: str = Field(description="what the reader must be able to do or understand afterwards")
+    style: str = Field(description="tone, level of detail, terms to explain or avoid")
+    sections: tuple[OutlinePart, ...] = Field(min_length=1)
+
+
+class Briefer:
+    """A document's specifier: drafts its brief and outline from the user's goal and the sources, commits the
+    brief, pauses for the user to read and edit it (if `approve`), then starts one writing task per section
+    of the outline. Sections of a known size, each from named sources, rather than one task for the whole
+    document: one writer reading ten papers ran out of steps twice (2026-10-17)."""
+
+    NAME = TeamName("briefer")
+    INSTRUCTIONS = """\
+You plan a document from the user's goal and the sources listed in the data, before anything is written.
+Writers will write one section each from your outline, using only the sources; reviewers will judge the
+document against your brief.
+
+- Decide the audience (who reads it, what they know, what they will use it for), the purpose (what the
+  reader must understand or be able to do afterwards) and the style, from the goal. Where the goal doesn't
+  say, choose what serves the reader best.
+- Outline the document in sections, in reading order. For each, say specifically what it covers and which
+  sources it draws on (by name, as listed), and give it a share of the length cap; the shares add up to at
+  most the cap.
+- Every source should be used somewhere; leave one out only if the goal makes it irrelevant."""
+    RULES = """\
+## Rules
+
+- The document lives in `sections/`, one Markdown file per section of the outline, numbered in its order \
+(`sections/01-...md`), each starting with a `## ` heading.
+- At most {words} words in all.
+- Every factual statement cites the source it comes from, like `[@{example}]`, naming a file in `sources/` \
+without its extension. The sources are the only source of facts.
+- One sentence per line.
+"""
+
+    def __init__(
+        self,
+        config: BriefConfig,
+        board: Blackboard,
+        repository: Repository,
+        ladder: LevelLadder,
+        artifacts: ArtifactFactory,
+        worker: Worker,
+    ) -> None:
+        self._config = config
+        self._board = board
+        self._repository = repository
+        self._ladder = ladder
+        self._artifacts = artifacts
+        self._worker = worker
+
+    def done(self) -> bool:
+        """The brief is drafted and its writing tasks exist: the rest of the project may run."""
+        return any(a.created_by == self.NAME for a in self._board.current().artifacts())
+
+    async def step(self) -> int:
+        views = self._board.current()
+        briefs = views.briefs()
+        if not briefs:
+            return await self.draft()
+        if views.paused:
+            return 0  # the user reads the brief; `agentswarm resume` starts the writing
+        brief = briefs[-1]
+        for number, part in enumerate(brief.outline, 1):
+            task = self.task(number, part)
+            artifact = self._artifacts.create(task, self.NAME)
+            self._board.append(
+                [Sized(artifact=artifact.id, fits=True)]
+            )  # one section: the writer tries it whole
+        return 1
+
+    async def draft(self) -> int:
+        level = self._repository.checkout_level(self._ladder.base)
+        try:
+            folder = f"{self._config.sources}/"
+            sources = tuple(
+                SourceSummary(
+                    name=path.removeprefix(folder).removesuffix(".md"),
+                    title=level.read(path).split("\n", 1)[0].lstrip("# ").strip(),
+                    words=len(level.read(path).split()),
+                )
+                for path in sorted(level.files())
+                if path.startswith(folder) and path.endswith(".md")
+            )
+            request = BriefRequest(goal=self._config.goal, sources=sources, words=self._config.words)
+            try:
+                draft = await self._worker.run(self.INSTRUCTIONS, request, BriefDraft)
+            except WorkerError as error:
+                raise SpecifierError(f"the briefer failed: {error}") from error
+            level.write(self._config.path, self.markdown(draft, sources, self._config.words))
+            commit = level.commit(f"briefer: {self._config.path} drafted from the goal")
+        finally:
+            level.remove()
+        outline = tuple(
+            OutlineEntry(title=p.title, covers=p.covers, sources=p.sources, words=p.words)
+            for p in draft.sections
+        )
+        events: list[Event] = [
+            Briefed(path=self._config.path, commit=commit, model=self._config.model, outline=outline)
+        ]
+        if self._config.approve:
+            events.append(
+                Paused(
+                    reason=f"the brief is drafted: read {self._config.path} in the levels folder, edit "
+                    "it if you like, then `agentswarm resume` to start the writing"
+                )
+            )
+        self._board.append(events)
+        return 1
+
+    def task(self, number: int, part: OutlineEntry) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", part.title.lower()).strip("-")[:40] or "section"
+        sources = ", ".join(f"sources/{s}.md" for s in part.sources) or "the sources"
+        return (
+            f'Write sections/{number:02d}-{slug}.md, the section "{part.title}" of the document '
+            f"{self._config.path} describes: {part.covers} Draw on {sources}. At most {part.words} words; "
+            "cite every fact; follow the brief's rules."
+        )
+
+    @classmethod
+    def markdown(cls, draft: BriefDraft, sources: Sequence[SourceSummary], words: int) -> str:
+        outline = "\n".join(
+            f"{n}. **{p.title}** (at most {p.words} words; from {', '.join(p.sources) or 'the sources'}): "
+            f"{p.covers}"
+            for n, p in enumerate(draft.sections, 1)
+        )
+        listed = "\n".join(f"- `{s.name}`: {s.title}" for s in sources)
+        example = sources[0].name if sources else "name"
+        return (
+            f"# The brief: {draft.title}\n\n## Audience\n\n{draft.audience}\n\n"
+            f"## Purpose\n\n{draft.purpose}\n\n"
+            f"## Style\n\n{draft.style}\n\n## Outline\n\n{outline}\n\n## Sources\n\n{listed}\n\n"
+            + cls.RULES.format(words=words, example=example)
+        )

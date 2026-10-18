@@ -42,6 +42,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
+| [Briefer: drafts a document's brief and outline from the goal and the sources](#briefer-drafts-a-documents-brief-and-outline-from-the-goal-and-the-sources) | (`Briefer`) | `BriefDraft` |
 | [Specifier: revises the draft with the answers to its questions](#specifier-revises-the-draft-with-the-answers-to-its-questions) | (`Specifier`) | `SpecDraft` |
 | [Simulated user (experiments): answers the specifier's question from a reference, quoting it](#simulated-user-experiments-answers-the-specifiers-question-from-a-reference-quoting-it) | (`Specifier`) | `UserAnswer` |
 | [Reviewer (documents): reviews one section from one perspective, with quotes as evidence](#reviewer-documents-reviews-one-section-from-one-perspective-with-quotes-as-evidence) | (`ReviewCampaign`) | `ReviewFindings` |
@@ -1823,6 +1824,180 @@ class OpenQuestion(Frozen):
 ### What happens to the answer
 
 `Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+
+## Briefer: drafts a document's brief and outline from the goal and the sources
+
+### Briefer
+
+`agentswarm.teams.specifier.Briefer`: A document's specifier: drafts its brief and outline from the user's goal and the sources, commits the brief, pauses for the user to read and edit it (if `approve`), then starts one writing task per section of the outline. Sections of a known size, each from named sources, rather than one task for the whole document: one writer reading ten papers ran out of steps twice (2026-10-17).
+
+```text
+You plan a document from the user's goal and the sources listed in the data, before anything is written.
+Writers will write one section each from your outline, using only the sources; reviewers will judge the
+document against your brief.
+
+- Decide the audience (who reads it, what they know, what they will use it for), the purpose (what the
+  reader must understand or be able to do afterwards) and the style, from the goal. Where the goal doesn't
+  say, choose what serves the reader best.
+- Outline the document in sections, in reading order. For each, say specifically what it covers and which
+  sources it draws on (by name, as listed), and give it a share of the length cap; the shares add up to at
+  most the cap.
+- Every source should be used somewhere; leave one out only if the goal makes it irrelevant.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "goal": "A summary of these reports for managers.",
+  "sources": [
+    {
+      "name": "q3-report",
+      "title": "Q3 Report",
+      "words": 4200
+    },
+    {
+      "name": "hiring-plan",
+      "title": "Hiring plan 2027",
+      "words": 1800
+    }
+  ],
+  "words": 1500
+}
+</data>
+```
+
+### Payload types
+
+```python
+class BriefRequest(Frozen):
+    """The payload a briefer receives."""
+
+    goal: str
+    sources: tuple[SourceSummary, ...]
+    words: int  # the document's length cap
+
+
+class SourceSummary(Frozen):
+    name: str  # the source's name: its file in the sources folder, without the extension
+    title: str  # its first line
+    words: int
+```
+
+### Answer
+
+```python
+class BriefDraft(Frozen):
+    """The brief: who the document is for and what it must do, and its outline."""
+
+    title: str
+    audience: str = Field(description="who reads it, what they know already, and what they will use it for")
+    purpose: str = Field(description="what the reader must be able to do or understand afterwards")
+    style: str = Field(description="tone, level of detail, terms to explain or avoid")
+    sections: tuple[OutlinePart, ...] = Field(min_length=1)
+
+
+class OutlinePart(Frozen):
+    title: str = Field(description="the section's heading")
+    covers: str = Field(description="what the section must cover, specifically, for the audience")
+    sources: tuple[str, ...] = Field(
+        description="the names of the sources it draws on, as listed in the data"
+    )
+    words: int = Field(gt=0, description="its share of the length cap")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "OutlinePart": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "the section's heading",
+          "title": "Title",
+          "type": "string"
+        },
+        "covers": {
+          "description": "what the section must cover, specifically, for the audience",
+          "title": "Covers",
+          "type": "string"
+        },
+        "sources": {
+          "description": "the names of the sources it draws on, as listed in the data",
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "words": {
+          "description": "its share of the length cap",
+          "exclusiveMinimum": 0,
+          "title": "Words",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "title",
+        "covers",
+        "sources",
+        "words"
+      ],
+      "title": "OutlinePart",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The brief: who the document is for and what it must do, and its outline.",
+  "properties": {
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "audience": {
+      "description": "who reads it, what they know already, and what they will use it for",
+      "title": "Audience",
+      "type": "string"
+    },
+    "purpose": {
+      "description": "what the reader must be able to do or understand afterwards",
+      "title": "Purpose",
+      "type": "string"
+    },
+    "style": {
+      "description": "tone, level of detail, terms to explain or avoid",
+      "title": "Style",
+      "type": "string"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/OutlinePart"
+      },
+      "minItems": 1,
+      "title": "Sections",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "audience",
+    "purpose",
+    "style",
+    "sections"
+  ],
+  "title": "BriefDraft",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Briefer`: A document's specifier: drafts its brief and outline from the user's goal and the sources, commits the brief, pauses for the user to read and edit it (if `approve`), then starts one writing task per section of the outline. Sections of a known size, each from named sources, rather than one task for the whole document: one writer reading ten papers ran out of steps twice (2026-10-17).
 
 ## Specifier: revises the draft with the answers to its questions
 
