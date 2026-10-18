@@ -201,14 +201,27 @@ review:
                 found.append(path)
         return found
 
-    @staticmethod
-    def record(path: Path) -> Candidate | None:
-        """The paper's arXiv record, when `find-papers` downloaded it (papers.json beside it)."""
+    OPENING: ClassVar[int] = 3000  # characters of a document searched for a record's title
+
+    @classmethod
+    def record(cls, path: Path, text: str) -> Candidate | None:
+        """The paper's record, when `find-papers` found it (papers.json beside it): by the file name it gave,
+        else by the title on the first page (a PDF fetched by hand keeps the publisher's name, such as
+        9497.full.pdf)."""
         records = path.parent / PaperFinder.RECORDS
         if not records.is_file():
             return None
         found = [Candidate.model_validate(r) for r in json.loads(records.read_text())]
-        return next((c for c in found if c.id == path.stem), None)
+        named = next((c for c in found if c.id == path.stem), None)
+        if named is not None:
+            return named
+        opening = cls.letters(text[: cls.OPENING])
+        return next((c for c in found if cls.letters(c.title) and cls.letters(c.title) in opening), None)
+
+    @staticmethod
+    def letters(text: str) -> str:
+        """Lower-case letters and digits only: a title broken over lines or hyphenated still matches."""
+        return re.sub(r"[^a-z0-9]", "", text.lower())
 
     def write(self) -> DocumentSummary:
         texts: dict[str, str] = {}
@@ -217,8 +230,9 @@ review:
             name = SourceText.slug(path.stem, 30)
             while any(n == name or n.startswith(f"{name}-") for n in texts):
                 name += "-2"
-            texts.update(SourceParts.split(name, path.stem, SourceText.read(path)))
-            record = self.record(path)
+            text = SourceText.read(path)
+            texts.update(SourceParts.split(name, path.stem, text))
+            record = self.record(path, text)
             if record is not None:
                 known.append(record.reference(name))
         projects: list[Path] = []

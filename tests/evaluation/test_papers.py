@@ -227,15 +227,25 @@ class TestDocumentFiles:
         papers.mkdir()
         (papers / "2501.12948.txt").write_text("DeepSeek-R1, a paper dated 2026 on its title page.")
         (papers / "other.txt").write_text("A paper without a record.")
+        (papers / "9497.full.txt").write_text(
+            "J. Neurosci. 1999\nReplay and Time Com-\npression of Spike Sequences"
+        )
         record = Candidate(
             id="2501.12948", title="DeepSeek-R1", authors=("DeepSeek-AI",), year=2025, abstract=""
         )
-        (papers / PaperFinder.RECORDS).write_text(json.dumps([record.model_dump()]))
+        replay = Candidate(
+            id="W1580901834",
+            title="Replay and Time Compression of Spike Sequences",
+            authors=(),
+            year=1999,
+            abstract="",
+        )
+        (papers / PaperFinder.RECORDS).write_text(json.dumps([record.model_dump(), replay.model_dump()]))
         files = DocumentImport.files([papers])
-        assert [f.name for f in files] == ["2501.12948.txt", "other.txt"]
+        assert [f.name for f in files] == ["2501.12948.txt", "9497.full.txt", "other.txt"]
         DocumentImport(files, tmp_path / "out", "A tutorial.", perspectives=(), approve=False).write()
         given = json.loads((tmp_path / "out" / "document" / "seed" / "docs" / "references.json").read_text())
-        assert [(r["document"], r["year"]) for r in given] == [("2501-12948", "2025")]
+        assert [(r["document"], r["year"]) for r in given] == [("2501-12948", "2025"), ("9497-full", "1999")]
 
     def test_the_template_models_load(self) -> None:
         assert "planner" in DocumentImport.models()
