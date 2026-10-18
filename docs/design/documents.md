@@ -138,3 +138,5 @@ Per perspective: coverage 20 of 21 confirmed, reader 19 of 20, facts 4 of 4, con
 | Teaching version after one facts review ($1.11, 7 of 9 sections) | 17 (seed 1), 14 (seed 2) | 2, 4 | 1, 2 | 11 of 13, 9 of 12 |
 
 The facts review lifted the same sample from 13 to 17; a fresh sample gave 14, so over 40 statements about 78% are fully supported against 65% before. The typical miss is an overstatement ("match" for "outperform", "the authors stress") or the wrong page, rarely an invented fact.
+
+**After the whole facts round** (reviews in one call since, about $0.10 each; 9 sections reviewed, 7 fixes merged): three samples of 20 gave 16, 14 and 15 fully supported, so about 75% fully supported over 60 statements, 18% partly (overstated or narrower), 7% not supported; named pages right 34 of 38. One facts round lifts the share from about 65% to about 75%; the rest are mostly overstatements, which a reviewer looking at a whole section misses and a check of each statement against its source catches.
