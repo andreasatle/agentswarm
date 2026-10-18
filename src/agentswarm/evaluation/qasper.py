@@ -178,6 +178,7 @@ from pathlib import Path
 WORDS = {words}
 CITATION = re.compile(r"\\[@([^\\],\\s]+)(?:,[^\\]]*)?\\]")  # [@name] or [@name, page 121]
 TWO_SENTENCES = re.compile(r"[.!?] +[A-Z]")
+MATH = re.compile(r"\\$[^$]*\\$")  # inline mathematics: its dots end no sentence
 # Abbreviations end in a dot without ending the sentence: a.m., p.m., U.S., Dr., e.g.
 TITLES = "Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|cf|al|Inc|Co|Corp|Ltd"
 ABBREVIATIONS = re.compile(r"\\b(?:[A-Za-z]\\.){{2,}}|\\b(?:" + TITLES + r")\\.")
@@ -197,6 +198,19 @@ class GuideCheck:
             self.problems.append(f"the guide has {{words}} words; the brief allows at most {{WORDS}}")
         return self.problems
 
+    @staticmethod
+    def prose(lines: list[str]) -> list[str]:
+        """The lines outside displayed mathematics ($$ ... $$ blocks)."""
+        kept, display = [], False
+        for line in lines:
+            if line.strip().startswith("$$"):
+                if line.strip() == "$$" or not line.strip().endswith("$$") or len(line.strip()) == 2:
+                    display = not display
+                continue
+            if not display:
+                kept.append(line)
+        return kept
+
     def check_section(self, path: Path) -> int:
         name = path.relative_to(self.root)
         if path.suffix != ".md":
@@ -205,11 +219,11 @@ class GuideCheck:
         lines = [line.rstrip() for line in path.read_text().splitlines() if line.strip()]
         if not lines or not lines[0].startswith("## "):
             self.problems.append(f"{{name}}: must start with a '## ' heading")
-        text = [line for line in lines[1:] if not line.startswith("#")]
+        text = [line for line in self.prose(lines[1:]) if not line.startswith("#")]
         if not text:
             self.problems.append(f"{{name}}: has no text under its heading")
         for number, line in enumerate(text, 1):
-            plain = ABBREVIATIONS.sub("", CITATION.sub("", line))
+            plain = ABBREVIATIONS.sub("", CITATION.sub("", MATH.sub("", line)))
             if TWO_SENTENCES.search(plain) and not line.lstrip().startswith(("-", "*", "|")):
                 self.problems.append(f"{{name}}: one sentence per line: {{line[:60]!r}}")
         cited = CITATION.findall("\\n".join(text))

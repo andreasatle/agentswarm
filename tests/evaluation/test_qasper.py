@@ -113,6 +113,11 @@ class TestGuideCheck:
         line = "## Launch\n\nThe call began at 8:45 p.m. EST, as Dr. Lund said [@1909.00001, page 3].\n"
         assert self.check(tmp_path / "out" / "seed", {"01-launch.md": line}) == []
 
+    def test_displayed_and_inline_mathematics_pass(self, qasper: Path, tmp_path: Path) -> None:
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=50).write()
+        text = "## Loss\n\nThe energy is $E(x). y$ here [@1909.00001].\n$$\nE = F(x). G(y)\n$$\n"
+        assert self.check(tmp_path / "out" / "seed", {"01-loss.md": text}) == []
+
     def test_uncited_unknown_long_and_crowded_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
         GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
         problems = self.check(

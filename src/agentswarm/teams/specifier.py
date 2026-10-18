@@ -10,6 +10,7 @@ users from a reference the same way). The draft is revised with the answers and 
 and only then does the building start: the planner, check writer, builders and red teams take it as spec.
 """
 
+import json
 import re
 from collections.abc import Sequence
 
@@ -23,6 +24,7 @@ from agentswarm.core.domain import (
     Event,
     OutlineEntry,
     Paused,
+    Reference,
     SectionAssigned,
     Sized,
     Specified,
@@ -245,14 +247,26 @@ class OutlinePart(Frozen):
     words: int = Field(gt=0, description="its share of the length cap")
 
 
+class SourceReference(Frozen):
+    document: str = Field(description="the source name the document's parts share, without -p001 or -01")
+    authors: str = Field(description="as on the first page: 'LeCun, Y., Chopra, S., Hadsell, R., et al.'")
+    title: str
+    year: str
+    venue: str = Field(description="journal, conference, book or report; 'arXiv preprint <id>' if that's all")
+    short: str = Field(description="the in-text citation: 'LeCun et al., 2006'")
+
+
 class BriefDraft(Frozen):
-    """The brief: who the document is for and what it must do, and its outline."""
+    """The brief: who the document is for and what it must do, its outline, and its sources' references."""
 
     title: str
     audience: str = Field(description="who reads it, what they know already, and what they will use it for")
     purpose: str = Field(description="what the reader must be able to do or understand afterwards")
     style: str = Field(description="tone, level of detail, terms to explain or avoid")
     sections: tuple[OutlinePart, ...] = Field(min_length=1)
+    references: tuple[SourceReference, ...] = Field(
+        default=(), description="one per source document (not per part), from its first part's opening"
+    )
 
 
 class Briefer:
@@ -263,6 +277,8 @@ class Briefer:
 
     NAME = TeamName("briefer")
     OPENING = 60  # words of each source shown to the briefer, after its title
+    TITLE_PAGE = 250  # words of a document's first part: its title page, for the reference
+    REFERENCES = "docs/references.json"  # the references, beside the brief, for assembling the document
     INSTRUCTIONS = """\
 You plan a document from the user's goal and the sources listed in the data, before anything is written.
 Writers will write one section each from your outline, using only the sources; reviewers will judge the
@@ -277,7 +293,9 @@ document against your brief.
 - Long documents come as parts (pages or chunks of one document, each listed with its opening words). A
   section's writer reads only the parts you name, and must hold them all in mind at once, so name the ones
   that hold what it covers, at most six (some 24,000 words), not every part of a long document.
-- Every document should be used somewhere; leave one out only if the goal makes it irrelevant."""
+- Every document should be used somewhere; leave one out only if the goal makes it irrelevant.
+- Give each source document's reference (authors, title, year, venue, and the short in-text form), from the
+  opening of its first part, where the title page is. Only what that page shows: leave out what it doesn't."""
     RULES = """\
 ## Rules
 
@@ -337,7 +355,19 @@ without its extension. The sources are the only source of facts.
                 draft = await self._worker.run(self.INSTRUCTIONS, request, BriefDraft)
             except WorkerError as error:
                 raise SpecifierError(f"the briefer failed: {error}") from error
+            references = tuple(
+                Reference(
+                    document=r.document,
+                    authors=r.authors,
+                    title=r.title,
+                    year=r.year,
+                    venue=r.venue,
+                    short=r.short,
+                )
+                for r in draft.references
+            )
             level.write(self._config.path, self.markdown(draft, sources, self._config.words))
+            level.write(self.REFERENCES, json.dumps([r.model_dump() for r in references], indent=1) + "\n")
             commit = level.commit(f"briefer: {self._config.path} drafted from the goal")
         finally:
             level.remove()
@@ -346,7 +376,13 @@ without its extension. The sources are the only source of facts.
             for p in draft.sections
         )
         events: list[Event] = [
-            Briefed(path=self._config.path, commit=commit, model=self._config.model, outline=outline)
+            Briefed(
+                path=self._config.path,
+                commit=commit,
+                model=self._config.model,
+                outline=outline,
+                references=references,
+            )
         ]
         if self._config.approve:
             events.append(
@@ -360,13 +396,17 @@ without its extension. The sources are the only source of facts.
 
     @classmethod
     def summary(cls, name: str, text: str) -> SourceSummary:
-        """A source as the briefer sees it: its title line, its size and its first words."""
+        """A source as the briefer sees it: its title line, its size and its first words (more of a
+        document's first part, where its title page is)."""
         title, _, body = text.partition("\n")
+        first = (
+            re.search(r"-(?:p0*1|0*1)$", name) is not None or re.search(r"-(?:p\d{3}|\d{2})$", name) is None
+        )
         return SourceSummary(
             name=name,
             title=title.lstrip("# ").strip(),
             words=len(text.split()),
-            opening=" ".join(body.split()[: cls.OPENING]),
+            opening=" ".join(body.split()[: cls.TITLE_PAGE if first else cls.OPENING]),
         )
 
     @staticmethod
@@ -389,7 +429,12 @@ without its extension. The sources are the only source of facts.
             f"{p.covers}"
             for n, p in enumerate(draft.sections, 1)
         )
-        listed = "\n".join(f"- `{s.name}`: {s.title}" for s in sources)
+        cited = {r.document: r for r in draft.references}
+        documents = [
+            f"- {r.short}: {r.authors} ({r.year}). {r.title}. {r.venue}".rstrip(". ") for r in cited.values()
+        ]
+        listed = "\n".join([*documents, "", "Their parts, cited by name:", ""] if documents else [])
+        listed += "\n".join(f"- `{s.name}`: {s.title}" for s in sources)
         example = sources[0].name if sources else "name"
         return (
             f"# The brief: {draft.title}\n\n## Audience\n\n{draft.audience}\n\n"

@@ -95,3 +95,13 @@ class TestSentences:
             "## I-JEPA\n\nArchitecture.\nThe encoder is a ViT [@p, page 3].\n"
             "See Fig. 2 at 5 p.m. Today.\n- A. B."
         )
+
+    def test_mathematics_is_left_as_it_is(self) -> None:
+        text = (
+            "## Loss\n\nThe loss is $L = \\|s_y - \\hat{s}_y\\|_2^2$ over blocks. It is averaged.\n"
+            "$$\nE(x, y). F(y)\n$$"
+        )
+        assert Sentences.lines(text) == (
+            "## Loss\n\nThe loss is $L = \\|s_y - \\hat{s}_y\\|_2^2$ over blocks.\nIt is averaged.\n"
+            "$$\nE(x, y). F(y)\n$$"
+        )

@@ -474,6 +474,17 @@ class OutlineEntry(Frozen):
     words: int = Field(ge=1)
 
 
+class Reference(Frozen):
+    """A source document as a bibliography gives it: its parts are cited by name, the reader sees this."""
+
+    document: str  # the source name its parts share, e.g. "2301-08243v3" for 2301-08243v3-p001 ...
+    authors: str  # "Assran, M., Duval, Q., Misra, I., et al."
+    title: str
+    year: str
+    venue: str = ""  # journal, conference or "arXiv preprint 2301.08243"
+    short: str  # the in-text form: "Assran et al., 2023"
+
+
 class Briefed(Frozen):
     """The briefer drafted a document's brief and outline from the goal and committed the brief on the base
     level (docs/design/documents.md, real use). Writing tasks follow, one per section, once it is approved."""
@@ -483,6 +494,7 @@ class Briefed(Frozen):
     commit: str
     model: str | None
     outline: tuple[OutlineEntry, ...]
+    references: tuple[Reference, ...] = ()  # each source document, for citations a reader can follow
 
     @property
     def subject(self) -> None:

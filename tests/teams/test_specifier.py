@@ -158,3 +158,9 @@ class TestBriefer:
         tasks = [a.task for a in h.board.current().artifacts()]
         assert tasks[0].startswith('Write sections/01-revenue.md, the section "Revenue"')
         assert "sources/plan.md" in tasks[1] and "At most 200 words" in tasks[1]
+
+    def test_a_documents_first_part_shows_its_title_page(self) -> None:
+        text = "# Paper, pages 1-12\n\n" + " ".join(f"w{n}" for n in range(400))
+        assert len(Briefer.summary("paper-p001", text).opening.split()) == Briefer.TITLE_PAGE
+        assert len(Briefer.summary("paper-p013", text).opening.split()) == Briefer.OPENING
+        assert len(Briefer.summary("memo", text).opening.split()) == Briefer.TITLE_PAGE  # a whole document

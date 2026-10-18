@@ -95,3 +95,23 @@ class TestDocumentAssembly:
         assert text.startswith("# Diffusion for beginners\n\n## One\n")
         assert text.index("## One") < text.index("## Two")
         assert "- `paper-p001`: Paper, pages 1-2" in text and "- `paper-p003`: Paper, pages 3-5" in text
+
+
+class TestReferences:
+    def test_citations_in_the_readers_form_and_a_bibliography(self, tmp_path: Path) -> None:
+        level = tmp_path / "level"
+        for sub in ("sections", "sources", "docs"):
+            (level / sub).mkdir(parents=True)
+        (level / "docs" / "brief.md").write_text("# The brief: JEPA\n")
+        (level / "docs" / "references.json").write_text(
+            '[{"document": "ijepa", "authors": "Assran, M., et al.", "title": "I-JEPA", "year": "2023", '
+            '"venue": "CVPR", "short": "Assran et al., 2023"}]'
+        )
+        (level / "sections" / "01-a.md").write_text(
+            "## One\n\nIt predicts [@ijepa-p003, page 4]. Also [@ijepa-p001].\n"
+        )
+        out = DocumentAssembly.write(level, tmp_path / "document.md")
+        assert out is not None
+        text = out.read_text()
+        assert "It predicts (Assran et al., 2023, p. 4). Also (Assran et al., 2023)." in text
+        assert text.endswith("## References\n\n- Assran, M., et al. (2023). *I-JEPA*. CVPR.\n")

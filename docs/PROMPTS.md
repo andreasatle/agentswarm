@@ -1842,6 +1842,9 @@ source of facts.
 - Cite every factual statement with the source it comes from, like [@name], using the names in the data
   exactly. Where a source marks its pages ([page 121]), name the page too: [@name, page 121]. State only
   what a source says.
+- Write mathematics in LaTeX: inline as $...$, a displayed formula as $$ on a line of its own, the formula,
+  and $$ again. The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the
+  paper's own notation, define every symbol, and cite where it appears.
 - One sentence per line. Stay within the word count.
 - If `current` holds the section already, revise it to fix everything in `must_fix`; keep what is right.
 ```
@@ -1946,6 +1949,8 @@ document against your brief.
   section's writer reads only the parts you name, and must hold them all in mind at once, so name the ones
   that hold what it covers, at most six (some 24,000 words), not every part of a long document.
 - Every document should be used somewhere; leave one out only if the goal makes it irrelevant.
+- Give each source document's reference (authors, title, year, venue, and the short in-text form), from the
+  opening of its first part, where the title page is. Only what that page shows: leave out what it doesn't.
 ```
 
 ### User message (sample)
@@ -1995,13 +2000,16 @@ class SourceSummary(Frozen):
 
 ```python
 class BriefDraft(Frozen):
-    """The brief: who the document is for and what it must do, and its outline."""
+    """The brief: who the document is for and what it must do, its outline, and its sources' references."""
 
     title: str
     audience: str = Field(description="who reads it, what they know already, and what they will use it for")
     purpose: str = Field(description="what the reader must be able to do or understand afterwards")
     style: str = Field(description="tone, level of detail, terms to explain or avoid")
     sections: tuple[OutlinePart, ...] = Field(min_length=1)
+    references: tuple[SourceReference, ...] = Field(
+        default=(), description="one per source document (not per part), from its first part's opening"
+    )
 
 
 class OutlinePart(Frozen):
@@ -2011,6 +2019,15 @@ class OutlinePart(Frozen):
         description="the names of the sources it draws on, as listed in the data"
     )
     words: int = Field(gt=0, description="its share of the length cap")
+
+
+class SourceReference(Frozen):
+    document: str = Field(description="the source name the document's parts share, without -p001 or -01")
+    authors: str = Field(description="as on the first page: 'LeCun, Y., Chopra, S., Hadsell, R., et al.'")
+    title: str
+    year: str
+    venue: str = Field(description="journal, conference, book or report; 'arXiv preprint <id>' if that's all")
+    short: str = Field(description="the in-text citation: 'LeCun et al., 2006'")
 ```
 
 <details><summary>JSON schema</summary>
@@ -2054,10 +2071,53 @@ class OutlinePart(Frozen):
       ],
       "title": "OutlinePart",
       "type": "object"
+    },
+    "SourceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "description": "the source name the document's parts share, without -p001 or -01",
+          "title": "Document",
+          "type": "string"
+        },
+        "authors": {
+          "description": "as on the first page: 'LeCun, Y., Chopra, S., Hadsell, R., et al.'",
+          "title": "Authors",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "year": {
+          "title": "Year",
+          "type": "string"
+        },
+        "venue": {
+          "description": "journal, conference, book or report; 'arXiv preprint <id>' if that's all",
+          "title": "Venue",
+          "type": "string"
+        },
+        "short": {
+          "description": "the in-text citation: 'LeCun et al., 2006'",
+          "title": "Short",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "authors",
+        "title",
+        "year",
+        "venue",
+        "short"
+      ],
+      "title": "SourceReference",
+      "type": "object"
     }
   },
   "additionalProperties": false,
-  "description": "The brief: who the document is for and what it must do, and its outline.",
+  "description": "The brief: who the document is for and what it must do, its outline, and its sources' references.",
   "properties": {
     "title": {
       "title": "Title",
@@ -2084,6 +2144,15 @@ class OutlinePart(Frozen):
       },
       "minItems": 1,
       "title": "Sections",
+      "type": "array"
+    },
+    "references": {
+      "default": [],
+      "description": "one per source document (not per part), from its first part's opening",
+      "items": {
+        "$ref": "#/$defs/SourceReference"
+      },
+      "title": "References",
       "type": "array"
     }
   },

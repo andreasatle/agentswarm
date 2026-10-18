@@ -8,6 +8,7 @@ drafts the brief and outline first (the briefer), pauses for the user to read an
 and reviews. There are no hidden questions here: the user is the judge.
 """
 
+import json
 import re
 import subprocess
 from collections.abc import Sequence
@@ -16,6 +17,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
+from agentswarm.core.domain import Reference
 from agentswarm.evaluation.qasper import GuideImport
 
 
@@ -188,10 +190,12 @@ review:
 
 
 class DocumentAssembly:
-    """A finished document as one Markdown file: its title from the brief, every section in order, and the
-    sources it cites, each with the title of the document (and part or pages) it comes from."""
+    """A finished document as one Markdown file: its title from the brief, every section in order, citations
+    in the reader's form (Assran et al., 2023, p. 4), and a bibliography: authors, year, title, venue. Without
+    references from the briefer, the sources cited are listed by name with their headings."""
 
-    CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)")
+    CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)(?:,\s*page\s+(\d+))?[^\]]*\]")
+    REFERENCES = "docs/references.json"
 
     @classmethod
     def write(cls, level: Path, out: Path) -> Path | None:
@@ -199,27 +203,54 @@ class DocumentAssembly:
         sections = sorted((level / "sections").glob("*.md"))
         if not sections:
             return None
-        brief = level / "docs" / "brief.md"
-        title = (
-            next(
-                (
-                    line.removeprefix("# The brief: ")
-                    for line in brief.read_text().splitlines()
-                    if line.startswith("# ")
-                ),
-                "# The document",
-            )
-            if brief.is_file()
-            else "# The document"
-        )
-        if not title.startswith("# "):
-            title = f"# {title}"
+        title = cls.title(level / "docs" / "brief.md")
         body = "\n\n".join(p.read_text().strip() for p in sections)
-        cited = sorted(set(cls.CITATION.findall(body)))
-        listed: list[str] = []
-        for name in cited:
-            source = level / "sources" / f"{name}.md"
-            heading = source.read_text().split("\n", 1)[0].lstrip("# ") if source.is_file() else "(not found)"
-            listed.append(f"- `{name}`: {heading}")
-        out.write_text(f"{title}\n\n{body}\n\n## Sources cited\n\n" + "\n".join(listed) + "\n")
+        references = cls.references(level / cls.REFERENCES)
+        if references:
+            used: dict[str, Reference] = {}
+
+            def cited(match: re.Match[str]) -> str:
+                reference = cls.owner(match.group(1), references)
+                if reference is None:
+                    return match.group(0)
+                used[reference.document] = reference
+                page = f", p. {match.group(2)}" if match.group(2) else ""
+                return f"({reference.short}{page})"
+
+            body = cls.CITATION.sub(cited, body)
+            entries = sorted(used.values(), key=lambda r: (r.authors.lower(), r.year))
+            listing = "\n".join(
+                f"- {r.authors} ({r.year}). *{r.title}*." + (f" {r.venue}." if r.venue else "")
+                for r in entries
+            )
+            tail = f"## References\n\n{listing}\n"
+        else:
+            names = sorted({m.group(1) for m in cls.CITATION.finditer(body)})
+            listing = "\n".join(f"- `{n}`: {cls.heading(level / 'sources' / f'{n}.md')}" for n in names)
+            tail = f"## Sources cited\n\n{listing}\n"
+        out.write_text(f"{title}\n\n{body}\n\n{tail}")
         return out
+
+    @staticmethod
+    def title(brief: Path) -> str:
+        if brief.is_file():
+            for line in brief.read_text().splitlines():
+                if line.startswith("# "):
+                    return "# " + line.removeprefix("# ").removeprefix("The brief: ")
+        return "# The document"
+
+    @staticmethod
+    def heading(source: Path) -> str:
+        return source.read_text().split("\n", 1)[0].lstrip("# ") if source.is_file() else "(not found)"
+
+    @staticmethod
+    def references(path: Path) -> list[Reference]:
+        if not path.is_file():
+            return []
+        return [Reference.model_validate(r) for r in json.loads(path.read_text())]
+
+    @staticmethod
+    def owner(part: str, references: Sequence[Reference]) -> Reference | None:
+        """The reference whose document the part belongs to: the longest name it starts with."""
+        owners = [r for r in references if part == r.document or part.startswith(f"{r.document}-")]
+        return max(owners, key=lambda r: len(r.document), default=None)

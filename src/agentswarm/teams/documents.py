@@ -99,8 +99,13 @@ class Sentences:
     @classmethod
     def lines(cls, text: str) -> str:
         out: list[str] = []
+        display = False  # inside a $$ ... $$ block: mathematics, left as it is
         for line in text.splitlines():
-            if line.lstrip().startswith(("#", "-", "*", "|", ">")) or not line.strip():
+            if line.strip().startswith("$$"):
+                display = not display if line.strip() == "$$" or not line.strip().endswith("$$") else display
+                out.append(line)
+                continue
+            if display or line.lstrip().startswith(("#", "-", "*", "|", ">")) or not line.strip():
                 out.append(line)
                 continue
             out += cls.split(line)
@@ -112,8 +117,9 @@ class Sentences:
         start = 0
         for match in cls.END.finditer(line):
             before = line[start : match.start() + 1]
-            if cls.ABBREVIATION.search(before) or before.count("[") > before.count("]"):
-                continue  # "p.m. EST", "Fig. 3", or inside a citation
+            inside = before.count("[") > before.count("]") or line[: match.start()].count("$") % 2 == 1
+            if cls.ABBREVIATION.search(before) or inside:
+                continue  # "p.m. EST", "Fig. 3", or inside a citation or an inline formula
             parts.append(before.strip())
             start = match.end()
         parts.append(line[start:].strip())
@@ -131,6 +137,9 @@ source of facts.
 - Cite every factual statement with the source it comes from, like [@name], using the names in the data
   exactly. Where a source marks its pages ([page 121]), name the page too: [@name, page 121]. State only
   what a source says.
+- Write mathematics in LaTeX: inline as $...$, a displayed formula as $$ on a line of its own, the formula,
+  and $$ again. The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the
+  paper's own notation, define every symbol, and cite where it appears.
 - One sentence per line. Stay within the word count.
 - If `current` holds the section already, revise it to fix everything in `must_fix`; keep what is right."""
     INSTRUCTIONS = """\
