@@ -87,7 +87,11 @@ class TestCitations:
 
 class TestSentences:
     def test_each_sentence_on_its_own_line_lists_and_abbreviations_left(self) -> None:
-        text = "## I-JEPA\n\nArchitecture. The encoder is a ViT [@p, page 3]. See Fig. 2 at 5 p.m. Today.\n- A. B."
+        text = (
+            "## I-JEPA\n\nArchitecture. The encoder is a ViT [@p, page 3]. See Fig. 2 at 5 p.m. Today.\n"
+            "- A. B."
+        )
         assert Sentences.lines(text) == (
-            "## I-JEPA\n\nArchitecture.\nThe encoder is a ViT [@p, page 3].\nSee Fig. 2 at 5 p.m. Today.\n- A. B."
+            "## I-JEPA\n\nArchitecture.\nThe encoder is a ViT [@p, page 3].\n"
+            "See Fig. 2 at 5 p.m. Today.\n- A. B."
         )
