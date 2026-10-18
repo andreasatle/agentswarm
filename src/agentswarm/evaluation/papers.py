@@ -425,7 +425,7 @@ in one sentence what each adds."""
         if missing:
             lines += [
                 "",
-                "**Download these by hand** (the publisher refused a program), any file name (matched by title):",
+                "**Download these by hand** (the publisher refused a program); any file name works:",
                 "",
             ]
             for f in missing:
