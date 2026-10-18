@@ -178,6 +178,7 @@ from pathlib import Path
 WORDS = {words}
 CITATION = re.compile(r"\\[@([^\\],\\s]+)(?:,[^\\]]*)?\\]")  # [@name] or [@name, page 121]
 TWO_SENTENCES = re.compile(r"[.!?] +[A-Z]")
+LISTED = re.compile(r"\\s*(?:[-*|]|\\d+[.)]\\s)")  # list items and table rows: left as written
 MATH = re.compile(r"\\$[^$]*\\$")  # inline mathematics: its dots end no sentence
 # Abbreviations end in a dot without ending the sentence: a.m., p.m., U.S., Dr., e.g.
 TITLES = "Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|cf|al|Inc|Co|Corp|Ltd"
@@ -224,7 +225,7 @@ class GuideCheck:
             self.problems.append(f"{{name}}: has no text under its heading")
         for number, line in enumerate(text, 1):
             plain = ABBREVIATIONS.sub("", CITATION.sub("", MATH.sub("", line)))
-            if TWO_SENTENCES.search(plain) and not line.lstrip().startswith(("-", "*", "|")):
+            if TWO_SENTENCES.search(plain) and not LISTED.match(line):
                 self.problems.append(f"{{name}}: one sentence per line: {{line[:60]!r}}")
         cited = CITATION.findall("\\n".join(text))
         for source in cited:

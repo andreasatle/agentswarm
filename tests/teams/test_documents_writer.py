@@ -131,3 +131,9 @@ class TestOverlap:
         assert Citations.mend("A [@rep-p001, @rep-p012]. B [@rep-p001; @rep-p008, page 9].", names) == (
             "A [@rep-p001] [@rep-p008, page 12]. B [@rep-p001] [@rep-p008, page 9]."
         )
+
+
+class TestNumberedLists:
+    def test_a_numbered_question_stays_on_one_line(self) -> None:
+        text = "## Self-check\n\n1. Why predict in latent space? See the loss.\n2) How is collapse avoided?"
+        assert Sentences.lines(text) == text

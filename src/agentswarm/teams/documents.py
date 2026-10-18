@@ -118,7 +118,10 @@ class Sentences:
                 display = not display if line.strip() == "$$" or not line.strip().endswith("$$") else display
                 out.append(line)
                 continue
-            if display or line.lstrip().startswith(("#", "-", "*", "|", ">")) or not line.strip():
+            listed = (
+                re.match(r"\s*(?:[-*|>#]|\d+[.)]\s)", line) is not None
+            )  # lists, tables, quotes, headings
+            if display or listed or not line.strip():
                 out.append(line)
                 continue
             out += cls.split(line)
