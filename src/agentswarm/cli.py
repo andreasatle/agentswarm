@@ -38,7 +38,7 @@ from agentswarm.evaluation.compare import (
     ExperimentKind,
 )
 from agentswarm.evaluation.difficulty import DifficultyRater, DifficultyRatings
-from agentswarm.evaluation.documents import DocumentImport
+from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceText
 from agentswarm.evaluation.faults import Variant
 from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
@@ -184,6 +184,8 @@ class Cli:
                 return self.qasper_papers(args)
             case "import-docs":
                 return self.import_docs(args)
+            case "learn":
+                return self.learn(args)
             case "questions":
                 return self.questions(args)
             case "score":
@@ -218,19 +220,26 @@ class Cli:
         return 0
 
     def run(self, args: argparse.Namespace) -> int:
-        config = ProjectConfig.load(Path(args.config))
-        project = Project.open(config, Path(args.root).expanduser(), ProjectServices(teams=self._catalog))
+        return self.run_project(Path(args.config), Path(args.root).expanduser(), args.max_rounds, args.task)
+
+    def run_project(self, path: Path, root: Path, max_rounds: int, tasks: Sequence[str] = ()) -> int:
+        config = ProjectConfig.load(path)
+        project = Project.open(config, root, ProjectServices(teams=self._catalog))
         try:
-            for task in args.task:
+            for task in tasks:
                 project.create_artifact(task)
-            before, after = asyncio.run(self.scored_run(project, args.max_rounds))
+            before, after = asyncio.run(self.scored_run(project, max_rounds))
             self._show(Report.render(project.views()))
             if before is not None and after is not None:
                 self._show(Progress.render(before, after))
             hardening = HardeningSummary.render(project.board.current())
             if hardening is not None:
                 self._show(hardening)
-            self._show(self.levels(config, Path(args.root).expanduser()))
+            self._show(self.levels(config, root))
+            if config.brief is not None:  # a document: one file to read, the sections in order
+                written = DocumentAssembly.write(root / "levels" / config.levels.base, root / "document.md")
+                if written is not None:
+                    self._show(f"the document: {written}")
             self._show(
                 RunVerdict.render(project.board.current(), project.board.log.read(), config.levels.lowest)
             )
@@ -405,6 +414,34 @@ class Cli:
         papers = QasperSet(Path(args.qasper).expanduser()).search(args.words)
         self._show("\n".join(f"{p.id}  {len(p.questions):>2}  {p.title}" for p in papers) or "none")
         return 0
+
+    LEARN = (
+        "A tutorial for someone who knows {know}, and wants to {want}, from the papers given. Start "
+        "from what they know and build up: explain each idea before it is used, with an example where it "
+        "helps; follow the papers' own reasoning, and say where they differ. End with a short summary of the "
+        "key ideas and a few questions the reader can answer to check their understanding."
+    )
+
+    def learn(self, args: argparse.Namespace) -> int:
+        """Papers to a tutorial for one reader, in one command: import, brief, writing, a reader review."""
+        files = [Path(f).expanduser() for f in args.files]
+        missing = [str(f) for f in files if not f.is_file()]
+        if missing:
+            self._show(f"not found: {', '.join(missing)}")
+            return 2
+        name = SourceText.slug(args.want, 40)
+        out = Path(args.out).expanduser() if args.out else Path("~/agentswarm-data/learn").expanduser()
+        goal = self.LEARN.format(know=args.know, want=args.want)
+        perspectives = ("reader", "facts") if args.review else ()
+        imported = DocumentImport(
+            files, out, goal, (), args.words, perspectives, args.check_brief, args.budget, name
+        ).write()
+        self._show(imported.render())
+        root = Path("~/agentswarm-runs").expanduser() / f"learn-{name}"
+        status = self.run_project(imported.projects[0], root, args.max_rounds)
+        if not args.check_brief:
+            self._show(f"the tutorial: {root / 'document.md'}")
+        return status
 
     def import_docs(self, args: argparse.Namespace) -> int:
         """The user's own documents as sources, and a project per audience that drafts a brief first."""
@@ -722,6 +759,17 @@ class Cli:
             "--audience", action="append", default=[], help="a reader to write for; repeat for several"
         )
         docs.add_argument("--words", type=int, default=3000, help="the document's length cap")
+
+        learn = commands.add_parser("learn", help="papers to a tutorial for you, in one command")
+        learn.add_argument("files", nargs="+", help="the papers: PDF, Word, HTML, text, Markdown")
+        learn.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")
+        learn.add_argument("--want", required=True, help="what you want, e.g. 'understand diffusion models'")
+        learn.add_argument("--words", type=int, default=4000, help="the tutorial's length cap")
+        learn.add_argument("--review", action="store_true", help="one round of reader and fact review")
+        learn.add_argument("--check-brief", action="store_true", help="pause after the brief for you to read")
+        learn.add_argument("--budget", type=float, default=1.0, help="the run's cap in dollars")
+        learn.add_argument("--out", help="where the project goes (default ~/agentswarm-data/learn)")
+        learn.add_argument("--max-rounds", type=int, default=300)
 
         traced = commands.add_parser("questions", help="a document's hidden questions, score by score")
         traced.add_argument("config", help="the project's YAML configuration")

@@ -116,14 +116,35 @@ class DocumentImport:
     # The project file written per audience: a str.format template (YAML braces doubled)
     PROJECT: ClassVar[Path] = Path(__file__).with_name("document_project.yaml")
 
+    REVIEW = """\
+review:
+  model: gpt-sol
+  referee: referee
+  perspectives: [{perspectives}]
+  quiet_rounds: 1
+"""
+
     def __init__(
-        self, files: Sequence[Path], out: Path, goal: str, audiences: Sequence[str] = (), words: int = 3000
+        self,
+        files: Sequence[Path],
+        out: Path,
+        goal: str,
+        audiences: Sequence[str] = (),
+        words: int = 3000,
+        perspectives: Sequence[str] = ("facts", "coverage", "reader", "consistency"),  # none: no reviews
+        approve: bool = True,  # pause after the brief for the user to read it
+        budget: float = 2.0,  # the run's cap in dollars
+        folder: str | None = None,  # the project's folder under `out`; default: the audience, or "document"
     ) -> None:
         self._files = tuple(files)
         self._out = out
         self._goal = goal
         self._audiences = tuple(audiences)
         self._words = words
+        self._perspectives = tuple(perspectives)
+        self._approve = approve
+        self._budget = budget
+        self._folder = folder
 
     def write(self) -> DocumentSummary:
         texts: dict[str, str] = {}
@@ -134,7 +155,7 @@ class DocumentImport:
             texts.update(SourceParts.split(name, path.stem, SourceText.read(path)))
         projects: list[Path] = []
         for audience in self._audiences or ("",):
-            folder = self._out / (SourceText.slug(audience) if audience else "document")
+            folder = self._out / (self._folder or (SourceText.slug(audience) if audience else "document"))
             seed = folder / "seed"
             for sub in ("sources", "sections", "tools"):
                 (seed / sub).mkdir(parents=True, exist_ok=True)
@@ -153,9 +174,52 @@ class DocumentImport:
                     project=f"docs-{folder.name}",
                     example=next(iter(texts), "name"),
                     words=self._words,
+                    approve="true" if self._approve else "false",
+                    review=self.REVIEW.format(perspectives=", ".join(self._perspectives))
+                    if self._perspectives
+                    else "",
+                    budget=self._budget,
                 )
             )
             projects.append(config)
         return DocumentSummary(
             sources=tuple(texts), words=sum(len(t.split()) for t in texts.values()), projects=tuple(projects)
         )
+
+
+class DocumentAssembly:
+    """A finished document as one Markdown file: its title from the brief, every section in order, and the
+    sources it cites, each with the title of the document (and part or pages) it comes from."""
+
+    CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)")
+
+    @classmethod
+    def write(cls, level: Path, out: Path) -> Path | None:
+        """`level` is a level's plain folder (levels/<level>/ under the root); None when no section exists."""
+        sections = sorted((level / "sections").glob("*.md"))
+        if not sections:
+            return None
+        brief = level / "docs" / "brief.md"
+        title = (
+            next(
+                (
+                    line.removeprefix("# The brief: ")
+                    for line in brief.read_text().splitlines()
+                    if line.startswith("# ")
+                ),
+                "# The document",
+            )
+            if brief.is_file()
+            else "# The document"
+        )
+        if not title.startswith("# "):
+            title = f"# {title}"
+        body = "\n\n".join(p.read_text().strip() for p in sections)
+        cited = sorted(set(cls.CITATION.findall(body)))
+        listed: list[str] = []
+        for name in cited:
+            source = level / "sources" / f"{name}.md"
+            heading = source.read_text().split("\n", 1)[0].lstrip("# ") if source.is_file() else "(not found)"
+            listed.append(f"- `{name}`: {heading}")
+        out.write_text(f"{title}\n\n{body}\n\n## Sources cited\n\n" + "\n".join(listed) + "\n")
+        return out

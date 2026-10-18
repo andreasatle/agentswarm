@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from agentswarm.core.config import ProjectConfig
-from agentswarm.evaluation.documents import DocumentImport, SourceParts, SourceText
+from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceParts, SourceText
 
 
 class TestDocumentImport:
@@ -54,3 +54,44 @@ class TestSourceParts:
 
     def test_a_short_document_stays_whole(self) -> None:
         assert SourceParts.split("memo", "Memo", "short text") == [("memo", "# Memo\n\nshort text\n")]
+
+
+class TestOptions:
+    def test_a_tutorial_project_without_reviews_runs_straight_through_on_its_budget(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "paper.txt").write_text("Diffusion adds noise step by step.\n")
+        summary = DocumentImport(
+            [tmp_path / "paper.txt"], tmp_path / "out", "A tutorial.", (), 4000, (), False, 0.8, "diffusion"
+        ).write()
+        config = ProjectConfig.load(summary.projects[0])
+        assert summary.projects[0].parent.name == "diffusion"
+        assert config.review is None and config.brief is not None and not config.brief.approve
+        assert config.budgets.usd_per_day == 0.8
+
+    def test_reviews_by_the_perspectives_asked_for(self, tmp_path: Path) -> None:
+        (tmp_path / "paper.txt").write_text("text\n")
+        summary = DocumentImport(
+            [tmp_path / "paper.txt"], tmp_path / "out", "A tutorial.", (), 4000, ("reader", "facts")
+        ).write()
+        review = ProjectConfig.load(summary.projects[0]).review
+        assert review is not None and [str(p) for p in review.perspectives] == ["reader", "facts"]
+
+
+class TestDocumentAssembly:
+    def test_sections_in_order_under_the_briefs_title_with_the_sources_cited(self, tmp_path: Path) -> None:
+        level = tmp_path / "level"
+        (level / "sections").mkdir(parents=True)
+        (level / "sources").mkdir()
+        (level / "docs").mkdir()
+        (level / "docs" / "brief.md").write_text("# The brief: Diffusion for beginners\n\n## Audience\n")
+        (level / "sections" / "02-b.md").write_text("## Two\n\nLater [@paper-p003, page 4].\n")
+        (level / "sections" / "01-a.md").write_text("## One\n\nFirst [@paper-p001].\n")
+        (level / "sources" / "paper-p001.md").write_text("# Paper, pages 1-2\n\n...")
+        (level / "sources" / "paper-p003.md").write_text("# Paper, pages 3-5\n\n...")
+        out = DocumentAssembly.write(level, tmp_path / "document.md")
+        assert out is not None
+        text = out.read_text()
+        assert text.startswith("# Diffusion for beginners\n\n## One\n")
+        assert text.index("## One") < text.index("## Two")
+        assert "- `paper-p001`: Paper, pages 1-2" in text and "- `paper-p003`: Paper, pages 3-5" in text

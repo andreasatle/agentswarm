@@ -40,10 +40,6 @@ brief:
     {goal}
   model: planner
   words: {words}
-review:
-  model: gpt-sol
-  referee: referee
-  perspectives: [facts, coverage, reader, consistency]
-  quiet_rounds: 1
-budgets: {{usd_per_day: 2.0, reserve_usd: 0.05}}  # this run's cap: set it to what you approve for the run
+  approve: {approve}
+{review}budgets: {{usd_per_day: {budget}, reserve_usd: 0.05}}  # this run's cap: set it to what you approve for the run
 jev: {{mode: shadow, active: []}}
