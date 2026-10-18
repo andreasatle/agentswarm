@@ -2171,7 +2171,9 @@ in one sentence what each adds.
       "venue": "",
       "cited": null,
       "pdfs": [],
-      "page": ""
+      "page": "",
+      "free": "",
+      "access": ""
     }
   ]
 }
@@ -2200,6 +2202,8 @@ class Candidate(Frozen):
     cited: int | None = None  # times cited, where the service counts it (OpenAlex)
     pdfs: tuple[str, ...] = ()  # where its PDF may be, the likeliest to let a program download it first
     page: str = ""  # its landing page (the DOI), for a person to fetch it from
+    free: str = ""  # where it is free to read, if the service knows (a PubMed Central page, say)
+    access: str = ""  # how it is open: green (a repository copy), gold, hybrid, bronze (the publisher's whim)
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
