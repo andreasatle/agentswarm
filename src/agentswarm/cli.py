@@ -46,7 +46,7 @@ from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.jsonpath import JsonPathImport
-from agentswarm.evaluation.papers import ArxivSearch, PaperFinder
+from agentswarm.evaluation.papers import PaperFinder, PaperSource
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionTrace
@@ -482,7 +482,9 @@ class Cli:
         )
         try:
             found = asyncio.run(
-                PaperFinder(worker, ArxivSearch()).find(args.topic, args.know, args.papers, out)
+                PaperFinder(worker, PaperSource(args.source).search()).find(
+                    args.topic, args.know, args.papers, out
+                )
             )
         finally:
             if shared is not None:
@@ -830,10 +832,16 @@ class Cli:
         )
         docs.add_argument("--words", type=int, default=3000, help="the document's length cap")
 
-        find = commands.add_parser("find-papers", help="papers for a topic from arXiv, for `learn`")
+        find = commands.add_parser("find-papers", help="papers for a topic (OpenAlex or arXiv), for `learn`")
         find.add_argument("topic", help="e.g. 'test-time compute for language model reasoning'")
         find.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")
         find.add_argument("--papers", type=int, default=5, help="how many to pick")
+        find.add_argument(
+            "--source",
+            choices=[s.value for s in PaperSource],
+            default=PaperSource.OPENALEX.value,
+            help="openalex: every field (default); arxiv: machine learning, physics, maths",
+        )
         find.add_argument("--out", help="the folder for the PDFs (default ~/agentswarm-data/<topic>)")
         learn = commands.add_parser("learn", help="papers to a tutorial for you, in one command")
         learn.add_argument(

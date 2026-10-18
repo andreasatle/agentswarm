@@ -2051,14 +2051,14 @@ class CitationAnswer(Frozen):
 
 ### PaperFinder
 
-`agentswarm.evaluation.papers.PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
 ```text
-You plan a literature search on arXiv for a tutorial on the topic given, for the reader described. Write the
-number of short keyword queries asked for, each covering a different thread of the topic (its foundations, the
-main competing methods, how they are evaluated), so that together they find the papers a tutorial needs.
-arXiv ranks recent papers first, so also list the exact titles of the well-known papers on the topic that you
-are sure of: each is looked up, and kept only if found.
+You plan a literature search for a tutorial on the topic given, for the reader described. Write the number of
+short keyword queries asked for, each covering a different thread of the topic (its foundations, the main
+competing ideas or methods, the evidence for them), so that together they find the papers a tutorial needs.
+Search ranks by matching words, not importance, so also list the exact titles of the well-known papers on the
+topic that you are sure of: each is looked up, and kept only if found.
 ```
 
 ### User message (sample)
@@ -2088,12 +2088,12 @@ class QueryRequest(Frozen):
 
 ```python
 class SearchQueries(Frozen):
-    """Your queries for arXiv: a few words each, covering the topic's main threads."""
+    """Your queries for the search service: a few words each, covering the topic's main threads."""
 
     queries: list[str] = Field(description="short keyword queries, e.g. 'process reward model verification'")
     known: list[str] = Field(
         default_factory=list,
-        description="exact titles of well-known papers on the topic you are sure exist (checked on arXiv)",
+        description="exact titles of well-known papers on the topic you are sure exist (each is looked up)",
     )
 ```
 
@@ -2102,7 +2102,7 @@ class SearchQueries(Frozen):
 ```json
 {
   "additionalProperties": false,
-  "description": "Your queries for arXiv: a few words each, covering the topic's main threads.",
+  "description": "Your queries for the search service: a few words each, covering the topic's main threads.",
   "properties": {
     "queries": {
       "description": "short keyword queries, e.g. 'process reward model verification'",
@@ -2113,7 +2113,7 @@ class SearchQueries(Frozen):
       "type": "array"
     },
     "known": {
-      "description": "exact titles of well-known papers on the topic you are sure exist (checked on arXiv)",
+      "description": "exact titles of well-known papers on the topic you are sure exist (each is looked up)",
       "items": {
         "type": "string"
       },
@@ -2133,20 +2133,21 @@ class SearchQueries(Frozen):
 
 ### What happens to the answer
 
-`PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+`PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
 ## Paper finder: picks the papers a tutorial is written from, among the candidates found
 
 ### PaperFinder
 
-`agentswarm.evaluation.papers.PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
 ```text
 You choose the papers a tutorial on the topic will be written from, for the reader described, from the
-candidates found on arXiv. Pick the number asked for that together teach the topic: the papers that introduced
-the key ideas, the main competing approaches, and the evidence comparing them. Prefer papers that build on one
-another, and influential original work over surveys of it or small variations. Use only ids from the
-candidates. Order them as a reader should meet them, and say in one sentence what each adds.
+candidates found. Pick the number asked for that together teach the topic: the papers that introduced the key
+ideas, the main competing approaches, and the evidence comparing them. Prefer papers that build on one
+another, and influential original work (times cited, where given, is a hint) over small variations; a good
+review may anchor the set. Use only ids from the candidates. Order them as a reader should meet them, and say
+in one sentence what each adds.
 ```
 
 ### User message (sample)
@@ -2166,7 +2167,11 @@ candidates. Order them as a reader should meet them, and say in one sentence wha
         "Vineet Kosaraju"
       ],
       "year": 2023,
-      "abstract": "We compare outcome supervision with process supervision ..."
+      "abstract": "We compare outcome supervision with process supervision ...",
+      "venue": "",
+      "cited": null,
+      "pdfs": [],
+      "page": ""
     }
   ]
 }
@@ -2186,16 +2191,20 @@ class PickRequest(Frozen):
 
 
 class Candidate(Frozen):
-    id: str  # arXiv's, without the version: 2305.20050
+    id: str  # the service's: arXiv's without the version (2305.20050), OpenAlex's work id (W2086162146)
     title: str
     authors: tuple[str, ...]
     year: int  # of its first version: a later version's PDF carries a later date (DeepSeek-R1 read as 2026)
     abstract: str
+    venue: str = ""  # the journal or "arXiv preprint 2305.20050"
+    cited: int | None = None  # times cited, where the service counts it (OpenAlex)
+    pdfs: tuple[str, ...] = ()  # where its PDF may be, the likeliest to let a program download it first
+    page: str = ""  # its landing page (the DOI), for a person to fetch it from
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
 
     def reference(self, document: str) -> Reference:
-        """The paper as a bibliography gives it, from arXiv's record rather than a model's reading."""
+        """The paper as a bibliography gives it, from the service's record rather than a model's reading."""
         surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
         listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
         authors = listed + (", et al." if len(self.authors) > self.LISTED else "")
@@ -2210,7 +2219,7 @@ class Candidate(Frozen):
             authors=authors,
             title=self.title,
             year=str(self.year),
-            venue=f"arXiv preprint {self.id}",
+            venue=self.venue,
             short=short,
         )
 
@@ -2291,7 +2300,7 @@ class PickedPaper(Frozen):
 
 ### What happens to the answer
 
-`PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+`PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
 ## Briefer: drafts a document's brief and outline from the goal and the sources
 

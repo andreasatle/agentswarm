@@ -1,12 +1,15 @@
 import json
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.evaluation.papers import (
     ArxivSearch,
     Candidate,
+    OpenAlexSearch,
+    OpenAlexWork,
     PaperFinder,
     PickedPaper,
     PickRequest,
@@ -42,6 +45,7 @@ class FakeSearch:
         titles: dict[str, Candidate] | None = None,
         ignore_limit: bool = False,
     ) -> None:
+        self.refuse: set[str] = {"broken"}
         self._results = results
         self._ignore_limit = ignore_limit
         self._titles = titles or {}
@@ -53,10 +57,10 @@ class FakeSearch:
     def titled(self, title: str) -> Candidate | None:
         return self._titles.get(title)
 
-    def download(self, paper: str, path: Path) -> None:
-        if paper == "broken":
+    def download(self, paper: Candidate, path: Path) -> None:
+        if paper.id in self.refuse:
             raise OSError("no such PDF")
-        self.downloaded.append(paper)
+        self.downloaded.append(paper.id)
         path.write_bytes(b"%PDF")
 
 
@@ -86,6 +90,54 @@ class TestArxivSearch:
         assert found.title == "Let's Verify Step by Step"
         assert found.authors == ("Hunter Lightman", "Vineet Kosaraju")
         assert found.abstract == "Process supervision beats outcome supervision."
+        assert found.venue == "arXiv preprint 2305.20050" and found.pdfs == (
+            "https://arxiv.org/pdf/2305.20050",
+        )
+
+
+WORKS = b"""{"results": [
+  {"id": "https://openalex.org/W2086162146", "title": "Sleep-dependent memory consolidation",
+   "publication_year": 2005, "authorships": [{"author": {"display_name": "Matthew P. Walker"}}],
+   "abstract_inverted_index": {"Sleep": [0], "consolidates": [1], "memory": [2]},
+   "best_oa_location": {"pdf_url": "https://www.nature.com/articles/nature04286.pdf", "source": null},
+   "primary_location": {"source": {"display_name": "Nature"}}, "cited_by_count": 1849},
+  {"id": "https://openalex.org/W1", "title": "No open PDF", "publication_year": 2001, "authorships": [],
+   "best_oa_location": {"pdf_url": null}, "primary_location": null}
+]}"""
+
+
+class TestOpenAlexSearch:
+    def test_works_become_candidates_with_their_links(self) -> None:
+        found, without = OpenAlexSearch.parse(WORKS)
+        assert without.pdfs == ()  # still a candidate: a person may fetch it
+        assert found.id == "W2086162146" and found.year == 2005 and found.cited == 1849
+        assert found.abstract == "Sleep consolidates memory" and found.venue == "Nature"
+        assert found.reference("w2086162146").short == "Walker, 2005"
+
+    def test_repository_links_come_before_the_journals(self) -> None:
+        work = OpenAlexWork.model_validate(
+            {
+                "id": "https://openalex.org/W9",
+                "best_oa_location": {"pdf_url": "https://journal/a.pdf", "source": {"type": "journal"}},
+                "locations": [
+                    {"pdf_url": "https://journal/a.pdf", "source": {"type": "journal"}},
+                    {"pdf_url": "https://pmc/a.pdf", "source": {"type": "repository"}},
+                    {"pdf_url": None},
+                ],
+            }
+        )
+        assert OpenAlexSearch.links(work) == ("https://pmc/a.pdf", "https://journal/a.pdf")
+
+    def test_a_page_that_is_not_a_pdf_is_refused(self, tmp_path: Path) -> None:
+        class Landing(OpenAlexSearch):
+            def fetch(self, url: str) -> bytes:
+                return b"<html>Please verify you are human</html>"
+
+        with pytest.raises(OSError):
+            Landing().download(
+                paper("W1").model_copy(update={"pdfs": ("https://x/p.pdf",)}), tmp_path / "W1.pdf"
+            )
+        assert not (tmp_path / "W1.pdf").exists()
 
 
 class TestCandidate:
@@ -96,6 +148,7 @@ class TestCandidate:
             authors=("DeepSeek-AI", "Daya Guo", *(f"A{n} B{n}" for n in range(10))),
             year=2025,
             abstract="",
+            venue="arXiv preprint 2501.12948",
         )
         reference = r1.reference("2501-12948")
         assert reference.year == "2025" and reference.short == "DeepSeek-AI et al., 2025"
@@ -133,19 +186,33 @@ class TestPaperFinder:
         assert len(asked[0].candidates) == PaperFinder.CANDIDATES
         assert all(len(c.abstract) == PaperFinder.ABSTRACT for c in asked[0].candidates)
 
+    async def test_a_paper_that_wont_download_is_still_picked_and_listed_for_the_user(
+        self, tmp_path: Path
+    ) -> None:
+        gone = paper("W7", "Gone").model_copy(
+            update={"pdfs": ("https://journal/x.pdf",), "page": "https://doi.org/1"}
+        )
+        search = FakeSearch({"verifiers": [gone, paper("1", "Here")]})
+        search.refuse = {"W7"}
+        found, asked = finder(["W7", "1"], search)
+        picked = await found.find("topic", "ML", 5, tmp_path)
+        assert (
+            asked[0].candidates[0].pdfs == () and asked[0].candidates[0].page == ""
+        )  # no links for the picker
+        assert picked[0].file is None and picked[1].file == tmp_path / "1.pdf"
+        listing = (tmp_path / "papers.md").read_text()
+        assert (
+            "Download these by hand" in listing
+            and "- `W7.pdf`: https://journal/x.pdf, https://doi.org/1" in listing
+        )
+        records = json.loads((tmp_path / PaperFinder.RECORDS).read_text())
+        assert [r["id"] for r in records] == ["W7", "1"]  # a PDF fetched by hand still finds its record
+
     async def test_invented_ids_and_repeats_are_dropped_and_the_count_kept(self, tmp_path: Path) -> None:
         search = FakeSearch({"verifiers": [paper("1"), paper("2"), paper("3")]})
         found, _ = finder(["9999.0001", "1v2", "1", "2", "3"], search)
         picked = await found.find("topic", "ML", 2, tmp_path)
         assert [f.paper.id for f in picked] == ["1", "2"]
-
-    async def test_a_failed_download_is_listed_as_failed(self, tmp_path: Path) -> None:
-        search = FakeSearch({"verifiers": [paper("broken", "Gone"), paper("1", "Here")]})
-        found, _ = finder(["broken", "1"], search)
-        picked = await found.find("topic", "ML", 5, tmp_path)
-        assert picked[0].file is None and picked[1].file == tmp_path / "1.pdf"
-        listing = (tmp_path / "papers.md").read_text()
-        assert "**Gone**" in listing and "download failed" in listing and "`1.pdf`" in listing
 
 
 class TestDocumentFiles:
