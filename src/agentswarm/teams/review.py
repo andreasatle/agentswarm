@@ -10,6 +10,7 @@ finding becomes a writer's task to revise that section. Whether it was fixed sho
 same reviewer meets the section again, and the referee's rejections are shown so a claim isn't argued twice.
 """
 
+import re
 from collections.abc import Sequence
 from typing import ClassVar
 
@@ -27,12 +28,13 @@ from agentswarm.core.domain import (
     Focus,
     Perspective,
     RejectedReport,
+    SectionAssigned,
     Sized,
     TeamName,
 )
 from agentswarm.evaluation.score import Measure
 from agentswarm.llm.workers import Worker, WorkerError
-from agentswarm.teams.analyzer import Quotes, ReadingToolbox
+from agentswarm.teams.analyzer import Quotes
 from agentswarm.teams.campaign import Campaign, Part
 from agentswarm.teams.referee import FindingRequest, QuotedPassage, Referee
 from agentswarm.workspace.git import Repository, Worktree
@@ -40,6 +42,11 @@ from agentswarm.workspace.git import Repository, Worktree
 
 class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class ReviewSource(Frozen):
+    name: str  # the source's name, as cited: [@name]
+    text: str
 
 
 class ReviewRequest(Frozen):
@@ -50,8 +57,13 @@ class ReviewRequest(Frozen):
     section: str  # the section file to review
     text: str  # that section as it is
     perspective: str  # what to look for
-    sources: tuple[str, ...]  # the source files, to read as needed
+    sources: tuple[str, ...]  # every source file's name
     rejected: tuple[str, ...] = ()  # findings the referee ruled against: again only with new evidence
+    # The text a review needs, read by plain code: the source parts the section cites or was assigned, and
+    # for consistency the rest of the document. With it, the reviewer answers in one call (2026-10-18: a
+    # reviewer reading through tools cost $0.25-0.30 a section)
+    material: tuple[ReviewSource, ...] = ()
+    document: str = ""
 
 
 class Evidence(Frozen):
@@ -75,15 +87,6 @@ class ReviewFindings(Frozen):
     findings: tuple[ReviewFinding, ...]
 
 
-class ReviewToolbox(ReadingToolbox):
-    """Reading the document and its sources; there is no single change to show."""
-
-    TOOLS: ClassVar[tuple[str, ...]] = ("list_files", "read_file")
-
-    def __init__(self, worktree: Worktree) -> None:
-        super().__init__(worktree, "")
-
-
 class ReviewCampaign(Campaign):
     NAME = TeamName("reviewer")
     CONTEXT = 600  # characters of a file on either side of a quote, for the referee
@@ -92,7 +95,9 @@ class ReviewCampaign(Campaign):
 You review one section of a document from one perspective, given in the data with the document's brief. The
 document is finished as far as its writer knows. Find what is wrong with this section from your perspective.
 
-- Read the section in the data; read the sources and other sections (list_files, read_file) as you need.
+- Read the section in the data, and the source text and document given with it: everything the review
+  needs is there. Evidence quotes must come from those texts, naming their file (sources/<name>.md, or the
+  section's file in sections/).
 - Report a problem only with evidence: the exact words from the files that show it, copied verbatim, with
   the file each is from. What the perspective asks you to quote is in the data.
 - Report the most important problems first, and only real ones: a problem must matter for the brief and its
@@ -193,6 +198,8 @@ document is finished as far as its writer knows. Find what is wrong with this se
             perspective=self.PERSPECTIVE[focus],
             sources=sources,
             rejected=self.rejected(views),
+            material=self.material(worktree, part, views),
+            document=self.document(worktree) if focus is Perspective.CONSISTENCY else "",
         )
 
         def attacked(
@@ -219,9 +226,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
             )
 
         try:
-            report = await self._worker.run(
-                self.INSTRUCTIONS, request, ReviewFindings, ReviewToolbox(worktree)
-            )
+            report = await self._worker.run(self.INSTRUCTIONS, request, ReviewFindings)
         except WorkerError as error:
             return [attacked(0, (), (f"the reviewer failed: {error}",), failed=True)]
         found = report.findings[: self._config.max_findings]
@@ -265,6 +270,31 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 Sized(artifact=task, fits=True)
             )  # one section's revision: the writer tries it whole
         return [*events, attacked(len(found), tasks, dropped, findings, rejections)]
+
+    MATERIAL_LIMIT = 200_000  # characters of source text given with a review
+
+    def material(self, worktree: Worktree, part: Part, views: BoardViews) -> tuple[ReviewSource, ...]:
+        """The parts the section cites, then those it was assigned (its writer's sources), within a limit."""
+        cited = list(dict.fromkeys(re.findall(r"\[@([^\],\s]+)", part.text)))
+        assigned = [
+            name
+            for artifact in views.artifacts()
+            for e in views.history(artifact.id)
+            if isinstance(e, SectionAssigned) and e.path == part.title
+            for name in e.section.sources
+        ]
+        found: list[ReviewSource] = []
+        size = 0
+        for name in dict.fromkeys([*cited, *assigned]):
+            try:
+                text = worktree.read(f"{self._config.sources}/{name}.md")
+            except (OSError, UnicodeDecodeError, ValueError):
+                continue
+            if size + len(text) > self.MATERIAL_LIMIT:
+                break
+            found.append(ReviewSource(name=name, text=text))
+            size += len(text)
+        return tuple(found)
 
     def document(self, worktree: Worktree) -> str:
         """Every section, in reading order, each under its file name."""

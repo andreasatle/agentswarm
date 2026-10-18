@@ -95,7 +95,7 @@ from agentswarm.teams.referee import (
     RulingAnswer,
     RulingRequest,
 )
-from agentswarm.teams.review import ReviewCampaign, ReviewFindings, ReviewRequest, ReviewToolbox
+from agentswarm.teams.review import ReviewCampaign, ReviewFindings, ReviewRequest, ReviewSource
 from agentswarm.teams.specifier import (
     Answer,
     AnswerRequest,
@@ -316,6 +316,9 @@ class SampleData:
             text="## Tagging\n\nThe tagger reaches 99% accuracy [@1909.00001].",
             perspective=ReviewCampaign.PERSPECTIVE[Perspective.FACTS],
             sources=("sources/1909.00001.md",),
+            material=(
+                ReviewSource(name="1909.00001", text="# Tagging with Little Data\n\n... reaches 97.1% ..."),
+            ),
         )
 
     @classmethod
@@ -574,7 +577,7 @@ class PromptCatalogue:
                 ReviewCampaign,
                 SampleData.review(),
                 ReviewFindings,
-                ReviewToolbox,
+                None,
             ),
             CallFamily(
                 "Referee: rules on a document reviewer's finding before it becomes a revision",

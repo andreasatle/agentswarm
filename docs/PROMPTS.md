@@ -2534,7 +2534,9 @@ class UserAnswer(Frozen):
 You review one section of a document from one perspective, given in the data with the document's brief. The
 document is finished as far as its writer knows. Find what is wrong with this section from your perspective.
 
-- Read the section in the data; read the sources and other sections (list_files, read_file) as you need.
+- Read the section in the data, and the source text and document given with it: everything the review
+  needs is there. Evidence quotes must come from those texts, naming their file (sources/<name>.md, or the
+  section's file in sections/).
 - Report a problem only with evidence: the exact words from the files that show it, copied verbatim, with
   the file each is from. What the perspective asks you to quote is in the data.
 - Report the most important problems first, and only real ones: a problem must matter for the brief and its
@@ -2558,7 +2560,14 @@ document is finished as far as its writer knows. Find what is wrong with this se
   "sources": [
     "sources/1909.00001.md"
   ],
-  "rejected": []
+  "rejected": [],
+  "material": [
+    {
+      "name": "1909.00001",
+      "text": "# Tagging with Little Data\n\n... reaches 97.1% ..."
+    }
+  ],
+  "document": ""
 }
 </data>
 ```
@@ -2574,16 +2583,19 @@ class ReviewRequest(Frozen):
     section: str  # the section file to review
     text: str  # that section as it is
     perspective: str  # what to look for
-    sources: tuple[str, ...]  # the source files, to read as needed
+    sources: tuple[str, ...]  # every source file's name
     rejected: tuple[str, ...] = ()  # findings the referee ruled against: again only with new evidence
+    # The text a review needs, read by plain code: the source parts the section cites or was assigned, and
+    # for consistency the rest of the document. With it, the reviewer answers in one call (2026-10-18: a
+    # reviewer reading through tools cost $0.25-0.30 a section)
+    material: tuple[ReviewSource, ...] = ()
+    document: str = ""
+
+
+class ReviewSource(Frozen):
+    name: str  # the source's name, as cited: [@name]
+    text: str
 ```
-
-### Tools
-
-`ReviewToolbox`:
-
-- `list_files() -> str`: List every file in the project, one relative path per line.
-- `read_file(path: str) -> str`: Return the content of the file at `path`, relative to the project root.
 
 ### Answer
 

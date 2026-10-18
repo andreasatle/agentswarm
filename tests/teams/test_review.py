@@ -164,3 +164,13 @@ class TestWaiting:
         task = ArtifactFactory(r.h.board, Harness.LADDER).create("Write sections/02.md", TeamName("briefer"))
         r.h.board.append([Escalated(artifact=task.id, reason="every model failed")])
         assert await r.campaign.step() == 0 and not r.reviewer.calls
+
+
+class TestMaterial:
+    async def test_the_reviewer_gets_the_cited_sources_in_one_call(self, tmp_path: Path) -> None:
+        r = Review(tmp_path, [review(WRONG, SAYS)], [ruling(True), ruling(True)])
+        await r.campaign.step()
+        request = r.reviewer.calls[0][1]
+        assert isinstance(request, ReviewRequest)
+        assert [m.name for m in request.material] == ["p1"] and "97.1% accuracy" in request.material[0].text
+        assert request.document == ""  # the whole document only for the consistency perspective
