@@ -253,7 +253,10 @@ class SourceReference(Frozen):
     title: str
     year: str
     venue: str = Field(description="journal, conference, book or report; 'arXiv preprint <id>' if that's all")
-    short: str = Field(description="the in-text citation: 'LeCun et al., 2006'")
+    short: str = Field(
+        description="the in-text citation: the first author's surname, 'et al.' for three or more "
+        "authors, and the year: 'LeCun et al., 2006'; never the paper's name"
+    )
 
 
 class BriefDraft(Frozen):

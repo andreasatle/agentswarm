@@ -37,7 +37,7 @@ class SourceText:
         if suffix in cls.PLAIN:
             return path.read_text(errors="replace")
         if suffix == ".pdf":
-            command = ["pdftotext", "-enc", "UTF-8", str(path), "-"]
+            return cls.pdf(path)
         else:  # Word, OpenDocument, HTML, RTF, EPUB: whatever pandoc reads
             command = ["pandoc", str(path), "-t", "plain", "--wrap=none"]
         try:
@@ -47,6 +47,27 @@ class SourceText:
         except (OSError, subprocess.TimeoutExpired) as error:
             raise SourceError(f"{path.name}: can't convert it ({command[0]}: {error})") from error
         if result.returncode != 0 or not result.stdout.strip():
+            raise SourceError(f"{path.name}: {command[0]} gave no text ({result.stderr.strip()[:200]})")
+        return result.stdout
+
+    @classmethod
+    def pdf(cls, path: Path) -> str:
+        """The first page in layout mode, which keeps a title page's author line (plain mode dropped it from
+        I-JEPA's, 2026-10-18), whitespace collapsed; the rest in plain mode, which reads columns in order."""
+        first = cls.run(["pdftotext", "-l", "1", "-layout", "-enc", "UTF-8", str(path), "-"], path)
+        rest = cls.run(["pdftotext", "-f", "2", "-enc", "UTF-8", str(path), "-"], path, empty=True)
+        title_page = "\n".join(" ".join(line.split()) for line in first.splitlines())
+        return f"{title_page}\f{rest}" if rest.strip() else title_page
+
+    @classmethod
+    def run(cls, command: list[str], path: Path, empty: bool = False) -> str:
+        try:
+            result = subprocess.run(
+                command, capture_output=True, text=True, timeout=cls.TIMEOUT_S, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise SourceError(f"{path.name}: can't convert it ({command[0]}: {error})") from error
+        if result.returncode != 0 or (not empty and not result.stdout.strip()):
             raise SourceError(f"{path.name}: {command[0]} gave no text ({result.stderr.strip()[:200]})")
         return result.stdout
 
