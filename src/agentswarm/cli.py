@@ -28,6 +28,7 @@ from agentswarm.core.domain import (
     ProjectId,
     Resolution,
     Scored,
+    Usage,
 )
 from agentswarm.evaluation.citations import CitationAudit
 from agentswarm.evaluation.commonmark import CommonMarkImport
@@ -45,6 +46,7 @@ from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.jsonpath import JsonPathImport
+from agentswarm.evaluation.papers import ArxivSearch, PaperFinder
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionTrace
@@ -63,7 +65,8 @@ from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.llm.catalog import OpenRouterCatalog
-from agentswarm.llm.workers import WorkerProvider
+from agentswarm.llm.models import ChatModels
+from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
 from agentswarm.monitor.report import HardeningSummary, Report, RunVerdict
 from agentswarm.monitor.server import MonitorServer, Watched
 from agentswarm.project import Project, ProjectServices
@@ -187,6 +190,8 @@ class Cli:
                 return self.import_docs(args)
             case "learn":
                 return self.learn(args)
+            case "find-papers":
+                return self.find_papers(args)
             case "audit-citations":
                 return self.audit_citations(args)
             case "questions":
@@ -433,10 +438,10 @@ class Cli:
 
     def learn(self, args: argparse.Namespace) -> int:
         """Papers to a tutorial for one reader, in one command: import, brief, writing, a reader review."""
-        files = [Path(f).expanduser() for f in args.files]
+        files = DocumentImport.files([Path(f).expanduser() for f in args.files])
         missing = [str(f) for f in files if not f.is_file()]
-        if missing:
-            self._show(f"not found: {', '.join(missing)}")
+        if missing or not files:
+            self._show(f"not found: {', '.join(missing) or 'no documents'}")
             return 2
         name = SourceText.slug(args.want, 40)
         out = Path(args.out).expanduser() if args.out else Path("~/agentswarm-data/learn").expanduser()
@@ -451,6 +456,43 @@ class Cli:
         if not args.check_brief:
             self._show(f"the tutorial: {root / 'document.md'}")
         return status
+
+    def find_papers(self, args: argparse.Namespace) -> int:
+        """Papers for a topic from arXiv, picked by a model and downloaded, with a reading list to check."""
+        limits = SpendLimits.load()
+        models = DocumentImport.models()
+        model = models[self.FINDER]
+        shared = SharedSpend(limits, SystemClock()) if limits is not None else None
+        if shared is not None and (over := shared.over([model.account])) is not None:
+            self._show(over)
+            return 2
+        spent: list[float] = []
+
+        def meter(usage: Usage) -> None:
+            usd = model.usd_per_million.usd_of(usage) if model.usd_per_million is not None else 0.0
+            spent.append(usd)
+            if shared is not None:
+                shared.record("find-papers", model.account, usd)
+
+        worker = LangChainWorkers(ChatModels(models)).worker(self.FINDER, 1, meter)
+        out = (
+            Path(args.out).expanduser()
+            if args.out
+            else Path("~/agentswarm-data").expanduser() / (SourceText.slug(args.topic, 40))
+        )
+        try:
+            found = asyncio.run(
+                PaperFinder(worker, ArxivSearch()).find(args.topic, args.know, args.papers, out)
+            )
+        finally:
+            if shared is not None:
+                shared.close()
+        self._show((out / "papers.md").read_text() if found else "no papers picked")
+        self._show(f"cost ${sum(spent):.3f}; check the list, add or remove PDFs in {out}, then:")
+        self._show(f'  uv run agentswarm learn {out} --know "{args.know}" --want "..."')
+        return 0
+
+    FINDER = "planner"  # a strong model: the choice of papers shapes the whole tutorial
 
     def audit_citations(self, args: argparse.Namespace) -> int:
         """A random sample of a document's cited statements, each checked against its source by a referee."""
@@ -788,8 +830,15 @@ class Cli:
         )
         docs.add_argument("--words", type=int, default=3000, help="the document's length cap")
 
+        find = commands.add_parser("find-papers", help="papers for a topic from arXiv, for `learn`")
+        find.add_argument("topic", help="e.g. 'test-time compute for language model reasoning'")
+        find.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")
+        find.add_argument("--papers", type=int, default=5, help="how many to pick")
+        find.add_argument("--out", help="the folder for the PDFs (default ~/agentswarm-data/<topic>)")
         learn = commands.add_parser("learn", help="papers to a tutorial for you, in one command")
-        learn.add_argument("files", nargs="+", help="the papers: PDF, Word, HTML, text, Markdown")
+        learn.add_argument(
+            "files", nargs="+", help="the papers (PDF, Word, HTML, text, Markdown), or a folder"
+        )
         learn.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")
         learn.add_argument("--want", required=True, help="what you want, e.g. 'understand diffusion models'")
         learn.add_argument("--words", type=int, default=4000, help="the tutorial's length cap")

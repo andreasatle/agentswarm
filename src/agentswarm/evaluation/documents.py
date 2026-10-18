@@ -15,8 +15,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import ClassVar
 
+import yaml
 from pydantic import BaseModel, ConfigDict
 
+from agentswarm.core.config import ModelConfig
 from agentswarm.core.domain import Reference
 from agentswarm.evaluation.qasper import GuideImport
 
@@ -168,6 +170,35 @@ review:
         self._approve = approve
         self._budget = budget
         self._folder = folder
+
+    class Blank(dict[str, str]):
+        def __missing__(self, key: str) -> str:
+            return "0"
+
+    @classmethod
+    def models(cls) -> dict[str, ModelConfig]:
+        """The models a document project uses, from its template (the paper finder uses them before any
+        project exists)."""
+        config = yaml.safe_load(cls.PROJECT.read_text().format_map(cls.Blank(review="")))
+        return {name: ModelConfig.model_validate(m) for name, m in config["models"].items()}
+
+    @staticmethod
+    def files(paths: Sequence[Path]) -> list[Path]:
+        """The files given, a folder standing for the documents in it (the reading list `papers.md` aside)."""
+        found: list[Path] = []
+        for path in paths:
+            if path.is_dir():
+                found += sorted(
+                    p
+                    for p in path.iterdir()
+                    if p.is_file()
+                    and p.name != "papers.md"
+                    and not p.name.startswith(".")
+                    and p.name != "README.md"
+                )
+            else:
+                found.append(path)
+        return found
 
     def write(self) -> DocumentSummary:
         texts: dict[str, str] = {}

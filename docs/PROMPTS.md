@@ -44,6 +44,8 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
 | [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionText` |
 | [Citation audit: does the cited source support a document's statement?](#citation-audit-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
+| [Paper finder: search queries (and well-known titles) for a topic, run against arXiv](#paper-finder-search-queries-and-well-known-titles-for-a-topic-run-against-arxiv) | (`PaperFinder`) | `SearchQueries` |
+| [Paper finder: picks the papers a tutorial is written from, among the candidates found](#paper-finder-picks-the-papers-a-tutorial-is-written-from-among-the-candidates-found) | (`PaperFinder`) | `ReadingList` |
 | [Briefer: drafts a document's brief and outline from the goal and the sources](#briefer-drafts-a-documents-brief-and-outline-from-the-goal-and-the-sources) | (`Briefer`) | `BriefDraft` |
 | [Specifier: revises the draft with the answers to its questions](#specifier-revises-the-draft-with-the-answers-to-its-questions) | (`Specifier`) | `SpecDraft` |
 | [Simulated user (experiments): answers the specifier's question from a reference, quoting it](#simulated-user-experiments-answers-the-specifiers-question-from-a-reference-quoting-it) | (`Specifier`) | `UserAnswer` |
@@ -2044,6 +2046,218 @@ class CitationAnswer(Frozen):
 ### What happens to the answer
 
 `CitationAudit`: 
+
+## Paper finder: search queries (and well-known titles) for a topic, run against arXiv
+
+### PaperFinder
+
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+```text
+You plan a literature search on arXiv for a tutorial on the topic given, for the reader described. Write the
+number of short keyword queries asked for, each covering a different thread of the topic (its foundations, the
+main competing methods, how they are evaluated), so that together they find the papers a tutorial needs.
+arXiv ranks recent papers first, so also list the exact titles of the well-known papers on the topic that you
+are sure of: each is looked up, and kept only if found.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "topic": "test-time compute for reasoning",
+  "reader_knows": "graduate-level ML",
+  "queries": 5
+}
+</data>
+```
+
+### Payload types
+
+```python
+class QueryRequest(Frozen):
+    """The payload a searcher receives: the topic and the reader."""
+
+    topic: str
+    reader_knows: str
+    queries: int  # how many to write
+```
+
+### Answer
+
+```python
+class SearchQueries(Frozen):
+    """Your queries for arXiv: a few words each, covering the topic's main threads."""
+
+    queries: list[str] = Field(description="short keyword queries, e.g. 'process reward model verification'")
+    known: list[str] = Field(
+        default_factory=list,
+        description="exact titles of well-known papers on the topic you are sure exist (checked on arXiv)",
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "description": "Your queries for arXiv: a few words each, covering the topic's main threads.",
+  "properties": {
+    "queries": {
+      "description": "short keyword queries, e.g. 'process reward model verification'",
+      "items": {
+        "type": "string"
+      },
+      "title": "Queries",
+      "type": "array"
+    },
+    "known": {
+      "description": "exact titles of well-known papers on the topic you are sure exist (checked on arXiv)",
+      "items": {
+        "type": "string"
+      },
+      "title": "Known",
+      "type": "array"
+    }
+  },
+  "required": [
+    "queries"
+  ],
+  "title": "SearchQueries",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+## Paper finder: picks the papers a tutorial is written from, among the candidates found
+
+### PaperFinder
+
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+```text
+You choose the papers a tutorial on the topic will be written from, for the reader described, from the
+candidates found on arXiv. Pick the number asked for that together teach the topic: the papers that introduced
+the key ideas, the main competing approaches, and the evidence comparing them. Prefer papers that build on one
+another, and influential original work over surveys of it or small variations. Use only ids from the
+candidates. Order them as a reader should meet them, and say in one sentence what each adds.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "topic": "test-time compute for reasoning",
+  "reader_knows": "graduate-level ML",
+  "papers": 5,
+  "candidates": [
+    {
+      "id": "2305.20050",
+      "title": "Let's Verify Step by Step",
+      "authors": [
+        "Hunter Lightman",
+        "Vineet Kosaraju"
+      ],
+      "year": 2023,
+      "abstract": "We compare outcome supervision with process supervision ..."
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class PickRequest(Frozen):
+    """The payload a picker receives: the topic, the reader and the candidates found."""
+
+    topic: str
+    reader_knows: str
+    papers: int  # how many to pick
+    candidates: tuple[Candidate, ...]
+
+
+class Candidate(Frozen):
+    id: str  # arXiv's, without the version: 2305.20050
+    title: str
+    authors: tuple[str, ...]
+    year: int
+    abstract: str
+```
+
+### Answer
+
+```python
+class ReadingList(Frozen):
+    """Your choice: the papers, in the order a reader should meet them."""
+
+    papers: list[PickedPaper]
+
+
+class PickedPaper(Frozen):
+    id: str = Field(description="the candidate's id, exactly as given")
+    why: str = Field(description="one sentence: what this paper gives the tutorial that the others don't")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "PickedPaper": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "the candidate's id, exactly as given",
+          "title": "Id",
+          "type": "string"
+        },
+        "why": {
+          "description": "one sentence: what this paper gives the tutorial that the others don't",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "why"
+      ],
+      "title": "PickedPaper",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Your choice: the papers, in the order a reader should meet them.",
+  "properties": {
+    "papers": {
+      "items": {
+        "$ref": "#/$defs/PickedPaper"
+      },
+      "title": "Papers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "papers"
+  ],
+  "title": "ReadingList",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`PaperFinder`: The queries are run on arXiv and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
 ## Briefer: drafts a document's brief and outline from the goal and the sources
 

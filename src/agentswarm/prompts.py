@@ -29,6 +29,14 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.evaluation.citations import CitationAnswer, CitationAudit, CitationRequest, CitedSource
+from agentswarm.evaluation.papers import (
+    Candidate,
+    PaperFinder,
+    PickRequest,
+    QueryRequest,
+    ReadingList,
+    SearchQueries,
+)
 from agentswarm.evaluation.probe import (
     AcceptAnswer,
     AcceptRequest,
@@ -293,6 +301,29 @@ class SampleData:
         )
 
     @classmethod
+    def queries(cls) -> QueryRequest:
+        return QueryRequest(
+            topic="test-time compute for reasoning", reader_knows="graduate-level ML", queries=5
+        )
+
+    @classmethod
+    def pick(cls) -> PickRequest:
+        return PickRequest(
+            topic="test-time compute for reasoning",
+            reader_knows="graduate-level ML",
+            papers=5,
+            candidates=(
+                Candidate(
+                    id="2305.20050",
+                    title="Let's Verify Step by Step",
+                    authors=("Hunter Lightman", "Vineet Kosaraju"),
+                    year=2023,
+                    abstract="We compare outcome supervision with process supervision ...",
+                ),
+            ),
+        )
+
+    @classmethod
     def revise(cls) -> ReviseRequest:
         return ReviseRequest(
             goal="A greeter: hello(name) greets by name.",
@@ -545,6 +576,22 @@ class PromptCatalogue:
                 CitationAudit,
                 SampleData.citation(),
                 CitationAnswer,
+                None,
+            ),
+            CallFamily(
+                "Paper finder: search queries (and well-known titles) for a topic, run against arXiv",
+                (Caller("", PaperFinder, PaperFinder.QUERY),),
+                PaperFinder,
+                SampleData.queries(),
+                SearchQueries,
+                None,
+            ),
+            CallFamily(
+                "Paper finder: picks the papers a tutorial is written from, among the candidates found",
+                (Caller("", PaperFinder, PaperFinder.PICK),),
+                PaperFinder,
+                SampleData.pick(),
+                ReadingList,
                 None,
             ),
             CallFamily(
