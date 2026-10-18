@@ -63,7 +63,7 @@ class Citations:
     [@report-p118, page 123] when the part report-p118 holds pages 118 to 135 (2026-10-18: a writer cited
     pages that way three times in a row; the page is right, only the form is wrong)."""
 
-    PAGED: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)-p(\d{3})\]")
+    PAGED: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)-p(\d{3})(?:,\s*page\s+(\d+))?\]")
 
     @classmethod
     def mend(cls, text: str, names: Sequence[str]) -> str:
@@ -77,7 +77,7 @@ class Citations:
             whole = f"{match.group(1)}-p{match.group(2)}"
             if whole in known or match.group(1) not in starts:
                 return match.group(0)
-            page = int(match.group(2))
+            page = int(match.group(3) or match.group(2))
             first = max((p for p in starts[match.group(1)] if p <= page), default=None)
             if first is None:
                 return match.group(0)

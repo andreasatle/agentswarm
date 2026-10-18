@@ -68,7 +68,11 @@ class TestSectionWriter:
 class TestCitations:
     def test_a_page_cited_as_a_source_points_to_the_part_that_holds_it(self) -> None:
         names = ["report-p001", "report-p118", "report-p136", "memo"]
-        text = "It failed [@report-p123]. See [@report-p118] and [@memo]. Odd [@other-p005]."
+        text = (
+            "Failed [@report-p123]. Also [@report-p125, page 125]. See [@report-p118], [@memo]. "
+            "[@other-p005]."
+        )
         assert Citations.mend(text, names) == (
-            "It failed [@report-p118, page 123]. See [@report-p118] and [@memo]. Odd [@other-p005]."
+            "Failed [@report-p118, page 123]. Also [@report-p118, page 125]. See [@report-p118], [@memo]. "
+            "[@other-p005]."
         )
