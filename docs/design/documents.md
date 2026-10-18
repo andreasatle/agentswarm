@@ -122,3 +122,19 @@ Per perspective: coverage 20 of 21 confirmed, reader 19 of 20, facts 4 of 4, con
 | After one broad reviewer | 17 / 36 | 17 / 36 |
 
 **What it says:** the four perspectives come out about two to three questions above the starting guide and the broad reviewer about one, but the same starting guide scored 18 and 15: the difference is suggestive, not shown. Naming the paper raised every score by about seven questions: most of the earlier "low" scores were the measure's fault. To decide the question, a run would score each version several times (the cost of scoring is now a large share of a run) and give the perspectives the budget to finish two rounds.
+
+## Real use: learn, and a citation audit (2026-10-18)
+
+**The path:** `agentswarm learn` (papers, what the reader knows, what they want) imports the PDFs as parts, drafts a brief and outline, writes each section in one call from its assigned parts (with 300 words of each neighbouring part), and assembles one Markdown file with (Author et al., year, p. N) citations and a bibliography from the title pages. Fixes on the way, each from a real failure: writers that read with tools re-read until their calls ran out (now one call per section); trimming; sections far over budget (rewritten once); page and grouped citations mended in plain code; sentences, lists, abbreviations and LaTeX handled by the splitter and the checker; a PDF's title page in layout mode, which keeps the author line.
+
+**The JEPA tutorial** (five papers, 97,000 words; the user knows the field): about $0.20 a version without review. An outside review (ChatGPT) rated the first version a strong literature review but a weaker tutorial; a teaching brief (concepts first, papers as evidence, equations motivated, a side-by-side comparison) changed the structure as asked.
+
+**Citation audit** (`agentswarm audit-citations`: 20 cited statements drawn at random, each checked by the referee against the cited part and page):
+
+| Version | Supported | Partly | Not supported | Named page right |
+| --- | --- | --- | --- | --- |
+| Research version | 14 | 4 | 2 | 8 of 9 |
+| Teaching version | 13 | 4 | 3 | 9 of 11 |
+| Teaching version after one facts review ($1.11, 7 of 9 sections) | 17 (seed 1), 14 (seed 2) | 2, 4 | 1, 2 | 11 of 13, 9 of 12 |
+
+The facts review lifted the same sample from 13 to 17; a fresh sample gave 14, so over 40 statements about 78% are fully supported against 65% before. The typical miss is an overstatement ("match" for "outperform", "the authors stress") or the wrong page, rarely an invented fact.
