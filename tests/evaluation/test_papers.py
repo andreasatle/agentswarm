@@ -36,14 +36,18 @@ def paper(id: str, title: str = "A paper") -> Candidate:
 
 class FakeSearch:
     def __init__(
-        self, results: dict[str, list[Candidate]], titles: dict[str, Candidate] | None = None
+        self,
+        results: dict[str, list[Candidate]],
+        titles: dict[str, Candidate] | None = None,
+        ignore_limit: bool = False,
     ) -> None:
         self._results = results
+        self._ignore_limit = ignore_limit
         self._titles = titles or {}
         self.downloaded: list[str] = []
 
     def search(self, query: str, limit: int) -> list[Candidate]:
-        return self._results.get(query, [])[:limit]
+        return self._results.get(query, [])[: None if self._ignore_limit else limit]
 
     def titled(self, title: str) -> Candidate | None:
         return self._titles.get(title)
@@ -101,8 +105,8 @@ class TestPaperFinder:
 
     async def test_the_candidates_are_capped_with_short_abstracts(self, tmp_path: Path) -> None:
         many = [paper(str(n)).model_copy(update={"abstract": "x" * 2000}) for n in range(60)]
-        found, asked = finder(["1"], FakeSearch({"verifiers": many}))
-        found.PER_QUERY = 60
+        search = FakeSearch({"verifiers": many}, ignore_limit=True)  # arXiv's relevance pages, pooled
+        found, asked = finder(["1"], search)
         await found.find("topic", "ML", 5, tmp_path)
         assert len(asked[0].candidates) == PaperFinder.CANDIDATES
         assert all(len(c.abstract) == PaperFinder.ABSTRACT for c in asked[0].candidates)
