@@ -53,6 +53,48 @@ class SourceText:
         return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:limit].strip("-") or "document"
 
 
+class SourceParts:
+    """A long document cut into parts of about `size` words, so a writer reads only the parts its section
+    needs (2026-10-17: writers given three reports of 100,000 words ran out of steps before writing a line).
+    A PDF is cut at page breaks and each page is marked, so a citation can name its page; other text at blank
+    lines. A document that fits in one part stays whole."""
+
+    SIZE: ClassVar[int] = 4000
+
+    @classmethod
+    def split(cls, name: str, title: str, text: str, size: int | None = None) -> list[tuple[str, str]]:
+        """(name, file text) for each part."""
+        size = size or cls.SIZE
+        if len(text.split()) <= size:
+            return [(name, f"# {title}\n\n{text.strip()}\n")]
+        pages = text.split("\f")
+        if len(pages) > 1:
+            return cls.pages(name, title, pages, size)
+        chunks: list[list[str]] = [[]]
+        for paragraph in re.split(r"\n\s*\n", text):
+            if chunks[-1] and sum(len(p.split()) for p in chunks[-1]) + len(paragraph.split()) > size:
+                chunks.append([])
+            chunks[-1].append(paragraph.strip())
+        total = len(chunks)
+        return [
+            (f"{name}-{n:02d}", f"# {title}, part {n} of {total}\n\n" + "\n\n".join(c) + "\n")
+            for n, c in enumerate(chunks, 1)
+        ]
+
+    @staticmethod
+    def pages(name: str, title: str, pages: Sequence[str], size: int) -> list[tuple[str, str]]:
+        parts: list[tuple[str, str]] = []
+        start, chunk, words = 1, list[str](), 0
+        for number, page in enumerate(pages, 1):
+            chunk.append(f"[page {number}]\n{page.strip()}")
+            words += len(page.split())
+            if words >= size or number == len(pages):
+                body = "\n\n".join(chunk)
+                parts.append((f"{name}-p{start:03d}", f"# {title}, pages {start}-{number}\n\n{body}\n"))
+                start, chunk, words = number + 1, [], 0
+        return parts
+
+
 class SourceError(RuntimeError):
     """A document couldn't be turned into text."""
 
@@ -86,10 +128,10 @@ class DocumentImport:
     def write(self) -> DocumentSummary:
         texts: dict[str, str] = {}
         for path in self._files:
-            name = SourceText.slug(path.stem)
-            while name in texts:
+            name = SourceText.slug(path.stem, 30)
+            while any(n == name or n.startswith(f"{name}-") for n in texts):
                 name += "-2"
-            texts[name] = f"# {path.stem}\n\n{SourceText.read(path).strip()}\n"
+            texts.update(SourceParts.split(name, path.stem, SourceText.read(path)))
         projects: list[Path] = []
         for audience in self._audiences or ("",):
             folder = self._out / (SourceText.slug(audience) if audience else "document")

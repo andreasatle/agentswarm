@@ -214,8 +214,9 @@ class SpecifierError(RuntimeError):
 
 class SourceSummary(Frozen):
     name: str  # the source's name: its file in the sources folder, without the extension
-    title: str  # its first line
+    title: str  # its first line: the document, and which part or pages
     words: int
+    opening: str = ""  # its first words, to tell what the part holds
 
 
 class BriefRequest(Frozen):
@@ -252,6 +253,7 @@ class Briefer:
     document: one writer reading ten papers ran out of steps twice (2026-10-17)."""
 
     NAME = TeamName("briefer")
+    OPENING = 60  # words of each source shown to the briefer, after its title
     INSTRUCTIONS = """\
 You plan a document from the user's goal and the sources listed in the data, before anything is written.
 Writers will write one section each from your outline, using only the sources; reviewers will judge the
@@ -263,7 +265,10 @@ document against your brief.
 - Outline the document in sections, in reading order. For each, say specifically what it covers and which
   sources it draws on (by name, as listed), and give it a share of the length cap; the shares add up to at
   most the cap.
-- Every source should be used somewhere; leave one out only if the goal makes it irrelevant."""
+- Long documents come as parts (pages or chunks of one document, each listed with its opening words). A
+  section's writer reads only the parts you name, so name the ones that hold what it covers, at most about
+  ten (some 40,000 words), not every part of a long document.
+- Every document should be used somewhere; leave one out only if the goal makes it irrelevant."""
     RULES = """\
 ## Rules
 
@@ -316,11 +321,7 @@ without its extension. The sources are the only source of facts.
         try:
             folder = f"{self._config.sources}/"
             sources = tuple(
-                SourceSummary(
-                    name=path.removeprefix(folder).removesuffix(".md"),
-                    title=level.read(path).split("\n", 1)[0].lstrip("# ").strip(),
-                    words=len(level.read(path).split()),
-                )
+                self.summary(path.removeprefix(folder).removesuffix(".md"), level.read(path))
                 for path in sorted(level.files())
                 if path.startswith(folder) and path.endswith(".md")
             )
@@ -349,6 +350,17 @@ without its extension. The sources are the only source of facts.
             )
         self._board.append(events)
         return 1
+
+    @classmethod
+    def summary(cls, name: str, text: str) -> SourceSummary:
+        """A source as the briefer sees it: its title line, its size and its first words."""
+        title, _, body = text.partition("\n")
+        return SourceSummary(
+            name=name,
+            title=title.lstrip("# ").strip(),
+            words=len(text.split()),
+            opening=" ".join(body.split()[: cls.OPENING]),
+        )
 
     def task(self, number: int, part: OutlineEntry) -> str:
         slug = re.sub(r"[^a-z0-9]+", "-", part.title.lower()).strip("-")[:40] or "section"

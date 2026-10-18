@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import ReviewConfig
-from agentswarm.core.domain import Attacked, Event, Perspective, Scored, Sized
+from agentswarm.core.domain import Attacked, Escalated, Event, Perspective, Scored, Sized, TeamName
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.referee import FindingAnswer, FindingRequest, Referee
 from agentswarm.teams.review import Evidence, ReviewCampaign, ReviewFinding, ReviewFindings, ReviewRequest
@@ -154,3 +154,13 @@ class TestFailures:
             [Scored(level=Harness.LADDER.base, commit="c", seen=None, held_out=None, spent_usd=0.0)]
         )
         assert await r.campaign.step() == 1  # a new run (it starts with a score) tries again
+
+
+class TestWaiting:
+    async def test_no_review_while_a_section_is_unwritten_even_one_waiting_for_a_person(
+        self, tmp_path: Path
+    ) -> None:
+        r = Review(tmp_path, [review(WRONG, SAYS)], [ruling(True), ruling(True)])
+        task = ArtifactFactory(r.h.board, Harness.LADDER).create("Write sections/02.md", TeamName("briefer"))
+        r.h.board.append([Escalated(artifact=task.id, reason="every model failed")])
+        assert await r.campaign.step() == 0 and not r.reviewer.calls

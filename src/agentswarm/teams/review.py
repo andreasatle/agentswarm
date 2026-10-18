@@ -160,6 +160,18 @@ document is finished as far as its writer knows. Find what is wrong with this se
     def focuses(self) -> tuple[Focus, ...]:
         return self._config.perspectives
 
+    def building(self, views: BoardViews) -> bool:
+        """Every section is written first: a step waiting for a person counts too, since reviewing a document
+        with sections missing finds only that they are missing (2026-10-17: reviews ran on a report of one
+        section while six waited for a person)."""
+        return any(
+            a.level == self._ladder.lowest
+            and not views.dropped(a.id)
+            and not views.children(a.id)
+            and views.merge_commit(a.id) is None
+            for a in views.artifacts()
+        )
+
     def parts(self, worktree: Worktree) -> list[Part]:
         """The document's section files, in reading order."""
         folder = f"{self._config.sections}/"
