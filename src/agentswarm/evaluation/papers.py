@@ -41,6 +41,8 @@ class Candidate(Frozen):
     cited: int | None = None  # times cited, where the service counts it (OpenAlex)
     pdfs: tuple[str, ...] = ()  # where its PDF may be, the likeliest to let a program download it first
     page: str = ""  # its landing page (the DOI), for a person to fetch it from
+    free: str = ""  # where it is free to read, if the service knows (a PubMed Central page, say)
+    access: str = ""  # how it is open: green (a repository copy), gold, hybrid, bronze (the publisher's whim)
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
@@ -196,7 +198,7 @@ class OpenAlexSearch(Fetching):
     API = "https://api.openalex.org/works"
     FIELDS = (
         "id,title,publication_year,authorships,abstract_inverted_index,best_oa_location,primary_location,"
-        "cited_by_count,locations,doi"
+        "cited_by_count,locations,doi,open_access"
     )
 
     def search(self, query: str, limit: int) -> list[Candidate]:
@@ -231,6 +233,8 @@ class OpenAlexSearch(Fetching):
                     cited=work.cited_by_count,
                     pdfs=pdfs,
                     page=work.doi or "",
+                    free=(work.open_access.oa_url or "") if work.open_access is not None else "",
+                    access=(work.open_access.oa_status or "") if work.open_access is not None else "",
                 )
             )
         return found
@@ -271,6 +275,11 @@ class OpenAlexLocation(BaseModel):
     source: OpenAlexSource | None = None
 
 
+class OpenAlexAccess(BaseModel):
+    oa_status: str | None = None
+    oa_url: str | None = None
+
+
 class OpenAlexWork(BaseModel):
     id: str
     title: str | None = None
@@ -281,6 +290,7 @@ class OpenAlexWork(BaseModel):
     primary_location: OpenAlexLocation | None = None
     cited_by_count: int | None = None
     doi: str | None = None
+    open_access: OpenAlexAccess | None = None
     locations: list[OpenAlexLocation] = []
 
 
@@ -400,10 +410,10 @@ class ReadingFolder(Frozen):
                 "",
             ]
             for f in missing:
-                links = (
-                    ", ".join([*f.paper.pdfs, *([f.paper.page] if f.paper.page else [])]) or "(no link known)"
-                )
-                lines.append(f"- {f.paper.title}: {links}")
+                links = [f.paper.free, *f.paper.pdfs, f.paper.page]  # the free copy first
+                listed = ", ".join(dict.fromkeys(link for link in links if link)) or "(no link known)"
+                note = " (bronze: free only if the publisher allows it)" if f.paper.access == "bronze" else ""
+                lines.append(f"- {f.paper.title}{note}: {listed}")
         return "\n".join(lines) + "\n"
 
 
@@ -457,7 +467,7 @@ in one sentence what each adds."""
         about 30% of OpenAlex's links let a program download, and the essential papers are often the refused
         ones); the user fetches the rest by hand."""
         return tuple(
-            c.model_copy(update={"abstract": c.abstract[: self.ABSTRACT], "pdfs": (), "page": ""})
+            c.model_copy(update={"abstract": c.abstract[: self.ABSTRACT], "pdfs": (), "page": "", "free": ""})
             for c in candidates
         )
 

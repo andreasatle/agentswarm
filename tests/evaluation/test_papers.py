@@ -102,7 +102,8 @@ WORKS = b"""{"results": [
    "publication_year": 2005, "authorships": [{"author": {"display_name": "Matthew P. Walker"}}],
    "abstract_inverted_index": {"Sleep": [0], "consolidates": [1], "memory": [2]},
    "best_oa_location": {"pdf_url": "https://www.nature.com/articles/nature04286.pdf", "source": null},
-   "primary_location": {"source": {"display_name": "Nature"}}, "cited_by_count": 1849},
+   "primary_location": {"source": {"display_name": "Nature"}}, "cited_by_count": 1849,
+   "open_access": {"oa_status": "green", "oa_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/1"}},
   {"id": "https://openalex.org/W1", "title": "No open PDF", "publication_year": 2001, "authorships": [],
    "best_oa_location": {"pdf_url": null}, "primary_location": null}
 ]}"""
@@ -112,6 +113,7 @@ class TestOpenAlexSearch:
     def test_works_become_candidates_with_their_links(self) -> None:
         found, without = OpenAlexSearch.parse(WORKS)
         assert without.pdfs == ()  # still a candidate: a person may fetch it
+        assert found.free == "https://www.ncbi.nlm.nih.gov/pmc/articles/1" and found.access == "green"
         assert found.id == "W2086162146" and found.year == 2005 and found.cited == 1849
         assert found.abstract == "Sleep consolidates memory" and found.venue == "Nature"
         assert found.reference("w2086162146").short == "Walker, 2005"
@@ -201,7 +203,7 @@ class TestPaperFinder:
         self, tmp_path: Path
     ) -> None:
         gone = paper("W7", "Gone").model_copy(
-            update={"pdfs": ("https://journal/x.pdf",), "page": "https://doi.org/1"}
+            update={"pdfs": ("https://journal/x.pdf",), "page": "https://doi.org/1", "free": "https://pmc/1"}
         )
         search = FakeSearch({"verifiers": [gone, paper("1", "Here")]})
         search.refuse = {"W7"}
@@ -213,7 +215,7 @@ class TestPaperFinder:
         assert picked.papers[0].file is None and picked.papers[1].file == "author-2024-here.pdf"
         listing = (tmp_path / ReadingFolder.LISTING).read_text()
         assert "**Gone** (A. Author, 2024), W7: **not here yet**." in listing
-        assert "- Gone: https://journal/x.pdf, https://doi.org/1" in listing
+        assert "- Gone: https://pmc/1, https://journal/x.pdf, https://doi.org/1" in listing
         (tmp_path / "x.full.pdf").write_text("x")  # fetched by hand, the publisher's name
         refreshed = picked.refreshed(
             [("x.full.pdf", "Journal 2024\nGone\nA. Author"), ("author-2024-here.pdf", "")]
