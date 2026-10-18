@@ -60,8 +60,8 @@ class SectionText(Frozen):
 
 class Citations:
     """Mends citations that name a page as if it were a source: [@report-p123] becomes
-    [@report-p118, page 123] when the part report-p118 holds pages 118 to 135 (2026-10-18: a writer cited pages that way three times
-    in a row; the page is right, only the form is wrong)."""
+    [@report-p118, page 123] when the part report-p118 holds pages 118 to 135 (2026-10-18: a writer cited
+    pages that way three times in a row; the page is right, only the form is wrong)."""
 
     PAGED: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)-p(\d{3})\]")
 
