@@ -126,6 +126,38 @@ class Sentences:
         return [p for p in parts if p]
 
 
+class Overlap:
+    """A part's text with the edges of its neighbours in the same document: the last words of the part before
+    and the first of the part after, when the writer doesn't have them anyway. A passage that runs across a
+    cut between parts is then whole on both sides (parts are cut every few thousand words)."""
+
+    WORDS: ClassVar[int] = 300
+    PART: ClassVar[re.Pattern[str]] = re.compile(r"^(.*)-(?:p\d{3}|\d{2})$")
+
+    @classmethod
+    def neighbours(cls, name: str, names: Sequence[str]) -> tuple[str | None, str | None]:
+        match = cls.PART.match(name)
+        if match is None:
+            return None, None
+        siblings = sorted(
+            n for n in names if (m := cls.PART.match(n)) is not None and m.group(1) == match.group(1)
+        )
+        at = siblings.index(name)
+        return (siblings[at - 1] if at > 0 else None), (siblings[at + 1] if at + 1 < len(siblings) else None)
+
+    @classmethod
+    def text(cls, own: str, before: str | None, after: str | None) -> str:
+        parts: list[str] = []
+        if before:
+            tail = " ".join(before.split()[-cls.WORDS :])
+            parts.append(f"[... the end of the part before, for context]\n{tail}\n")
+        parts.append(own)
+        if after:
+            head = " ".join(after.split("\n", 1)[-1].split()[: cls.WORDS])
+            parts.append(f"\n[the start of the part after, for context ...]\n{head}")
+        return "\n".join(parts)
+
+
 class Writer(ExecutorTeam):
     SECTION = """\
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
@@ -190,18 +222,35 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
         if not isinstance(request, SectionWriting) or request.assignment is None:
             return await super().work(worker, request, toolbox)
         assigned = request.assignment
-        sources = tuple(
-            SourcePart(name=name, text=text)
-            for name in assigned.section.sources
-            if (text := toolbox.text(f"sources/{name}.md")) is not None
-        )
+        names = [
+            f.removeprefix("sources/").removesuffix(".md")
+            for f in toolbox.list_files().splitlines()
+            if f.startswith("sources/") and f.endswith(".md")
+        ]
+        given = set(assigned.section.sources)
+        sources: list[SourcePart] = []
+        for name in assigned.section.sources:
+            own = toolbox.text(f"sources/{name}.md")
+            if own is None:
+                continue
+            before, after = Overlap.neighbours(name, names)
+            sources.append(
+                SourcePart(
+                    name=name,
+                    text=Overlap.text(
+                        own,
+                        toolbox.text(f"sources/{before}.md") if before and before not in given else None,
+                        toolbox.text(f"sources/{after}.md") if after and after not in given else None,
+                    ),
+                )
+            )
         section = SectionRequest(
             brief=toolbox.text("docs/brief.md") or "",
             file=assigned.path,
             title=assigned.section.title,
             covers=assigned.section.covers,
             words=assigned.section.words,
-            sources=sources,
+            sources=tuple(sources),
             current=toolbox.text(assigned.path) or "",
             must_fix=tuple(f.detail for f in request.instruction.must_fix),
         )
@@ -215,11 +264,6 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
                 update={"current": answer.text, "must_fix": (*section.must_fix, too_long)}
             )
             answer = await worker.run(self.SECTION, again, SectionText)
-        names = [
-            f.removeprefix("sources/").removesuffix(".md")
-            for f in toolbox.list_files().splitlines()
-            if f.startswith("sources/") and f.endswith(".md")
-        ]
         text = Sentences.lines(Citations.mend(answer.text.strip(), names))
         result = toolbox.write_file(assigned.path, text + "\n")
         if result.startswith("error:"):

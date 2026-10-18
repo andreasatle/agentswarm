@@ -6,6 +6,7 @@ from agentswarm.core.domain import Instruction, OutlineEntry, SectionAssigned
 from agentswarm.llm.workers import FakeWorker, Toolbox
 from agentswarm.teams.documents import (
     Citations,
+    Overlap,
     SectionRequest,
     SectionText,
     SectionWriting,
@@ -105,3 +106,22 @@ class TestSentences:
             "## Loss\n\nThe loss is $L = \\|s_y - \\hat{s}_y\\|_2^2$ over blocks.\nIt is averaged.\n"
             "$$\nE(x, y). F(y)\n$$"
         )
+
+
+class TestOverlap:
+    def test_neighbours_within_the_same_document(self) -> None:
+        names = ["rep-p001", "rep-p010", "rep-p020", "memo", "notes-01", "notes-02"]
+        assert Overlap.neighbours("rep-p010", names) == ("rep-p001", "rep-p020")
+        assert Overlap.neighbours("notes-01", names) == (None, "notes-02")
+        assert Overlap.neighbours("memo", names) == (None, None)
+
+    def test_the_edges_of_the_neighbours_frame_the_part(self) -> None:
+        text = Overlap.text(
+            "# Rep, pages 10-19\n\nmiddle", "a " * 400 + "end", "# Rep, pages 20-29\nstart " + "b " * 400
+        )
+        assert text.startswith("[... the end of the part before, for context]\n")
+        assert (
+            "end\n\n# Rep, pages 10-19" in text
+            and "\n[the start of the part after, for context ...]\nstart" in text
+        )
+        assert len(text.split()) < 700
