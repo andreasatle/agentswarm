@@ -443,7 +443,7 @@ class Cli:
         if missing or not files:
             self._show(f"not found: {', '.join(missing) or 'no documents'}")
             return 2
-        name = SourceText.slug(args.want, 40)
+        name = SourceText.slug(args.name or args.want, 40)
         out = Path(args.out).expanduser() if args.out else Path("~/agentswarm-data/learn").expanduser()
         goal = self.LEARN.format(know=args.know, want=args.want)
         perspectives = ("reader", "facts") if args.review else ()
@@ -846,6 +846,9 @@ class Cli:
         learn.add_argument("--check-brief", action="store_true", help="pause after the brief for you to read")
         learn.add_argument("--budget", type=float, default=1.0, help="the run's cap in dollars")
         learn.add_argument("--out", help="where the project goes (default ~/agentswarm-data/learn)")
+        learn.add_argument(
+            "--name", help="the run's name (default: from --want; a used name resumes that run)"
+        )
         learn.add_argument("--max-rounds", type=int, default=300)
 
         cites = commands.add_parser("audit-citations", help="check a sample of a document's citations")
