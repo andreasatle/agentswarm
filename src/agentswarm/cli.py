@@ -419,10 +419,15 @@ class Cli:
         return 0
 
     LEARN = (
-        "A tutorial for someone who knows {know}, and wants to {want}, from the papers given. Start "
-        "from what they know and build up: explain each idea before it is used, with an example where it "
-        "helps; follow the papers' own reasoning, and say where they differ. End with a short summary of the "
-        "key ideas and a few questions the reader can answer to check their understanding."
+        "A tutorial, not a literature review, for someone who knows {know}, and wants to {want}, from the "
+        "papers given. Organize it around concepts, principles and the questions the reader must understand, "
+        "using the papers as evidence rather than as chapters. Introduce each idea before it is used; motivate "
+        "each equation, define its symbols, and derive the important results where the papers allow; give a "
+        "concrete example where it helps. Explain why each method works and which limitation of earlier "
+        "approaches it addresses, and keep apart what is proven, what is shown by experiments, and what is the "
+        "authors' hypothesis. Include a section that compares the methods side by side (what each predicts, its "
+        "loss, how it avoids collapse or failure). Prefer understanding to exhaustive benchmark numbers. End "
+        "with a short summary and a few questions the reader can answer to check their understanding."
     )
 
     def learn(self, args: argparse.Namespace) -> int:
