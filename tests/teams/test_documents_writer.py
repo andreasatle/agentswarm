@@ -4,7 +4,14 @@ from pydantic import BaseModel
 
 from agentswarm.core.domain import Instruction, OutlineEntry, SectionAssigned
 from agentswarm.llm.workers import FakeWorker, Toolbox
-from agentswarm.teams.documents import Citations, SectionRequest, SectionText, SectionWriting, Writer
+from agentswarm.teams.documents import (
+    Citations,
+    SectionRequest,
+    SectionText,
+    SectionWriting,
+    Sentences,
+    Writer,
+)
 from agentswarm.teams.executor import WorktreeToolbox
 from tests.support.harness import Harness
 
@@ -75,4 +82,12 @@ class TestCitations:
         assert Citations.mend(text, names) == (
             "Failed [@report-p118, page 123]. Also [@report-p118, page 125]. See [@report-p118], [@memo]. "
             "[@other-p005]."
+        )
+
+
+class TestSentences:
+    def test_each_sentence_on_its_own_line_lists_and_abbreviations_left(self) -> None:
+        text = "## I-JEPA\n\nArchitecture. The encoder is a ViT [@p, page 3]. See Fig. 2 at 5 p.m. Today.\n- A. B."
+        assert Sentences.lines(text) == (
+            "## I-JEPA\n\nArchitecture.\nThe encoder is a ViT [@p, page 3].\nSee Fig. 2 at 5 p.m. Today.\n- A. B."
         )

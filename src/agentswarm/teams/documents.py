@@ -86,6 +86,40 @@ class Citations:
         return cls.PAGED.sub(fixed, text)
 
 
+class Sentences:
+    """Puts each sentence on its own line, by the document checker's own rule (tools/check_doc.py): writers
+    run sentences together ("Architecture. The context encoder ..."), and the checker then fails a correct
+    section (2026-10-18: three of eleven tutorial sections). Lists and tables are left as they are."""
+
+    END: ClassVar[re.Pattern[str]] = re.compile(r"([.!?]) +(?=[A-Z])")
+    ABBREVIATION: ClassVar[re.Pattern[str]] = re.compile(
+        r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|cf|al|Inc|Co|Corp|Ltd|Eq|Sec)\.)$"
+    )
+
+    @classmethod
+    def lines(cls, text: str) -> str:
+        out: list[str] = []
+        for line in text.splitlines():
+            if line.lstrip().startswith(("#", "-", "*", "|", ">")) or not line.strip():
+                out.append(line)
+                continue
+            out += cls.split(line)
+        return "\n".join(out)
+
+    @classmethod
+    def split(cls, line: str) -> list[str]:
+        parts: list[str] = []
+        start = 0
+        for match in cls.END.finditer(line):
+            before = line[start : match.start() + 1]
+            if cls.ABBREVIATION.search(before) or before.count("[") > before.count("]"):
+                continue  # "p.m. EST", "Fig. 3", or inside a citation
+            parts.append(before.strip())
+            start = match.end()
+        parts.append(line[start:].strip())
+        return [p for p in parts if p]
+
+
 class Writer(ExecutorTeam):
     SECTION = """\
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
@@ -177,7 +211,7 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
             for f in toolbox.list_files().splitlines()
             if f.startswith("sources/") and f.endswith(".md")
         ]
-        text = Citations.mend(answer.text.strip(), names)
+        text = Sentences.lines(Citations.mend(answer.text.strip(), names))
         result = toolbox.write_file(assigned.path, text + "\n")
         if result.startswith("error:"):
             return ExecutorReport(summary=f"could not write {assigned.path}: {result}", complete=False)
