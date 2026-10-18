@@ -28,6 +28,7 @@ from agentswarm.core.domain import (
     Severity,
     TeamName,
 )
+from agentswarm.evaluation.citations import CitationAnswer, CitationAudit, CitationRequest, CitedSource
 from agentswarm.evaluation.probe import (
     AcceptAnswer,
     AcceptRequest,
@@ -281,6 +282,17 @@ class SampleData:
         )
 
     @classmethod
+    def citation(cls) -> CitationRequest:
+        return CitationRequest(
+            statement="I-JEPA predicts target-block representations with an L2 loss [@ijepa-p003, page 4].",
+            sources=(
+                CitedSource(
+                    name="ijepa-p003", page=4, text="[page 4]\nThe loss is the average L2 distance ..."
+                ),
+            ),
+        )
+
+    @classmethod
     def revise(cls) -> ReviseRequest:
         return ReviseRequest(
             goal="A greeter: hello(name) greets by name.",
@@ -522,6 +534,14 @@ class PromptCatalogue:
                 Writer,
                 SampleData.section(),
                 SectionText,
+                None,
+            ),
+            CallFamily(
+                "Citation audit: does the cited source support a document's statement?",
+                (Caller("", CitationAudit, CitationAudit.INSTRUCTIONS),),
+                CitationAudit,
+                SampleData.citation(),
+                CitationAnswer,
                 None,
             ),
             CallFamily(

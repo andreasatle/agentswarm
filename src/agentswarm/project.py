@@ -1,7 +1,7 @@
 """One project with its north star: the board, the repository, its teams and its gates, wired together."""
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -37,7 +37,7 @@ from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
 from agentswarm.judging.judgement import Judgements, ModeTable
 from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.llm.models import ChatModels
-from agentswarm.llm.workers import LangChainWorkers, Meter, WorkerProvider
+from agentswarm.llm.workers import LangChainWorkers, Meter, Worker, WorkerProvider
 from agentswarm.teams.campaign import Campaign
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
 from agentswarm.teams.hardening import Hardener
@@ -94,7 +94,9 @@ class Project:
         campaigns: Sequence[Campaign] = (),
         progress: Measure | None = None,
         specifier: Specifier | Briefer | None = None,
+        worker_for: Callable[[str, str], Worker] | None = None,
     ) -> None:
+        self._worker_for = worker_for  # a metered worker for one of the project's models, by name and role
         self._specifier = specifier  # drafts the specification from the goal before anything is built
         self._worklist = worklist
         self.progress = progress  # the definition of done as numbers: tests or hidden questions
@@ -368,7 +370,15 @@ class Project:
             campaigns,
             progress,
             specifier,
+            lambda model, role: workers.worker(model, 1, metered(role, model)),
         )
+
+    def worker(self, model: str, role: str) -> Worker:
+        """One of the project's models as a worker whose spend is recorded under `role` (a tool beside the
+        teams, such as a citation audit)."""
+        if self._worker_for is None:
+            raise ValueError("this project hands out no workers")
+        return self._worker_for(model, role)
 
     def create_artifact(self, task: str, created_by: TeamName = TeamName("human")) -> Artifact:
         """Put a new artifact on the board at the lowest level, with the next free id."""

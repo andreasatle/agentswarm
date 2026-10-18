@@ -43,6 +43,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
 | [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionText` |
+| [Citation audit: does the cited source support a document's statement?](#citation-audit-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
 | [Briefer: drafts a document's brief and outline from the goal and the sources](#briefer-drafts-a-documents-brief-and-outline-from-the-goal-and-the-sources) | (`Briefer`) | `BriefDraft` |
 | [Specifier: revises the draft with the answers to its questions](#specifier-revises-the-draft-with-the-answers-to-its-questions) | (`Specifier`) | `SpecDraft` |
 | [Simulated user (experiments): answers the specifier's question from a reference, quoting it](#simulated-user-experiments-answers-the-specifiers-question-from-a-reference-quoting-it) | (`Specifier`) | `UserAnswer` |
@@ -1927,6 +1928,122 @@ class SectionText(Frozen):
 ### What happens to the answer
 
 `Writer`: 
+
+## Citation audit: does the cited source support a document's statement?
+
+### CitationAudit
+
+`agentswarm.evaluation.citations.CitationAudit`
+
+```text
+You check one statement of a document against the source text it cites. Decide from the source alone
+whether it supports the statement: supported (it says this), partly (it says some of it, or something
+weaker or narrower than the statement claims), or unsupported (it doesn't say this, or says otherwise).
+Where the statement names a page, also say whether that page holds the support. Quote the source briefly
+in your reason.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "statement": "I-JEPA predicts target-block representations with an L2 loss [@ijepa-p003, page 4].",
+  "sources": [
+    {
+      "name": "ijepa-p003",
+      "page": 4,
+      "text": "[page 4]\nThe loss is the average L2 distance ..."
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class CitationRequest(Frozen):
+    """The payload a referee receives: one statement and the source text it cites."""
+
+    statement: str
+    sources: tuple[CitedSource, ...]
+
+
+class CitedSource(Frozen):
+    name: str
+    page: int | None  # the page the statement names, if any
+    text: str  # the cited part, or the named page and its neighbours
+```
+
+### Answer
+
+```python
+class CitationAnswer(Frozen):
+    """Your ruling on one statement: first your reasoning, then the verdict."""
+
+    reason: str = Field(description="what the source says about the statement, quoting it briefly")
+    support: Support = Field(description="supported, partly (some of it, or overstated), or unsupported")
+    page_right: bool | None = Field(
+        default=None, description="when a page is named: whether that page holds the support"
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "Support": {
+      "enum": [
+        "supported",
+        "partly",
+        "unsupported"
+      ],
+      "title": "Support",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Your ruling on one statement: first your reasoning, then the verdict.",
+  "properties": {
+    "reason": {
+      "description": "what the source says about the statement, quoting it briefly",
+      "title": "Reason",
+      "type": "string"
+    },
+    "support": {
+      "$ref": "#/$defs/Support",
+      "description": "supported, partly (some of it, or overstated), or unsupported"
+    },
+    "page_right": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "when a page is named: whether that page holds the support",
+      "title": "Page Right"
+    }
+  },
+  "required": [
+    "reason",
+    "support"
+  ],
+  "title": "CitationAnswer",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`CitationAudit`: 
 
 ## Briefer: drafts a document's brief and outline from the goal and the sources
 

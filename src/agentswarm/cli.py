@@ -29,6 +29,7 @@ from agentswarm.core.domain import (
     Resolution,
     Scored,
 )
+from agentswarm.evaluation.citations import CitationAudit
 from agentswarm.evaluation.commonmark import CommonMarkImport
 from agentswarm.evaluation.compare import (
     ComparisonFiles,
@@ -186,6 +187,8 @@ class Cli:
                 return self.import_docs(args)
             case "learn":
                 return self.learn(args)
+            case "audit-citations":
+                return self.audit_citations(args)
             case "questions":
                 return self.questions(args)
             case "score":
@@ -442,6 +445,25 @@ class Cli:
         if not args.check_brief:
             self._show(f"the tutorial: {root / 'document.md'}")
         return status
+
+    def audit_citations(self, args: argparse.Namespace) -> int:
+        """A random sample of a document's cited statements, each checked against its source by a referee."""
+        config = ProjectConfig.load(Path(args.config))
+        root = Path(args.root).expanduser()
+        model = args.model or (config.review.referee if config.review is not None else "referee")
+        if model not in config.models:
+            self._show(f"no model {model!r} in the project: name one with --model")
+            return 2
+        project = Project.open(config, root, ProjectServices(teams=self._catalog))
+        try:
+            audit = CitationAudit(
+                root / "levels" / config.levels.base, project.worker(model, "citation-audit")
+            )
+            results = asyncio.run(audit.audit(audit.sample(args.sample, args.seed)))
+        finally:
+            project.close()
+        self._show(CitationAudit.render(results))
+        return 0
 
     def import_docs(self, args: argparse.Namespace) -> int:
         """The user's own documents as sources, and a project per audience that drafts a brief first."""
@@ -770,6 +792,13 @@ class Cli:
         learn.add_argument("--budget", type=float, default=1.0, help="the run's cap in dollars")
         learn.add_argument("--out", help="where the project goes (default ~/agentswarm-data/learn)")
         learn.add_argument("--max-rounds", type=int, default=300)
+
+        cites = commands.add_parser("audit-citations", help="check a sample of a document's citations")
+        cites.add_argument("config", help="the project's YAML configuration")
+        cites.add_argument("--root", required=True, help="directory holding the project's log and levels")
+        cites.add_argument("--sample", type=int, default=20, help="statements to check")
+        cites.add_argument("--seed", type=int, default=1, help="the sample's seed, for a repeatable draw")
+        cites.add_argument("--model", help="the checking model (default: the project's referee)")
 
         traced = commands.add_parser("questions", help="a document's hidden questions, score by score")
         traced.add_argument("config", help="the project's YAML configuration")
