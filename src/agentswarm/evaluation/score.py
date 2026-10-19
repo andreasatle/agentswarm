@@ -12,13 +12,14 @@ import tarfile
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
 from agentswarm.board.blackboard import BoardViews
 from agentswarm.core.config import ProjectConfig, ScoreConfig
 from agentswarm.core.domain import Scored, Tally
+from agentswarm.gating.harness import TestHarness
 from agentswarm.gating.ratchet import Outcomes
 from agentswarm.workspace.git import Git
 from agentswarm.workspace.sandbox import Sandbox
@@ -62,6 +63,8 @@ class Scoreboard:
         self._command = tuple(command)
         self._timeout_s = timeout_s
 
+    PROTECTED: ClassVar[tuple[str, ...]] = ("tests/acceptance/",)  # the visible tests the evaluator owns
+
     def score(self, ref: str, extra: Sequence[Path] = ()) -> Score:
         git = Git()
         commit = git.run(self._repository, "rev-parse", ref)
@@ -73,6 +76,9 @@ class Scoreboard:
                 tar.extractall(copy, filter="data")
             for folder in extra:
                 shutil.copytree(folder, copy / self.EXTRA / folder.name)
+            TestHarness((f"{self.EXTRA}/", *self.PROTECTED)).guard(
+                copy
+            )  # the producer's levers on pytest out
             result = self._sandbox.run((*self._command, "-rA", "--tb=no"), copy, self._timeout_s)
         finally:
             shutil.rmtree(copy, ignore_errors=True)

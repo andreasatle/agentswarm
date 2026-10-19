@@ -308,8 +308,9 @@ in the project too. Find where the product breaks the specification, within the 
         own = AcceptanceTester.path_for(task.id)
         worktree = self._repository.checkout_artifact(task)
         try:
-            before = self._review.outcomes_at(worktree.path, worktree.merge_base(self._ladder.base))
-            now = self._review.outcomes(worktree.path)
+            base = worktree.merge_base(self._ladder.base)
+            before = self._review.outcomes_at(worktree.path, base)
+            now = self._review.outcomes(worktree.path, base)
             if before is None or now is None:
                 return settled(False, "the tests didn't run; the report stands")
             mine = [t for t in now.passed | now.failed if t.startswith(own)]

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import CheckConfig
 from agentswarm.core.domain import ArtifactContext, FindingKind, Level
+from agentswarm.gating.harness import TestHarness
 from agentswarm.gating.ratchet import Outcomes, Progress, UnusableTestRun
 from agentswarm.workspace.git import Git, GitError
 from agentswarm.workspace.sandbox import Sandbox, SandboxResult
@@ -196,7 +197,7 @@ class RatchetCheck:
             return CheckResult(
                 name=self._name, status=CheckStatus.ERROR, output=f"the tests don't run on {base}: {self.why}"
             )
-        now = self.outcomes(cwd)
+        now = self.outcomes(cwd, base)
         if now is None:
             return CheckResult(
                 name=self._name,
@@ -210,10 +211,25 @@ class RatchetCheck:
         done = wanted and progress.nothing_left and status is CheckStatus.PASSED
         return CheckResult(name=self._name, status=status, output=output, done=done)
 
-    def outcomes(self, cwd: Path) -> Outcomes | None:
+    def outcomes(self, cwd: Path, base: str | None = None) -> Outcomes | None:
         """The suite's outcomes in `cwd`; None when the run measured nothing (it timed out, the runner failed,
         or no test outcome came out), with the reason in `why`."""
-        result = self._sandbox.run((*self._config.command, *self.FLAGS), cwd, self._config.timeout_s)
+        trusted = self.conftests(cwd, base) if base is not None else None
+        with TestHarness(self._config.protected, trusted).copy(cwd) as guarded:
+            return self.measured(guarded)
+
+    def conftests(self, cwd: Path, commit: str) -> dict[str, str]:
+        """The conftest.py files at `commit`, by path: the ones the producer didn't write."""
+        names = self._git.run(cwd, "ls-tree", "-r", "--name-only", commit).splitlines()
+        return {
+            n: self._git.attempt(cwd, "show", f"{commit}:{n}").stdout
+            for n in names
+            if n == "conftest.py" or n.endswith("/conftest.py")
+        }
+
+    def measured(self, guarded: Path) -> Outcomes | None:
+        """The suite's outcomes in a tree the harness has already guarded."""
+        result = self._sandbox.run((*self._config.command, *self.FLAGS), guarded, self._config.timeout_s)
         try:
             return Outcomes.of(result)
         except UnusableTestRun as error:
@@ -231,7 +247,8 @@ class RatchetCheck:
             archive = self._git.archive(cwd, commit)
             with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 tar.extractall(copy, filter="data")
-            found = self.outcomes(copy)
+            TestHarness(self._config.protected).guard(copy)
+            found = self.measured(copy)
         finally:
             shutil.rmtree(copy, ignore_errors=True)
         if found is not None:

@@ -195,6 +195,18 @@ class TestRatchetCheck:
         broken = s.check.run(s.worktree.path)  # whisper fixed, shout broken: not forward
         assert broken.status is CheckStatus.FAILED and "BROKEN" in broken.output
 
+    def test_a_planted_conftest_cannot_make_the_tests_pass(self, tmp_path: Path) -> None:
+        s = Suite(tmp_path)  # the audit's A02: code and acceptance tests unchanged, a root hook added
+        hook = "def pytest_collection_modifyitems(items):\n"
+        hijack = hook + "    for item in items:\n        item.obj = lambda: None\n"
+        s.worktree.write("conftest.py", hijack)
+        s.worktree.write("tests/conftest.py", hijack)
+        s.worktree.write("pytest.ini", "[pytest]\naddopts = -p no:python\n")
+        s.worktree.write("pytest.py", "raise SystemExit(0)\n")
+        result = s.check.run(s.worktree.path)
+        assert result.status is CheckStatus.FAILED and "0 newly passing" in result.output, result.output
+        assert (s.worktree.path / "conftest.py").is_file()  # the worktree itself is left as it was
+
     def test_a_broken_test_command_is_an_error_not_done(self, tmp_path: Path) -> None:
         s = Suite(tmp_path)  # the audit's case: real tests, a command that exits with pytest's usage error
         broken = PYTEST.model_copy(update={"command": (sys.executable, "-c", "import sys; sys.exit(4)")})
