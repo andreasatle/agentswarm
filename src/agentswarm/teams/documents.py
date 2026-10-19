@@ -5,7 +5,7 @@ the three reviewers are reviewing analyzers, whose evidence is a verbatim quote 
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -97,6 +97,36 @@ class Citations:
             return f"[@{match.group(1)}-p{first:03d}, page {page}]"
 
         return cls.PAGED.sub(fixed, text)
+
+    SPOKEN: ClassVar[re.Pattern[str]] = re.compile(r"\(([^()\n]{3,200})\)")
+
+    @classmethod
+    def spoken(cls, text: str, headings: Mapping[str, str]) -> str:
+        """Citations written the way a reader sees them, by a source's heading, as tags: "(Wikipedia: Maritime
+        republics, part 1 of 3)" becomes [@wikipedia-maritime-republics-01] when that is the heading of the
+        part given (2026-10-19: a writer cited a whole Venice section that way three times and failed the
+        check each time). `headings` maps each part's heading to its name; a parenthesis that isn't one, or
+        several separated by semicolons, is left alone."""
+        known = {cls.letters(h): name for h, name in headings.items()}
+        for heading, name in headings.items():  # "Maritime republics" for its first part as well
+            whole = re.sub(r",\s*(?:part 1 of \d+|pages 1-\d+)$", "", heading)
+            known.setdefault(cls.letters(whole), name)
+
+        def tagged(match: re.Match[str]) -> str:
+            names: list[str] = []
+            for piece in match.group(1).split(";"):
+                cited = piece.strip()
+                name = known.get(cls.letters(cited)) or known.get(cls.letters(cited.split(":", 1)[-1]))
+                if name is None:
+                    return match.group(0)
+                names.append(name)
+            return " ".join(f"[@{n}]" for n in names)
+
+        return cls.SPOKEN.sub(tagged, text)
+
+    @staticmethod
+    def letters(text: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
 class Sentences:
@@ -280,7 +310,11 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
                 update={"current": answer.text, "must_fix": (*section.must_fix, too_long)}
             )
             answer = await worker.run(self.SECTION, again, SectionText)
-        text = Sentences.lines(Citations.mend(answer.text.strip(), names))
+        headings = {
+            (toolbox.text(f"sources/{n}.md") or "").split("\n", 1)[0].lstrip("# ").strip(): n for n in names
+        }
+        headings.pop("", None)
+        text = Sentences.lines(Citations.mend(Citations.spoken(answer.text.strip(), headings), names))
         result = toolbox.write_file(assigned.path, text + "\n")
         if result.startswith("error:"):
             return ExecutorReport(summary=f"could not write {assigned.path}: {result}", complete=False)

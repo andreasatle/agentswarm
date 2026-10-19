@@ -74,6 +74,22 @@ class TestSectionWriter:
 
 
 class TestCitations:
+    def test_a_citation_written_as_the_reader_sees_it_becomes_a_tag(self) -> None:
+        headings = {
+            "Venetian Lagoon": "wikipedia-venetian-lagoon",
+            "Maritime republics, part 1 of 3": "wikipedia-maritime-republics-01",
+        }
+        text = (
+            "It is a bay (Wikipedia: Venetian Lagoon).\n"
+            "They traded (Wikipedia: Maritime republics, part 1 of 3; Wikipedia: Venetian Lagoon).\n"
+            "Four cities (Wikipedia: Maritime republics) (about 1000 AD) (Wikipedia: Rome)."
+        )
+        assert Citations.spoken(text, headings) == (
+            "It is a bay [@wikipedia-venetian-lagoon].\n"
+            "They traded [@wikipedia-maritime-republics-01] [@wikipedia-venetian-lagoon].\n"
+            "Four cities [@wikipedia-maritime-republics-01] (about 1000 AD) (Wikipedia: Rome)."
+        )
+
     def test_a_page_cited_as_a_source_points_to_the_part_that_holds_it(self) -> None:
         names = ["report-p001", "report-p118", "report-p136", "memo"]
         text = (
