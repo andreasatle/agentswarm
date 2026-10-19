@@ -17,6 +17,7 @@ A note to pick up from after the user's trip (back about 2026-10-29). Details li
 
 ## Open, in the order I'd take them
 
+0. **First, an outside audit (2026-10-19, ChatGPT; triage in docs/BACKLOG.md):** A01 fixed the same day (a failed test runner or a run with no test outcome is an error, never "done"). After the break, in order: A02 (the test harness a builder could rig), then goal 13 with the audit's A03 and A06 built in (spending admitted at every call, pause honoured between actions), then A04 and A05, then goal 14.
 0. **Two goals from the user, 2026-10-19, before anything below** (docs/BACKLOG.md): one command from topic to published document with the user's approvals built in, and research from the open web beyond papers and Wikipedia. Since this note was first written: the mechanistic interpretability tutorial (fact-reviewed, about 62% of citations fully supported) and a Venice guide from Wikipedia are on the homepage.
 1. **Sleep and memory tutorial** (the first non-technical test of `learn`): three of five papers in `~/agentswarm-data/sleep-and-memory`; Siegel 2001 is free in PubMed Central (link in papers.md). About $0.20. Tells whether `learn` serves a lay reader.
 2. **The picker told how each paper is open** (green and gold before bronze), so it prefers reliably free copies when two papers are equally good. Free work.

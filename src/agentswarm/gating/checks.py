@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import CheckConfig
 from agentswarm.core.domain import ArtifactContext, FindingKind, Level
-from agentswarm.gating.ratchet import Outcomes, Progress
+from agentswarm.gating.ratchet import Outcomes, Progress, UnusableTestRun
 from agentswarm.workspace.git import Git, GitError
 from agentswarm.workspace.sandbox import Sandbox, SandboxResult
 
@@ -147,6 +147,7 @@ class RatchetCheck:
     """
 
     FLAGS: ClassVar[tuple[str, ...]] = ("-rA", "--tb=no")
+    why: str = ""  # why the last run measured nothing
 
     def __init__(
         self, name: str, config: CheckConfig, level: Level, sandbox: Sandbox, git: Git | None = None
@@ -193,11 +194,15 @@ class RatchetCheck:
         before = self.outcomes_at(cwd, base)
         if before is None:
             return CheckResult(
-                name=self._name, status=CheckStatus.ERROR, output=f"the tests don't run on {base}"
+                name=self._name, status=CheckStatus.ERROR, output=f"the tests don't run on {base}: {self.why}"
             )
         now = self.outcomes(cwd)
         if now is None:
-            return CheckResult(name=self._name, status=CheckStatus.ERROR, output="the tests didn't finish")
+            return CheckResult(
+                name=self._name,
+                status=CheckStatus.ERROR,
+                output=f"the tests gave no usable result: {self.why}",
+            )
         progress = Progress(base=before, now=now, protected=self._config.protected)
         wanted = self._config.progress
         status = CheckStatus.PASSED if progress.acceptable(wanted) else CheckStatus.FAILED
@@ -206,11 +211,14 @@ class RatchetCheck:
         return CheckResult(name=self._name, status=status, output=output, done=done)
 
     def outcomes(self, cwd: Path) -> Outcomes | None:
-        """The suite's outcomes in `cwd`; None when it timed out or couldn't start."""
+        """The suite's outcomes in `cwd`; None when the run measured nothing (it timed out, the runner failed,
+        or no test outcome came out), with the reason in `why`."""
         result = self._sandbox.run((*self._config.command, *self.FLAGS), cwd, self._config.timeout_s)
-        if result.exit_code is None:
+        try:
+            return Outcomes.of(result)
+        except UnusableTestRun as error:
+            self.why = str(error)
             return None
-        return Outcomes.of(result)
 
     def outcomes_at(self, cwd: Path, commit: str) -> Outcomes | None:
         """The suite's outcomes on a plain copy of `commit`, next to `cwd` (so the sandbox can mount it)."""

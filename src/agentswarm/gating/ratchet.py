@@ -25,7 +25,13 @@ from agentswarm.core.domain import Level
 from agentswarm.workspace.sandbox import SandboxResult
 
 
-class TruncatedOutput(RuntimeError):
+class UnusableTestRun(RuntimeError):
+    """A test run that measured nothing trustworthy: the runner failed, or no test outcome came out. Counting
+    it would compare against nothing (an outside audit, 2026-10-19: a command exiting with pytest's usage
+    error, 4, gave an empty baseline and an empty result, which the ratchet passed as "nothing left")."""
+
+
+class TruncatedOutput(UnusableTestRun):
     """A test run's output was cut short: counting from it would miss tests, so it isn't counted at all."""
 
 
@@ -38,6 +44,10 @@ class Outcomes(BaseModel):
     failed: frozenset[str]  # failures and errors
 
     LINE: ClassVar[re.Pattern[str]] = re.compile(r"^(PASSED|FAILED|ERROR|XPASS) (\S+)")
+    # pytest's exit codes: 0 all passed, 1 some failed, 2 interrupted (collection errors: they are listed as
+    # ERROR lines and count as failures); the rest mean the runner itself failed
+    MEASURED: ClassVar[dict[int, str]] = {0: "all passed", 1: "some failed", 2: "interrupted"}
+    RUNNER: ClassVar[dict[int, str]] = {3: "internal error", 4: "usage error", 5: "no tests collected"}
 
     @classmethod
     def of(cls, result: SandboxResult) -> Self:
@@ -46,7 +56,20 @@ class Outcomes(BaseModel):
             raise TruncatedOutput(
                 f"{result.omitted} bytes of the test output were left out; tests would go uncounted"
             )
-        return cls.parse(result.output)
+        code = result.exit_code
+        if code is None or code not in cls.MEASURED:
+            meaning = cls.RUNNER.get(code, "not a test result") if code is not None else "didn't finish"
+            raise UnusableTestRun(
+                f"the test runner exited with {code} ({meaning}): {cls.tail(result.output)}"
+            )
+        found = cls.parse(result.output)
+        if not found.passed and not found.failed:
+            raise UnusableTestRun(f"no test outcome in the output: {cls.tail(result.output)}")
+        return found
+
+    @staticmethod
+    def tail(output: str, lines: int = 5) -> str:
+        return " | ".join(line.strip() for line in output.strip().splitlines()[-lines:]) or "(no output)"
 
     @classmethod
     def parse(cls, output: str) -> Self:

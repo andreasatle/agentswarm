@@ -8,7 +8,7 @@ from agentswarm.control.worklist import Worklist
 from agentswarm.core.config import CheckConfig, WorklistConfig
 from agentswarm.core.domain import ArtifactCreated, ArtifactId, Escalated, Paused, Sized
 from agentswarm.gating.checks import CheckStatus, Parts, RatchetCheck
-from agentswarm.gating.ratchet import Outcomes, Progress, TruncatedOutput
+from agentswarm.gating.ratchet import Outcomes, Progress, TruncatedOutput, UnusableTestRun
 from agentswarm.workspace.sandbox import LocalSandbox, SandboxResult
 from tests.support.harness import Harness
 from tests.support.samples import Samples
@@ -56,6 +56,22 @@ class Suite:
 
 
 class TestOutcomes:
+    @pytest.mark.parametrize(
+        ("code", "meaning"), [(3, "internal error"), (4, "usage error"), (5, "no tests")]
+    )
+    def test_a_failed_runner_measures_nothing(self, code: int, meaning: str) -> None:
+        with pytest.raises(UnusableTestRun, match=meaning):  # its output is no evidence either way
+            Outcomes.of(SandboxResult(exit_code=code, output="PASSED t.py::test_a\n"))
+
+    def test_a_run_with_no_test_outcome_measures_nothing(self) -> None:
+        for code in (0, 1, 2):  # a summary line alone, or nothing at all
+            with pytest.raises(UnusableTestRun, match="no test outcome"):
+                Outcomes.of(SandboxResult(exit_code=code, output="1 passed in 0.01s\n"))
+
+    def test_collection_errors_count_as_failures(self) -> None:
+        interrupted = SandboxResult(exit_code=2, output="ERROR tests/t.py\nInterrupted: 1 error\n")
+        assert Outcomes.of(interrupted).failed == {"tests/t.py"}
+
     def test_reads_pytests_one_line_per_test_summary(self) -> None:
         output = "PASSED t.py::test_a\nFAILED t.py::test_b - AssertionError\nERROR t.py::test_c\nnoise\n"
         outcomes = Outcomes.parse(output)
@@ -178,6 +194,14 @@ class TestRatchetCheck:
         )
         broken = s.check.run(s.worktree.path)  # whisper fixed, shout broken: not forward
         assert broken.status is CheckStatus.FAILED and "BROKEN" in broken.output
+
+    def test_a_broken_test_command_is_an_error_not_done(self, tmp_path: Path) -> None:
+        s = Suite(tmp_path)  # the audit's case: real tests, a command that exits with pytest's usage error
+        broken = PYTEST.model_copy(update={"command": (sys.executable, "-c", "import sys; sys.exit(4)")})
+        check = RatchetCheck("spec", broken, Samples.EXPERIMENTAL, LocalSandbox())
+        result = check.run(s.worktree.path)
+        assert result.status is CheckStatus.ERROR and not result.done
+        assert "usage error" in result.output
 
 
 class TestWorklist:
