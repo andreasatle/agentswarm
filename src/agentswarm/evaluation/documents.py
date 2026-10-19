@@ -32,6 +32,7 @@ class SourceText:
     """A document's text, by its kind."""
 
     PLAIN: ClassVar[tuple[str, ...]] = (".txt", ".md", ".markdown")
+    NAME: ClassVar[int] = 30  # characters of a file's name kept in its sources' names
     TIMEOUT_S = 120
 
     @classmethod
@@ -223,7 +224,7 @@ review:
         texts: dict[str, str] = {}
         known: list[Reference] = []
         for path in self._files:
-            name = SourceText.slug(path.stem, 30)
+            name = SourceText.slug(path.stem, SourceText.NAME)
             while any(n == name or n.startswith(f"{name}-") for n in texts):
                 name += "-2"
             text = SourceText.read(path)
@@ -332,6 +333,13 @@ class DocumentAssembly:
 
     @staticmethod
     def owner(part: str, references: Sequence[Reference]) -> Reference | None:
-        """The reference whose document the part belongs to: the longest name it starts with."""
-        owners = [r for r in references if part == r.document or part.startswith(f"{r.document}-")]
+        """The reference whose document the part belongs to: the longest name it starts with. A briefer may
+        name the document by its whole file name, where the parts carry it cut to SourceText.NAME characters
+        (2026-10-19: 32 citations of bricken-2023-towards-monosemanticity were left unrendered)."""
+        owners = [
+            r
+            for r in references
+            for name in {r.document, SourceText.slug(r.document, SourceText.NAME)}
+            if part == name or part.startswith(f"{name}-")
+        ]
         return max(owners, key=lambda r: len(r.document), default=None)

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from agentswarm.core.config import ProjectConfig
+from agentswarm.core.domain import Reference
 from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceParts, SourceText
 
 
@@ -79,6 +80,17 @@ class TestOptions:
 
 
 class TestDocumentAssembly:
+    def test_a_reference_named_by_the_whole_file_name_owns_the_shortened_parts(self) -> None:
+        reference = Reference(
+            document="bricken-2023-towards-monosemanticity",
+            authors="B",
+            title="T",
+            year="2023",
+            short="B, 2023",
+        )
+        assert DocumentAssembly.owner("bricken-2023-towards-monoseman-01", [reference]) == reference
+        assert DocumentAssembly.owner("bricken-2024-other-01", [reference]) is None
+
     def test_sections_in_order_under_the_briefs_title_with_the_sources_cited(self, tmp_path: Path) -> None:
         level = tmp_path / "level"
         (level / "sections").mkdir(parents=True)
