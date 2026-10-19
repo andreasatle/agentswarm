@@ -2054,11 +2054,12 @@ class CitationAnswer(Frozen):
 `agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
 ```text
-You plan a literature search for a tutorial on the topic given, for the reader described. Write the number of
-short keyword queries asked for, each covering a different thread of the topic (its foundations, the main
-competing ideas or methods, the evidence for them), so that together they find the papers a tutorial needs.
-Search ranks by matching words, not importance, so also list the exact titles of the well-known papers on the
-topic that you are sure of: each is looked up, and kept only if found.
+You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. Write
+the number of short keyword queries asked for, each covering a different thread of the topic (its foundations,
+the main competing ideas or methods, the evidence for them; for a place, its history, buildings, art and
+practical matters), so that together they find the sources it needs. Search ranks by matching words, not
+importance, so also list the exact titles of the well-known papers or articles on the topic that you are sure
+of: each is looked up, and kept only if found.
 ```
 
 ### User message (sample)
@@ -2173,7 +2174,9 @@ in one sentence what each adds.
       "pdfs": [],
       "page": "",
       "free": "",
-      "access": ""
+      "access": "",
+      "site": "",
+      "kind": "pdf"
     }
   ]
 }
@@ -2204,6 +2207,8 @@ class Candidate(Frozen):
     page: str = ""  # its landing page (the DOI), for a person to fetch it from
     free: str = ""  # where it is free to read, if the service knows (a PubMed Central page, say)
     access: str = ""  # how it is open: green (a repository copy), gold, hybrid, bronze (the publisher's whim)
+    site: str = ""  # a web source's publisher (Wikipedia, UNESCO): its author and its in-text name
+    kind: str = "pdf"  # its file's extension: pdf, txt (Wikipedia's text), html (a web page)
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
@@ -2212,18 +2217,29 @@ class Candidate(Frozen):
     def file(self) -> str:
         """Its PDF's name, readable: stickgold-2005-sleep-dependent-memory-consolidation.pdf (the user,
         2026-10-18, on names like W2086162146.pdf)."""
-        first = self.surname(self.authors[0]) if self.authors else "anonymous"
-        plain = unicodedata.normalize("NFKD", f"{first} {self.year} {self.title}").encode("ascii", "ignore")
+        first = self.site or (self.surname(self.authors[0]) if self.authors else "anonymous")
+        named = f"{first} {self.title}" if self.site else f"{first} {self.year} {self.title}"
+        plain = unicodedata.normalize("NFKD", named).encode("ascii", "ignore")
         words = re.findall(r"[a-z0-9]+", plain.decode().lower())
         kept: list[str] = []
         for word in words:  # whole words, to about 70 characters
             if kept and len("-".join([*kept, word])) > self.NAME:
                 break
             kept.append(word)
-        return "-".join(kept) + ".pdf"
+        return "-".join(kept) + f".{self.kind}"
 
     def reference(self, document: str) -> Reference:
         """The paper as a bibliography gives it, from the service's record rather than a model's reading."""
+        if self.site:  # a web page: its publisher is its author; in the text, "(Wikipedia: Murano)"
+            return Reference(
+                document=document,
+                authors=self.site,
+                title=self.title,
+                year=str(self.year),
+                venue=self.site,
+                short=f"{self.site}: {self.title}",
+                url=self.page,
+            )
         surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
         listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
         authors = listed + (", et al." if len(self.authors) > self.LISTED else "")
@@ -2240,6 +2256,7 @@ class Candidate(Frozen):
             year=str(self.year),
             venue=self.venue,
             short=short,
+            url=self.page if not self.venue.startswith("arXiv") else "",
         )
 
     @staticmethod

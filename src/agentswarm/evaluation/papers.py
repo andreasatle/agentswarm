@@ -10,6 +10,7 @@ keeps only works with an open PDF); those the user adds by hand.
 """
 
 import asyncio
+import html
 import re
 import time
 import unicodedata
@@ -43,6 +44,8 @@ class Candidate(Frozen):
     page: str = ""  # its landing page (the DOI), for a person to fetch it from
     free: str = ""  # where it is free to read, if the service knows (a PubMed Central page, say)
     access: str = ""  # how it is open: green (a repository copy), gold, hybrid, bronze (the publisher's whim)
+    site: str = ""  # a web source's publisher (Wikipedia, UNESCO): its author and its in-text name
+    kind: str = "pdf"  # its file's extension: pdf, txt (Wikipedia's text), html (a web page)
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
@@ -51,18 +54,29 @@ class Candidate(Frozen):
     def file(self) -> str:
         """Its PDF's name, readable: stickgold-2005-sleep-dependent-memory-consolidation.pdf (the user,
         2026-10-18, on names like W2086162146.pdf)."""
-        first = self.surname(self.authors[0]) if self.authors else "anonymous"
-        plain = unicodedata.normalize("NFKD", f"{first} {self.year} {self.title}").encode("ascii", "ignore")
+        first = self.site or (self.surname(self.authors[0]) if self.authors else "anonymous")
+        named = f"{first} {self.title}" if self.site else f"{first} {self.year} {self.title}"
+        plain = unicodedata.normalize("NFKD", named).encode("ascii", "ignore")
         words = re.findall(r"[a-z0-9]+", plain.decode().lower())
         kept: list[str] = []
         for word in words:  # whole words, to about 70 characters
             if kept and len("-".join([*kept, word])) > self.NAME:
                 break
             kept.append(word)
-        return "-".join(kept) + ".pdf"
+        return "-".join(kept) + f".{self.kind}"
 
     def reference(self, document: str) -> Reference:
         """The paper as a bibliography gives it, from the service's record rather than a model's reading."""
+        if self.site:  # a web page: its publisher is its author; in the text, "(Wikipedia: Murano)"
+            return Reference(
+                document=document,
+                authors=self.site,
+                title=self.title,
+                year=str(self.year),
+                venue=self.site,
+                short=f"{self.site}: {self.title}",
+                url=self.page,
+            )
         surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
         listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
         authors = listed + (", et al." if len(self.authors) > self.LISTED else "")
@@ -79,6 +93,7 @@ class Candidate(Frozen):
             year=str(self.year),
             venue=self.venue,
             short=short,
+            url=self.page if not self.venue.startswith("arXiv") else "",
         )
 
     @staticmethod
@@ -298,12 +313,129 @@ class OpenAlexPage(BaseModel):
     results: list[OpenAlexWork]
 
 
+class WikipediaSearch(Fetching):
+    """English Wikipedia's API: free, no key; every article, as plain text. For topics papers don't cover (a
+    city, its history and art; the user, 2026-10-19: a guide to Venice). A Wikipedia article is a secondary
+    source: good for history and background, and cited by its title and a link."""
+
+    API = "https://en.wikipedia.org/w/api.php"
+    ARTICLE = "https://en.wikipedia.org/wiki/{title}"
+    PAUSE_S = 0.5
+    AGENT = "agentswarm-learn/0.1 (https://github.com/andreasatle/agentswarm; a tutorial from sources)"
+
+    def search(self, query: str, limit: int) -> list[Candidate]:
+        return self.pages({"generator": "search", "gsrsearch": query, "gsrlimit": limit, "gsrnamespace": 0})
+
+    def titled(self, title: str) -> Candidate | None:
+        found = self.pages({"titles": title, "redirects": 1})
+        return found[0] if found else None
+
+    def pages(self, chosen: dict[str, str | int]) -> list[Candidate]:
+        query = {
+            "action": "query",
+            "format": "json",
+            "formatversion": 2,
+            "prop": "extracts|info",
+            "exintro": 1,
+            "explaintext": 1,
+            "exlimit": "max",
+            **chosen,
+        }
+        answer = WikipediaAnswer.model_validate_json(
+            self.fetch(self.API + "?" + urllib.parse.urlencode(query))
+        )
+        pages = sorted(answer.query.pages if answer.query is not None else [], key=lambda p: p.index or 0)
+        return [self.candidate(p) for p in pages if not p.missing]
+
+    @classmethod
+    def candidate(cls, page: "WikipediaPage") -> Candidate:
+        name = page.title.replace(" ", "_")
+        return Candidate(
+            id=f"wikipedia:{name}",
+            title=page.title,
+            authors=("Wikipedia",),
+            year=int(page.touched[:4]) if page.touched else 0,
+            abstract=" ".join((page.extract or "").split()),
+            site="Wikipedia",
+            kind="txt",
+            page=cls.ARTICLE.format(title=urllib.parse.quote(name)),
+        )
+
+    def download(self, paper: Candidate, path: Path) -> None:
+        title = paper.title
+        query = {
+            "action": "query",
+            "format": "json",
+            "formatversion": 2,
+            "prop": "extracts",
+            "explaintext": 1,
+            "titles": title,
+            "redirects": 1,
+        }
+        answer = WikipediaAnswer.model_validate_json(
+            self.fetch(self.API + "?" + urllib.parse.urlencode(query))
+        )
+        pages = answer.query.pages if answer.query is not None else []
+        text = pages[0].extract if pages and not pages[0].missing else None
+        if not text:
+            raise OSError(f"Wikipedia has no text for {title}")
+        path.write_text(f"{title}\n\n{text}\n")
+
+
+class WikipediaPage(BaseModel):
+    title: str
+    missing: bool = False
+    extract: str | None = None
+    touched: str | None = None
+    index: int | None = None
+
+
+class WikipediaPages(BaseModel):
+    pages: list[WikipediaPage] = []
+
+
+class WikipediaAnswer(BaseModel):
+    query: WikipediaPages | None = None
+
+
+class WebPage(Fetching):
+    """A page the user names (an official site: UNESCO, a city's tourism office), kept as HTML and cited by
+    its title, its site and a link."""
+
+    TITLE: ClassVar[re.Pattern[str]] = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+
+    def record(self, url: str, year: int) -> tuple[Candidate, bytes]:
+        data = self.fetch(url)
+        found = self.TITLE.search(data.decode("utf-8", "replace"))
+        title = html.unescape(" ".join(found.group(1).split())) if found else url
+        host = urllib.parse.urlparse(url).hostname or url
+        site = host.removeprefix("www.")
+        candidate = Candidate(
+            id=f"web:{url}",
+            title=title,
+            authors=(site,),
+            year=year,
+            abstract="",
+            site=site,
+            kind="html",
+            page=url,
+        )
+        return candidate, data
+
+
 class PaperSource(StrEnum):
     OPENALEX = "openalex"  # every field
     ARXIV = "arxiv"  # machine learning, physics, maths: every paper open
+    WIKIPEDIA = "wikipedia"  # background for topics papers don't cover: places, history, art
 
     def search(self) -> PaperSearch:
-        return OpenAlexSearch() if self is PaperSource.OPENALEX else ArxivSearch()
+        match self:
+            case PaperSource.OPENALEX:
+                return OpenAlexSearch()
+            case PaperSource.ARXIV:
+                return ArxivSearch()
+            case PaperSource.WIKIPEDIA:
+                return WikipediaSearch()
 
 
 class QueryRequest(Frozen):
@@ -423,11 +555,12 @@ class PaperFinder:
     PDFs downloaded."""
 
     QUERY = """\
-You plan a literature search for a tutorial on the topic given, for the reader described. Write the number of
-short keyword queries asked for, each covering a different thread of the topic (its foundations, the main
-competing ideas or methods, the evidence for them), so that together they find the papers a tutorial needs.
-Search ranks by matching words, not importance, so also list the exact titles of the well-known papers on the
-topic that you are sure of: each is looked up, and kept only if found."""
+You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. Write
+the number of short keyword queries asked for, each covering a different thread of the topic (its foundations,
+the main competing ideas or methods, the evidence for them; for a place, its history, buildings, art and
+practical matters), so that together they find the sources it needs. Search ranks by matching words, not
+importance, so also list the exact titles of the well-known papers or articles on the topic that you are sure
+of: each is looked up, and kept only if found."""
 
     PICK = """\
 You choose the papers a tutorial on the topic will be written from, for the reader described, from the

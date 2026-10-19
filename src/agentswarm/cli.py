@@ -46,7 +46,7 @@ from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.jsonpath import JsonPathImport
-from agentswarm.evaluation.papers import PaperFinder, PaperSource
+from agentswarm.evaluation.papers import Found, PaperFinder, PaperSource, WebPage
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionTrace
@@ -494,6 +494,18 @@ class Cli:
         finally:
             if shared is not None:
                 shared.close()
+        named: list[Found] = []
+        for url in args.url:  # pages the user names: fetched as they are, cited by link
+            try:
+                page, data = WebPage().record(url, date.today().year)
+            except OSError as error:
+                self._show(f"can't fetch {url}: {error}")
+                continue
+            (out / page.file).write_bytes(data)
+            named.append(Found(paper=page, why="Named by the user as a starting source.", file=page.file))
+        if named:
+            found = found.model_copy(update={"papers": (*found.papers, *named)})
+            found.save(out)
         self._show(found.render() if found.papers else "no papers picked")
         self._show(f"cost ${sum(spent):.3f}; check the list, add or remove PDFs in {out}, then:")
         self._show(f'  uv run agentswarm learn {out} --know "{args.know}" --want "..."')
@@ -845,7 +857,10 @@ class Cli:
             "--source",
             choices=[s.value for s in PaperSource],
             default=PaperSource.OPENALEX.value,
-            help="openalex: every field (default); arxiv: machine learning, physics, maths",
+            help="openalex: every field (default); arxiv: ML, physics, maths; wikipedia: places, history",
+        )
+        find.add_argument(
+            "--url", action="append", default=[], help="a page to include as it is (repeatable)"
         )
         find.add_argument("--out", help="the folder for the PDFs (default ~/agentswarm-data/<topic>)")
         learn = commands.add_parser("learn", help="papers to a tutorial for you, in one command")

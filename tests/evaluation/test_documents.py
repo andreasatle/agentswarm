@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from agentswarm.core.config import ProjectConfig
@@ -80,6 +81,25 @@ class TestOptions:
 
 
 class TestDocumentAssembly:
+    def test_a_web_source_is_listed_with_its_link(self, tmp_path: Path) -> None:
+        level = tmp_path / "level"
+        (level / "sections").mkdir(parents=True)
+        (level / "docs").mkdir()
+        (level / "sections" / "01-a.md").write_text("## A\n\nGlass is made there [@wikipedia-murano-01].\n")
+        murano = Reference(
+            document="wikipedia-murano",
+            authors="Wikipedia",
+            title="Murano",
+            year="2026",
+            venue="Wikipedia",
+            short="Wikipedia: Murano",
+            url="https://en.wikipedia.org/wiki/Murano",
+        )
+        (level / "docs" / "references.json").write_text(json.dumps([murano.model_dump()]))
+        text = (DocumentAssembly.write(level, tmp_path / "d.md") or tmp_path).read_text()
+        assert "(Wikipedia: Murano)" in text
+        assert "- Wikipedia (2026). [*Murano*](https://en.wikipedia.org/wiki/Murano).\n" in text
+
     def test_a_reference_named_by_the_whole_file_name_owns_the_shortened_parts(self) -> None:
         reference = Reference(
             document="bricken-2023-towards-monosemanticity",

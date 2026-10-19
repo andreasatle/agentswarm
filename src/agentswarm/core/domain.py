@@ -483,6 +483,7 @@ class Reference(Frozen):
     year: str
     venue: str = ""  # journal, conference or "arXiv preprint 2301.08243"
     short: str  # the in-text form: "Assran et al., 2023"
+    url: str = ""  # where a reader finds it, for a web source (a link in the references)
 
 
 class Briefed(Frozen):

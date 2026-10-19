@@ -302,7 +302,9 @@ class DocumentAssembly:
             body = cls.CITATION.sub(cited, body)
             entries = sorted(used.values(), key=lambda r: (r.authors.lower(), r.year))
             listing = "\n".join(
-                f"- {r.authors} ({r.year}). *{r.title}*." + (f" {r.venue}." if r.venue else "")
+                f"- {r.authors} ({r.year}). "
+                + (f"[*{r.title}*]({r.url})." if r.url else f"*{r.title}*.")
+                + (f" {r.venue}." if r.venue and r.venue != r.authors else "")
                 for r in entries
             )
             tail = f"## References\n\n{listing}\n"

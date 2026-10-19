@@ -17,6 +17,8 @@ from agentswarm.evaluation.papers import (
     ReadingFolder,
     ReadingList,
     SearchQueries,
+    WebPage,
+    WikipediaSearch,
 )
 from agentswarm.llm.workers import Toolbox
 from tests.support.fakes import ScriptedWorker
@@ -265,3 +267,49 @@ class TestDocumentFiles:
 
     def test_the_template_models_load(self) -> None:
         assert "planner" in DocumentImport.models()
+
+
+ARTICLES = b"""{"query": {"pages": [
+  {"title": "Torcello", "index": 2, "touched": "2026-10-01T00:00:00Z", "extract": "Torcello is an island."},
+  {"title": "Murano", "index": 1, "touched": "2026-09-30T00:00:00Z",
+   "extract": "Murano  is a series of islands."},
+  {"title": "Nowhere", "missing": true}
+]}}"""
+
+
+class TestWikipediaSearch:
+    def test_articles_in_search_order_cited_by_title_and_link(self) -> None:
+        class Answering(WikipediaSearch):
+            def fetch(self, url: str) -> bytes:
+                return ARTICLES
+
+        murano, torcello = Answering().search("venice islands", 5)
+        assert (murano.title, torcello.title) == ("Murano", "Torcello")
+        assert murano.abstract == "Murano is a series of islands." and murano.year == 2026
+        assert murano.file == "wikipedia-murano.txt"
+        reference = murano.reference("wikipedia-murano")
+        assert (
+            reference.short == "Wikipedia: Murano" and reference.url == "https://en.wikipedia.org/wiki/Murano"
+        )
+
+    def test_a_downloaded_article_is_its_title_and_text(self, tmp_path: Path) -> None:
+        class Answering(WikipediaSearch):
+            def fetch(self, url: str) -> bytes:
+                page = b'{"title": "Murano", "extract": "Glass.\\n\\n== History ==\\nOld."}'
+                return b'{"query": {"pages": [' + page + b"]}}"
+
+        Answering().download(paper("x", "Murano"), tmp_path / "m.txt")
+        assert (tmp_path / "m.txt").read_text() == "Murano\n\nGlass.\n\n== History ==\nOld.\n"
+
+
+class TestWebPage:
+    def test_a_named_page_is_cited_by_its_title_site_and_link(self) -> None:
+        class Answering(WebPage):
+            def fetch(self, url: str) -> bytes:
+                title = b"<title>Venice and its Lagoon - UNESCO\n World Heritage</title>"
+                return b"<html><head>" + title + b"</head></html>"
+
+        page, data = Answering().record("https://whc.unesco.org/en/list/394/", 2026)
+        assert page.title == "Venice and its Lagoon - UNESCO World Heritage" and data.startswith(b"<html>")
+        assert page.site == "whc.unesco.org" and page.file.endswith(".html")
+        assert page.reference("x").url == "https://whc.unesco.org/en/list/394/"
