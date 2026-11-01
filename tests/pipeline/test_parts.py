@@ -43,12 +43,14 @@ class TestPolicy:
 
 
 class TestPageStage:
-    def test_a_page_is_written_into_the_homepage_and_listed_first(self, tmp_path: Path) -> None:
+    def test_a_page_goes_beside_the_run_and_onto_the_homepage_only_when_asked(self, tmp_path: Path) -> None:
         homepage = tmp_path / "site"
         (homepage / "src/web").mkdir(parents=True)
         (homepage / "src/web/tutorials.json").write_text(json.dumps([{"href": "/old", "title": "Old"}]))
         policy = Policy.load().model_copy(update={"homepage": homepage})
-        page = PageStage().publish(run(tmp_path), policy)
+        assert PageStage().publish(run(tmp_path), policy) == tmp_path / "page.html"
+        assert (homepage / "src/web/tutorials.json").read_text().count("href") == 1  # untouched
+        page = PageStage().homepage(run(tmp_path), policy)
         assert page == homepage / "src/web/static/agentswarm/sleep.html"
         assert "80% of cited statements fully supported" in page.read_text()
         listing = json.loads((homepage / "src/web/tutorials.json").read_text())
@@ -106,3 +108,6 @@ class TestDocumentCommands:
             cli.dispatch(["approve", "sleep-and-memory"]) == 0 and "WAITING: Approve publishing" in shown[-1]
         )
         assert cli.dispatch(["approve", "sleep-and-memory", "--choice", "budget"]) == 2  # needs --budget
+        assert cli.dispatch(["publish", "sleep-and-memory"]) == 2 and "isn't approved" in shown[-1]
+        assert cli.dispatch(["approve", "sleep-and-memory"]) == 0
+        assert cli.dispatch(["publish", "sleep-and-memory"]) == 0 and "on the homepage" in shown[-1]

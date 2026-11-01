@@ -5,7 +5,7 @@ review_threshold: 0.75    # below this share of fully supported citations, a fac
 review_rounds: 1          # facts rounds at most (each about $0.18 a section)
 audit_sample: 20          # cited statements checked against their sources after writing
 audit_seed: 1
-homepage: ~/Projects/AgenticFramework   # where `publish` puts the page; deploying stays the user's
+homepage: ~/Projects/AgenticFramework   # where `agentswarm publish NAME` puts a page, only when asked
 estimates:                # expected costs, from the runs of 2026-10-18/19
   find: 0.06
   write_per_1000_words: 0.05

@@ -63,7 +63,13 @@ class Checking(Protocol):
 
 
 class Publishing(Protocol):
-    def publish(self, run: DocumentRun, policy: Policy) -> Path: ...
+    def publish(self, run: DocumentRun, policy: Policy) -> Path:
+        """The page, beside the run."""
+        ...
+
+    def homepage(self, run: DocumentRun, policy: Policy) -> Path:
+        """The page on the homepage, listed under Writing: only when the user says so."""
+        ...
 
 
 class Spending(Protocol):
@@ -275,8 +281,9 @@ class LedgerSpending:
 
 
 class PageStage:
-    """The document as a page for the site: written into the homepage repository's static folder and listed
-    in its tutorials.json (src/web/tutorials.py there reads it), or beside the run without a homepage."""
+    """The document as a page: beside the run once it is approved, and in the homepage repository's static
+    folder, listed in its tutorials.json (src/web/tutorials.py there reads it), only when the user asks (the
+    user, 2026-11-01: "I don't want to update the homepage everytime. Just when I tell it to")."""
 
     STATIC = Path("src/web/static/agentswarm")
     LISTING = Path("src/web/tutorials.json")
@@ -286,11 +293,14 @@ class PageStage:
 
     def publish(self, run: DocumentRun, policy: Policy) -> Path:
         assert run.document is not None
-        note = self.note(run)
+        return self._renderer.write(run.document, run.folder / "page.html", self.note(run))
+
+    def homepage(self, run: DocumentRun, policy: Policy) -> Path:
+        assert run.document is not None
         if policy.homepage is None:
-            return self._renderer.write(run.document, run.folder / "page.html", note)
+            raise ValueError("the policy names no homepage (policy.yaml: homepage)")
         page = self._renderer.write(
-            run.document, policy.homepage / self.STATIC / f"{run.request.name}.html", note
+            run.document, policy.homepage / self.STATIC / f"{run.request.name}.html", self.note(run)
         )
         listing = policy.homepage / self.LISTING
         entries: list[dict[str, str]] = json.loads(listing.read_text()) if listing.is_file() else []
