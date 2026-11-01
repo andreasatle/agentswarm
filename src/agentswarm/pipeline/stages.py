@@ -27,6 +27,7 @@ from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import AuditResult, Choice, DocumentRun
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.catalog import TeamCatalog
+from agentswarm.workspace.view import LevelFolders
 
 
 class Frozen(BaseModel):
@@ -202,6 +203,13 @@ class ProjectStage:
         finally:
             shared.close()
 
+    @staticmethod
+    def level(run: DocumentRun, config: ProjectConfig) -> Path:
+        """The base level's files as a plain folder, copied fresh from the board's repository: the sections
+        live on its branches, and the first real run assembled and audited an empty folder instead."""
+        LevelFolders(run.board / "repo", run.board, config.levels).write()
+        return run.board / "levels" / config.levels.base
+
     def validate(self, path: Path) -> None:
         """Every team and judge the configuration names is one this stage can build."""
         Project.validate(ProjectConfig.load(path), ProjectServices(teams=self._catalog))
@@ -211,7 +219,7 @@ class ProjectStage:
         project = Project.open(config, run.board, ProjectServices(teams=self._catalog))
         try:
             asyncio.run(project.run_until_idle(self.MAX_ROUNDS))
-            level = run.board / "levels" / config.levels.base
+            level = self.level(run, config)
             document = DocumentAssembly.write(level, run.board / "document.md")
             failed = tuple(
                 f"{e.artifact}: {e.reason.splitlines()[-1]}" for e in Escalations(project.board, None).open()
@@ -238,9 +246,7 @@ class ProjectStage:
         project = Project.open(config, run.board, ProjectServices(teams=self._catalog))
         try:
             referee = config.review.referee if config.review is not None else "referee"
-            audit = CitationAudit(
-                run.board / "levels" / config.levels.base, project.worker(referee, "citation-audit")
-            )
+            audit = CitationAudit(self.level(run, config), project.worker(referee, "citation-audit"))
             results = asyncio.run(
                 audit.audit(audit.sample(policy.audit_sample, policy.audit_seed + run.reviews))
             )

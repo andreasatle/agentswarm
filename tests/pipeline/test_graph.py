@@ -73,8 +73,9 @@ class ListingSources(FakeSources):
 class FakeProject:
     """Writes, fails sections as told, and audits with the shares given, one per audit."""
 
-    def __init__(self, ledger: Ledger, shares: list[int], failures: int = 0) -> None:
+    def __init__(self, ledger: Ledger, shares: list[int], failures: int = 0, empty: bool = False) -> None:
         self._ledger = ledger
+        self._empty = empty  # writes leave no sections, as the first real run's assembly did
         self._shares = shares  # fully supported of 20, per audit
         self._failures = failures  # writes that leave a failed section
         self.writes = 0
@@ -85,6 +86,8 @@ class FakeProject:
         self.writes += 1
         self._ledger.usd += 0.25
         failed = ("a-0003: cites no source",) if self.writes <= self._failures else ()
+        if self._empty:
+            return Written(document=None, sections=0, failed=())
         return Written(document=run.folder / "document.md", sections=10, failed=failed)
 
     def settle(self, run: DocumentRun, choice: Choice) -> None:
@@ -93,6 +96,8 @@ class FakeProject:
     def audit(self, run: DocumentRun, policy: Policy) -> AuditResult:
         self._ledger.usd += 0.07
         supported = self._shares.pop(0)
+        if supported < 0:  # no cited statement found
+            return AuditResult(supported=0, partly=0, unsupported=0, unruled=0)
         return AuditResult(supported=supported, partly=20 - supported, unsupported=0, unruled=0)
 
     def review(self, run: DocumentRun, policy: Policy, budget_left: float) -> Written:
@@ -252,3 +257,24 @@ class TestDocumentPipeline:
         assert again.waiting("sleep") is not None
         run = again.answer("sleep", Answer(choice=Choice.YES))
         assert run.stage is Stage.PUBLISHING
+
+    def test_a_writing_that_leaves_no_document_stops_the_run_before_any_check(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16], empty=True)
+        runs = pipeline(project, ledger)
+        runs.start(request(), tmp_path)
+        with pytest.raises(RuntimeError, match="no sections"):
+            runs.answer("sleep", Answer(choice=Choice.YES))
+        failure = runs.failed("sleep")
+        assert failure is not None and "write" in failure and project.reviews == 0
+
+    def test_an_audit_that_finds_no_citations_stops_the_run_instead_of_reviewing(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[-1])  # 0 of 0 counted as 0% once, and a $1.35 review followed
+        runs = pipeline(project, ledger)
+        runs.start(request(), tmp_path)
+        with pytest.raises(RuntimeError, match="no cited statements"):
+            runs.answer("sleep", Answer(choice=Choice.YES))
+        assert project.reviews == 0

@@ -111,6 +111,8 @@ class DocumentPipeline:
         if blocked is not None:
             return blocked
         written = self.apart(self._stages.writing.write, run, self._policy, self.left(run))
+        if written.document is None:
+            raise RuntimeError("the writing left no sections; nothing to check or publish")
         note = f"written: {written.sections} sections" + (
             f", {len(written.failed)} failed" if written.failed else ""
         )
@@ -128,6 +130,8 @@ class DocumentPipeline:
         if blocked is not None:
             return blocked
         result = self.apart(self._stages.checking.audit, run, self._policy)
+        if result.total == 0:
+            raise RuntimeError("the audit found no cited statements; a review would have nothing to go on")
         return {
             "stage": Stage.CHECKING,
             "blocked": None,
@@ -140,6 +144,8 @@ class DocumentPipeline:
         if blocked is not None:
             return blocked
         written = self.apart(self._stages.checking.review, run, self._policy, self.left(run))
+        if written.document is None:
+            raise RuntimeError("the review left no sections; nothing to check or publish")
         note = f"facts review {run.reviews + 1} done" + (
             f"; {len(written.failed)} fixes left unfinished" if written.failed else ""
         )
