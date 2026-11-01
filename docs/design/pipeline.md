@@ -67,4 +67,4 @@ Open-web research (goal 14), software projects through the same command (they ha
 2. A model call inside a stage failed on LangGraph's checkpointer (fixed: stages in a fresh thread), and a crashed run had no way on (fixed: reported, `--choice retry`).
 3. The expected cost ($2.27) was over the budget ($1.50) without saying what that meant (fixed: the plan step by step, and that the run will pause before a step that won't fit).
 4. None of the five sources downloaded (publishers refuse programs): the user fetches them by hand. Approving an empty folder would have crashed the writing; now refused. The real fix is goal 14 (sources a program may fetch) or the picker preferring reliably free copies.
-
+5. The writing stopped at once: the stage was built with no teams ("unknown teams ['writer']"), which the tests' fakes hid (fixed: the standard teams, and a test that checks the writing's and the review's configurations against the teams the stage really has). Nothing was spent.

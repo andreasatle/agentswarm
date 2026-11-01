@@ -10,7 +10,7 @@ from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.page import PageRenderer
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import AuditResult, DocumentRun, RunRequest
-from agentswarm.pipeline.stages import PageStage, Stages
+from agentswarm.pipeline.stages import PageStage, ProjectStage, Stages
 from tests.pipeline.test_graph import FakePage, FakeProject, FakeSources, Ledger
 
 
@@ -54,6 +54,17 @@ class TestPageStage:
         listing = json.loads((homepage / "src/web/tutorials.json").read_text())
         assert [e["href"] for e in listing] == ["/static/agentswarm/sleep.html", "/old"]
         assert listing[0]["title"] == "Sleep and Memory"
+
+
+class TestProjectStage:
+    def test_the_writing_and_the_review_name_only_teams_the_stage_can_build(self, tmp_path: Path) -> None:
+        # the first real run stopped here: the stage was given no teams ("unknown teams ['writer']")
+        folder = run(tmp_path)
+        folder.sources.mkdir(parents=True)
+        (folder.sources / "paper.txt").write_text("Sleep and memory\nA. Author, the text.")
+        stage = ProjectStage(Ledger())
+        stage.validate(stage.config(folder, Policy.load(), 1.0))
+        stage.validate(stage.reviewing(folder, Policy.load(), 1.0))
 
 
 class TestSpentBy:

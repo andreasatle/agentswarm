@@ -144,7 +144,7 @@ class ProjectStage:
 
     def __init__(self, spending: Spending, catalog: TeamCatalog | None = None) -> None:
         self._spending = spending
-        self._catalog = catalog or TeamCatalog()
+        self._catalog = catalog or TeamCatalog.standard()
 
     def config(self, run: DocumentRun, policy: Policy, budget_left: float) -> Path:
         path = run.project / "project.yaml"
@@ -168,6 +168,10 @@ class ProjectStage:
         return self.run(run, self.capped(self.config(run, policy, budget_left), run, budget_left))
 
     def review(self, run: DocumentRun, policy: Policy, budget_left: float) -> Written:
+        return self.run(run, self.capped(self.reviewing(run, policy, budget_left), run, budget_left))
+
+    def reviewing(self, run: DocumentRun, policy: Policy, budget_left: float) -> Path:
+        """The writing's configuration with a facts review added."""
         config: dict[str, Any] = yaml.safe_load(self.config(run, policy, budget_left).read_text())
         config["review"] = {
             "model": "gpt-sol",
@@ -177,7 +181,7 @@ class ProjectStage:
         }
         path = run.project / self.REVIEW
         path.write_text(yaml.safe_dump(config, sort_keys=False))
-        return self.run(run, self.capped(path, run, budget_left))
+        return path
 
     def capped(self, path: Path, run: DocumentRun, budget_left: float) -> Path:
         """The project's own budget set to what the run has left: the project counts its spend per day, so
@@ -197,6 +201,10 @@ class ProjectStage:
             return shared.spent_today_by(Names.project(run))
         finally:
             shared.close()
+
+    def validate(self, path: Path) -> None:
+        """Every team and judge the configuration names is one this stage can build."""
+        Project.validate(ProjectConfig.load(path), ProjectServices(teams=self._catalog))
 
     def run(self, run: DocumentRun, path: Path) -> Written:
         config = ProjectConfig.load(path)
