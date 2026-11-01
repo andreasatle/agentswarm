@@ -164,6 +164,9 @@ class TestCandidate:
         assert reference.venue == "arXiv preprint 2501.12948"
         two = Candidate(id="1", title="T", authors=("Ann Lee", "Bo Kim"), year=2020, abstract="")
         assert two.reference("1").short == "Lee and Kim, 2020"
+        stray = Candidate(id="2", title="T", authors=("Steffen Gais", "Jan Born A"), year=2004, abstract="")
+        assert stray.reference("2").short == "Gais and Born, 2004"  # OpenAlex's "Jan Born A"
+        assert stray.reference("2").authors == "Gais, S., Born, J."
 
     def test_a_file_name_is_readable_plain_and_cut_at_a_word(self) -> None:
         replay = Candidate(
