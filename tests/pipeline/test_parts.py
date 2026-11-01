@@ -83,7 +83,8 @@ class TestDocumentCommands:
             cli.dispatch(["write", "sleep and memory", "--reader", "a curious adult", "--budget", "2"]) == 0
         )
         assert (
-            "WAITING: Approve the sources" in shown[-1] and "agentswarm approve sleep-and-memory" in shown[-1]
+            "WAITING: Approve the sources" in shown[-1]
+            and "uv run agentswarm approve sleep-and-memory" in shown[-1]
         )
         assert (
             cli.dispatch(["runs"]) == 0

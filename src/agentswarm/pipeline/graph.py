@@ -304,7 +304,9 @@ class DocumentPipeline:
             lines.append(f"  page: {run.page}")
         if question is not None:
             lines += ["", f"WAITING: {question.title}", question.details, ""]
-            lines.append("answer: agentswarm approve " + name + " --choice " + "|".join(question.choices))
+            lines.append(
+                "answer: uv run agentswarm approve " + name + " --choice " + "|".join(question.choices)
+            )
         return "\n".join(lines)
 
     def line(self, name: str) -> str:
