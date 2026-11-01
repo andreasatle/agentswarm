@@ -17,6 +17,8 @@ src/agentswarm/
   teams/       the team loop, executors, analyzers, decomposer, document teams, team catalog (§10)
   control/     plain-code controllers: finding router, supervisor, escalations, scheduler, budgets (§14)
   evaluation/  task suites with known answers, evaluation runs, mutation testing
+  pipeline/    one command from topic to published document: the stages, the policy, and the LangGraph graph
+               that orders them and pauses for the user's approvals
   monitor/     text reports and a read-only web page over a board (`agentswarm status`, `monitor`)
   project.py   wires one project together; swarm.py runs several; cli.py is the command line;
                prompts.py collects every prompt and Jev question into docs/PROMPTS.md
@@ -32,7 +34,7 @@ New code goes in the subpackage whose responsibility it shares; a new subpackage
 - **Inject dependencies through constructors.** Swappable parts (deciders, workers, clocks, git) are `Protocol`s with a real implementation and a fake.
 - **Typed end to end.** Pydantic models for data, `StrEnum` for closed sets. No string parsing, no dict indexing with hand-written keys.
 - **Tests are grouped in classes**, one `Test<Subject>` per class under test.
-- **LangChain and LangGraph stay in `agentswarm/llm/`** (`models.py`, `workers.py`). The rest of the code sees only our own interfaces and Pydantic models. Those adapters may relax pyright's `reportUnknown*` rules with a file-level comment; nowhere else.
+- **LangChain and LangGraph stay in `agentswarm/llm/`** (`models.py`, `workers.py`), with one exception: `pipeline/graph.py` builds the document run's LangGraph graph (the user, 2026-11-01: a fixed workflow that pauses for a person, and a learning goal). The rest of the code sees only our own interfaces and Pydantic models. Those files may relax pyright's `reportUnknown*` rules with a file-level comment; nowhere else.
 - **Provider agnostic.** Never hard-code a model provider. Models are chosen in the project config as `"<provider>:<model>"` and built with `init_chat_model`; provider packages are optional extras.
 
 ## Deferred work

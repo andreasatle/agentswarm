@@ -69,6 +69,10 @@ from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
 from agentswarm.monitor.report import HardeningSummary, Report, RunVerdict
 from agentswarm.monitor.server import MonitorServer, Watched
+from agentswarm.pipeline.graph import DocumentPipeline
+from agentswarm.pipeline.policy import Policy
+from agentswarm.pipeline.run import Answer, Choice, RunRequest
+from agentswarm.pipeline.stages import Stages
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.swarm import Swarm, SwarmConfig
@@ -81,6 +85,10 @@ from agentswarm.workspace.view import LevelFolders
 class Cli:
     """The `agentswarm` command line.
 
+        write TOPIC --reader TEXT --budget USD     a document from a topic, pausing for your approvals
+                                                   (sources, publishing); [--source --words --url --files]
+        runs [NAME]                                every document run, or one in full with what it waits for
+        approve NAME [--choice C] [--budget USD]   answer a waiting run (yes, stop, retry, accept, drop...)
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         monitor [CONFIG --root DIR] [--project CONFIG=ROOT]... [--swarm FILE] [--port N]
@@ -131,8 +139,10 @@ class Cli:
         evaluation_services: Callable[[EvalTask], ProjectServices] | None = None,  # None: real models, Jev
         probe_workers: WorkerProvider | None = None,  # None: the probe experiment's real models
         rating_decider: Decider | None = None,  # None: Jev
+        documents: DocumentPipeline | None = None,  # None: the real stages, runs kept in ~/agentswarm-runs
     ) -> None:
         self._rating_decider = rating_decider
+        self._documents = documents
         self._probe_workers = probe_workers
         self._catalog = catalog or TeamCatalog.standard()
         self._show = show
@@ -192,6 +202,12 @@ class Cli:
                 return self.learn(args)
             case "find-papers":
                 return self.find_papers(args)
+            case "write":
+                return self.write_document(args)
+            case "runs":
+                return self.document_runs(args)
+            case "approve":
+                return self.approve_run(args)
             case "audit-citations":
                 return self.audit_citations(args)
             case "questions":
@@ -461,6 +477,76 @@ class Cli:
         if not args.check_brief:
             self._show(f"the tutorial: {root / 'document.md'}")
         return status
+
+    RUNS = Path("~/agentswarm-runs")
+    CHECKPOINTS = "runs.sqlite"  # every document run's state, kept by LangGraph between commands
+
+    def documents(self, policy: Path | None = None) -> DocumentPipeline:
+        if self._documents is not None:
+            return self._documents
+        return DocumentPipeline.open(
+            Stages.real(), Policy.load(policy), self.RUNS.expanduser() / self.CHECKPOINTS
+        )
+
+    def write_document(self, args: argparse.Namespace) -> int:
+        """A document from a topic: sources found, then a pause for the user to approve them."""
+        policy = Policy.load(Path(args.policy) if args.policy else None)
+        name = args.name or RunRequest.slug(args.topic)
+        request = RunRequest(
+            name=name,
+            topic=args.topic,
+            reader=args.reader,
+            budget=args.budget,
+            source=PaperSource(args.source),
+            words=args.words,
+            urls=tuple(args.url),
+            files=tuple(Path(f).expanduser() for f in args.files),
+            goal=args.goal,
+        )
+        words = request.words or policy.words
+        self._show(
+            f"{name}: expected cost about ${policy.expected(words):.2f} (budget ${request.budget:.2f})"
+        )
+        runs = self.documents(Path(args.policy) if args.policy else None)
+        try:
+            runs.start(request, self.RUNS.expanduser() / name)
+            self._show(runs.report(name))
+        except ValueError as error:
+            self._show(str(error))
+            return 2
+        finally:
+            runs.close()
+        return 0
+
+    def document_runs(self, args: argparse.Namespace) -> int:
+        runs = self.documents()
+        try:
+            if args.name:
+                self._show(runs.report(args.name))
+            else:
+                self._show("\n".join(runs.line(n) for n in runs.runs()) or "no document runs yet")
+        except ValueError as error:
+            self._show(str(error))
+            return 2
+        finally:
+            runs.close()
+        return 0
+
+    def approve_run(self, args: argparse.Namespace) -> int:
+        choice = Choice(args.choice)
+        if choice is Choice.BUDGET and args.budget is None:
+            self._show("--choice budget needs --budget USD, the new total")
+            return 2
+        runs = self.documents()
+        try:
+            runs.answer(args.name, Answer(choice=choice, budget=args.budget))
+            self._show(runs.report(args.name))
+        except ValueError as error:
+            self._show(str(error))
+            return 2
+        finally:
+            runs.close()
+        return 0
 
     def find_papers(self, args: argparse.Namespace) -> int:
         """Papers for a topic from arXiv, picked by a model and downloaded, with a reading list to check."""
@@ -849,6 +935,27 @@ class Cli:
         )
         docs.add_argument("--words", type=int, default=3000, help="the document's length cap")
 
+        write = commands.add_parser("write", help="a document from a topic, pausing for your approvals")
+        write.add_argument("topic", help="e.g. 'how sleep affects memory'")
+        write.add_argument("--reader", required=True, help="who it is for and what they know")
+        write.add_argument("--budget", type=float, required=True, help="dollars for the whole run")
+        write.add_argument("--name", help="the run's name (default: from the topic)")
+        write.add_argument(
+            "--source", choices=[s.value for s in PaperSource], default=PaperSource.OPENALEX.value
+        )
+        write.add_argument("--words", type=int, help="the length cap (default: the policy's)")
+        write.add_argument(
+            "--url", action="append", default=[], help="a page to include as it is (repeatable)"
+        )
+        write.add_argument("--files", nargs="+", default=[], help="your own documents instead of a search")
+        write.add_argument("--goal", help="the whole brief in your words, instead of the policy's template")
+        write.add_argument("--policy", help="a policy file instead of agentswarm/pipeline/policy.yaml")
+        runs = commands.add_parser("runs", help="every document run, or one in full")
+        runs.add_argument("name", nargs="?")
+        approve = commands.add_parser("approve", help="answer a waiting document run")
+        approve.add_argument("name")
+        approve.add_argument("--choice", choices=[c.value for c in Choice], default=Choice.YES.value)
+        approve.add_argument("--budget", type=float, help="with --choice budget: the new total")
         find = commands.add_parser("find-papers", help="papers for a topic (OpenAlex or arXiv), for `learn`")
         find.add_argument("topic", help="e.g. 'test-time compute for language model reasoning'")
         find.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")

@@ -162,6 +162,7 @@ review:
         approve: bool = True,  # pause after the brief for the user to read it
         budget: float = 2.0,  # the run's cap in dollars
         folder: str | None = None,  # the project's folder under `out`; default: the audience, or "document"
+        project: str | None = None,  # the project's name (its board and its spend); default: docs-<folder>
     ) -> None:
         self._files = tuple(files)
         self._out = out
@@ -172,6 +173,7 @@ review:
         self._approve = approve
         self._budget = budget
         self._folder = folder
+        self._project = project
 
     class Blank(dict[str, str]):
         def __missing__(self, key: str) -> str:
@@ -255,7 +257,7 @@ review:
                     north_star=goal,
                     config=config,
                     root=Path("~/agentswarm-runs") / f"docs-{folder.name}",
-                    project=f"docs-{folder.name}",
+                    project=self._project or f"docs-{folder.name}",
                     example=next(iter(texts), "name"),
                     words=self._words,
                     approve="true" if self._approve else "false",

@@ -53,6 +53,24 @@ class SharedSpend:
             ).fetchone()
         return float(row[0])
 
+    def spent_today_by(self, project: str) -> float:
+        row = self._db.execute(
+            "SELECT COALESCE(SUM(usd), 0) FROM spend WHERE at >= ? AND project = ?",
+            (self.day_start().isoformat(), project),
+        ).fetchone()
+        return float(row[0])
+
+    def spent_by(self, projects: Iterable[str]) -> float:
+        """Everything these projects ever spent, whatever the day: a run's total across days."""
+        names = sorted(set(projects))
+        if not names:
+            return 0.0
+        marks = ", ".join("?" for _ in names)
+        row = self._db.execute(
+            f"SELECT COALESCE(SUM(usd), 0) FROM spend WHERE project IN ({marks})", names
+        ).fetchone()
+        return float(row[0])
+
     def over(self, accounts: Iterable[str], reserve: float = 0.0) -> str | None:
         """Why no new action may start (a limit would be reached), or None."""
         total = self._limits.usd_per_day

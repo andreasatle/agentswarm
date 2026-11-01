@@ -1,0 +1,22 @@
+# What a document run decides without asking (agentswarm/pipeline/policy.py). Override per run with --policy.
+papers: 5                 # sources the finder picks
+words: 5000               # the document's length cap, unless the run says otherwise
+review_threshold: 0.75    # below this share of fully supported citations, a facts review round runs
+review_rounds: 1          # facts rounds at most (each about $0.18 a section)
+audit_sample: 20          # cited statements checked against their sources after writing
+audit_seed: 1
+homepage: ~/Projects/AgenticFramework   # where `publish` puts the page; deploying stays the user's
+estimates:                # expected costs, from the runs of 2026-10-18/19
+  find: 0.06
+  write_per_1000_words: 0.05
+  audit: 0.08
+  review_per_section: 0.18
+goal: >-
+  A tutorial, not a literature review, on {topic}, for {reader}, from the sources given. Organize it around
+  concepts, principles and the questions the reader must understand, using the sources as evidence rather
+  than as chapters. Introduce each idea before it is used; motivate each equation, define its symbols, and
+  derive the important results where the sources allow; give a concrete example where it helps. Explain why
+  each method or idea works and which limitation of earlier ones it addresses, and keep apart what is
+  proven, what is shown by experiments, and what is the authors' hypothesis. Include a section that compares
+  the main approaches side by side. Prefer understanding to exhaustive numbers. End with a short summary and
+  a few questions the reader can answer to check their understanding.

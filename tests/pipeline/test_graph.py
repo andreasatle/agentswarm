@@ -1,0 +1,171 @@
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from agentswarm.pipeline.graph import DocumentPipeline
+from agentswarm.pipeline.policy import Policy
+from agentswarm.pipeline.run import Answer, AuditResult, Choice, DocumentRun, RunRequest, Stage
+from agentswarm.pipeline.stages import Stages, Written
+
+
+class Ledger:
+    def __init__(self) -> None:
+        self.usd = 0.0
+
+    def spent(self, run: DocumentRun) -> float:
+        return self.usd
+
+
+class FakeSources:
+    def __init__(self, ledger: Ledger) -> None:
+        self._ledger = ledger
+        self.calls = 0
+
+    def find(self, run: DocumentRun, policy: Policy) -> str:
+        self.calls += 1
+        self._ledger.usd += 0.05
+        return "1. A paper"
+
+
+class FakeProject:
+    """Writes, fails sections as told, and audits with the shares given, one per audit."""
+
+    def __init__(self, ledger: Ledger, shares: list[int], failures: int = 0) -> None:
+        self._ledger = ledger
+        self._shares = shares  # fully supported of 20, per audit
+        self._failures = failures  # writes that leave a failed section
+        self.writes = 0
+        self.reviews = 0
+        self.settled: list[Choice] = []
+
+    def write(self, run: DocumentRun, policy: Policy, budget_left: float) -> Written:
+        self.writes += 1
+        self._ledger.usd += 0.25
+        failed = ("a-0003: cites no source",) if self.writes <= self._failures else ()
+        return Written(document=run.folder / "document.md", sections=10, failed=failed)
+
+    def settle(self, run: DocumentRun, choice: Choice) -> None:
+        self.settled.append(choice)
+
+    def audit(self, run: DocumentRun, policy: Policy) -> AuditResult:
+        self._ledger.usd += 0.07
+        supported = self._shares.pop(0)
+        return AuditResult(supported=supported, partly=20 - supported, unsupported=0, unruled=0)
+
+    def review(self, run: DocumentRun, policy: Policy, budget_left: float) -> Written:
+        self.reviews += 1
+        self._ledger.usd += 1.5
+        return Written(document=run.folder / "document.md", sections=10, failed=())
+
+
+class FakePage:
+    def publish(self, run: DocumentRun, policy: Policy) -> Path:
+        return run.folder / "page.html"
+
+
+def pipeline(project: FakeProject, ledger: Ledger, sources: FakeSources | None = None) -> DocumentPipeline:
+    stages = Stages(sources or FakeSources(ledger), project, project, FakePage(), ledger)
+    return DocumentPipeline(stages, Policy.load(), sqlite3.connect(":memory:", check_same_thread=False))
+
+
+def request(budget: float = 3.0) -> RunRequest:
+    return RunRequest(name="sleep", topic="sleep and memory", reader="a curious adult", budget=budget)
+
+
+class TestDocumentPipeline:
+    def test_a_run_pauses_for_the_sources_and_the_publishing_and_reviews_by_the_policy(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[12, 17])  # 60% supported, then 85% after one review
+        runs = pipeline(project, ledger)
+        run = runs.start(request(), tmp_path)
+        assert run.stage is Stage.SOURCES and project.writes == 0  # nothing written before the approval
+        question = runs.waiting("sleep")
+        assert (
+            question is not None
+            and question.title == "Approve the sources"
+            and "1. A paper" in question.details
+        )
+        run = runs.answer("sleep", Answer(choice=Choice.YES))
+        assert run.stage is Stage.PUBLISHING and project.writes == 1 and project.reviews == 1
+        assert [a.supported for a in run.audits] == [12, 17] and run.reviews == 1
+        question = runs.waiting("sleep")
+        assert question is not None and "17 of 20" in question.details
+        run = runs.answer("sleep", Answer(choice=Choice.YES))
+        assert run.stage is Stage.PUBLISHED and run.page == tmp_path / "page.html"
+        assert runs.waiting("sleep") is None and runs.runs() == ["sleep"]
+
+    def test_no_review_when_the_audit_meets_the_threshold(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16])  # 80%
+        runs = pipeline(project, ledger)
+        runs.start(request(), tmp_path)
+        run = runs.answer("sleep", Answer(choice=Choice.YES))
+        assert run.stage is Stage.PUBLISHING and project.reviews == 0
+
+    def test_failed_sections_wait_for_the_users_choice(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16], failures=1)
+        runs = pipeline(project, ledger)
+        runs.start(request(), tmp_path)
+        runs.answer("sleep", Answer(choice=Choice.YES))
+        question = runs.waiting("sleep")
+        assert (
+            question is not None
+            and "cites no source" in question.details
+            and Choice.ACCEPT in question.choices
+        )
+        run = runs.answer("sleep", Answer(choice=Choice.ACCEPT))
+        assert project.settled == [Choice.ACCEPT] and project.writes == 2 and run.stage is Stage.PUBLISHING
+
+    def test_a_stage_the_budget_wont_fit_pauses_until_it_is_raised(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[12, 17])
+        runs = pipeline(project, ledger)
+        runs.start(request(budget=0.6), tmp_path)
+        runs.answer("sleep", Answer(choice=Choice.YES))  # writes and audits (0.37), then the review won't fit
+        question = runs.waiting("sleep")
+        assert (
+            question is not None
+            and question.title == "The budget would run out"
+            and "review" in question.details
+        )
+        assert project.reviews == 0
+        run = runs.answer("sleep", Answer(choice=Choice.BUDGET, budget=3.0))
+        assert run.request.budget == 3.0 and project.reviews == 1 and run.stage is Stage.PUBLISHING
+
+    def test_stop_ends_the_run_where_it_is(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16])
+        runs = pipeline(project, ledger)
+        runs.start(request(), tmp_path)
+        run = runs.answer("sleep", Answer(choice=Choice.STOP))
+        assert run.stage is Stage.STOPPED and project.writes == 0 and runs.waiting("sleep") is None
+
+    def test_a_run_name_is_used_once_and_only_a_waiting_run_takes_an_answer(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        runs = pipeline(FakeProject(ledger, shares=[16]), ledger)
+        runs.start(request(), tmp_path)
+        with pytest.raises(ValueError, match="exists already"):
+            runs.start(request(), tmp_path)
+        runs.answer("sleep", Answer(choice=Choice.STOP))
+        with pytest.raises(ValueError, match="isn't waiting"):
+            runs.answer("sleep", Answer(choice=Choice.YES))
+
+    def test_a_waiting_run_survives_a_restart(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16])
+        path = tmp_path / "runs.sqlite"
+        first = DocumentPipeline.open(
+            Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(), path
+        )
+        first.start(request(), tmp_path)
+        first.close()
+        again = DocumentPipeline.open(
+            Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(), path
+        )
+        assert again.waiting("sleep") is not None
+        run = again.answer("sleep", Answer(choice=Choice.YES))
+        assert run.stage is Stage.PUBLISHING

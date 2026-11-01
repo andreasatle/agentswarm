@@ -1,4 +1,4 @@
-# One command from topic to document (goal 13, draft for the user's approval)
+# One command from topic to document (goal 13)
 
 Written 2026-11-01. The user's goal (COLLABORATION.md goal 13): the decisions about what runs belong in the framework, with a few approvals for the user, not in Claude's judgement during a chat. Today a document takes five commands, hand-picked flags and Claude stepping in: on the Venice guide, three times (sources added, a citation format fixed, a section accepted over its cap).
 
@@ -50,3 +50,13 @@ Open-web research (goal 14), software projects through the same command (they ha
 1. Are the three approvals right (start, sources, publishing), or one more after the outline (today `--check-brief`)?
 2. Should `publish` write into the homepage repository directly, or only produce the page file?
 3. Plain state machine first, or LangGraph from the start (the learning goal)?
+
+## Decisions made during implementation (2026-11-01)
+
+- **LangGraph, thin** (the user's choice after the trade-offs: a fixed workflow that pauses for a person is what it is for, and learning it is a goal). The stages are plain classes in `pipeline/stages.py`, each behind a Protocol, so the graph is tested with fakes; `pipeline/graph.py` only orders them, pauses with `interrupt`, and keeps every run in a SQLite checkpointer (`~/agentswarm-runs/runs.sqlite`, one thread per run). AGENTS.md allows LangGraph there, the one exception to keeping it in `llm/`.
+- **Commands:** `agentswarm write TOPIC --reader ... --budget ...`, `agentswarm runs [NAME]`, `agentswarm approve NAME [--choice ...] [--budget ...]`. Each prints where the run is and the exact command that answers it.
+- **Approvals:** the sources and the publishing (the user's first two questions were not answered yet; three pauses are the default, a fourth after the outline can be added). Failed sections and a stage the budget won't fit pause too, with the choices spelled out.
+- **Publish** writes the page into the homepage repository (`policy.homepage`) and lists it in its `src/web/tutorials.json`, which the site now reads; committing and deploying stay the user's. Without a homepage, the page lands beside the run.
+- **The budget, honestly:** before each paid stage the run's spend so far (every stage, every day, from the machine's ledger under `run-NAME` and `doc-NAME`) plus the stage's expected cost must fit the budget, and the document project's own cap is set to what the run has left. That stops the run between stages and within the writing and reviewing; it is not yet the audit's A03 (admission before every single model call, reserving a worst case), so a stage can still overshoot by its last calls. A03 itself stays the next step for unattended runs.
+- **Settings in one file:** `pipeline/policy.yaml` (papers, words, review threshold 75%, one review round, audit of 20, the homepage, the cost estimates, the brief's template). The estimates come from the runs of 2026-10-18/19.
+
