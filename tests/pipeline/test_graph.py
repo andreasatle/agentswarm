@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from langgraph.graph import END, START, StateGraph
 
+from agentswarm.evaluation.papers import Candidate, Found, ReadingFolder
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, AuditResult, Choice, DocumentRun, RunRequest, Stage
@@ -56,6 +57,17 @@ class FlakySources(FakeSources):
             self.calls += 1
             raise RuntimeError("the provider answered 503")
         return super().find(run, policy)
+
+
+class ListingSources(FakeSources):
+    """Finds one paper it can't download, with its reading list, as the real finder does."""
+
+    def find(self, run: DocumentRun, policy: Policy) -> str:
+        run.sources.mkdir(parents=True, exist_ok=True)
+        gone = Candidate(id="W7", title="Gone", authors=("A. Author",), year=2024, abstract="")
+        folder = ReadingFolder(topic="t", papers=(Found(paper=gone, why="", file=None),))
+        folder.save(run.sources)
+        return folder.render()
 
 
 class FakeProject:
@@ -216,6 +228,14 @@ class TestDocumentPipeline:
         assert project.writes == 0 and runs.waiting("sleep") is not None
         (tmp_path / "sources" / "fetched-by-hand.pdf").write_text("x")
         assert runs.answer("sleep", Answer(choice=Choice.YES)).stage is Stage.PUBLISHING
+
+    def test_the_sources_question_shows_the_folder_as_it_is_now(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        runs = pipeline(FakeProject(ledger, shares=[16]), ledger, ListingSources(ledger))
+        runs.start(request(), tmp_path)
+        assert "**not here yet**" in runs.report("sleep")
+        (tmp_path / "sources" / "fetched.txt").write_text("Gone\nA. Author, the text.")
+        assert "`fetched.txt`" in runs.report("sleep") and "not here yet" not in runs.report("sleep")
 
     def test_a_waiting_run_survives_a_restart(self, tmp_path: Path) -> None:
         ledger = Ledger()

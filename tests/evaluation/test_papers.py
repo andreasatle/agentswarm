@@ -232,6 +232,21 @@ class TestPaperFinder:
         assert [f.paper.id for f in picked.papers] == ["1", "2"]
 
 
+class TestReadingFolder:
+    def test_a_paper_fetched_by_hand_is_known_by_its_doi_or_most_of_its_title(self) -> None:
+        rem = paper("W1", "REM Sleep, Prefrontal Theta, and the Consolidation of Human Emotional Memory")
+        rem = rem.model_copy(update={"page": "https://doi.org/10.1093/cercor/bhn155"})
+        flies = paper("W2", "Sleep and Synaptic Homeostasis: Structural Evidence in Drosophila")
+        folder = ReadingFolder(
+            topic="t", papers=(Found(paper=rem, why="", file=None), Found(paper=flies, why="", file=None))
+        )
+        two_columns = "Cerebral Cortex\nREM Sleep, Prefrontal Theta, and the Masaki Nishida, Jori Pearsall\n"
+        two_columns += "Consolidation of Human Emotional\nMemory Sleep and Neuroimaging Laboratory"
+        assert folder.match("bhn155.pdf", "doi:10.1093/cercor/bhn155\n" + two_columns) == folder.papers[0]
+        assert folder.match("x.pdf", two_columns) == folder.papers[0]  # by its words, without the DOI
+        assert folder.match("y.pdf", "Sleep homeostasis in mice, a review") is None
+
+
 class TestDocumentFiles:
     def test_a_folder_stands_for_its_documents_without_the_reading_list(self, tmp_path: Path) -> None:
         for name in ("b.pdf", "a.pdf", "papers.md", "papers.json", "README.md", ".DS_Store"):

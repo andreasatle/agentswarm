@@ -308,6 +308,15 @@ class DocumentPipeline:
         self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
         return self.run(name)
 
+    @staticmethod
+    def current(run: DocumentRun, details: str) -> str:
+        """The sources question with the reading list as the folder holds it now (papers fetched by hand
+        since the run paused), not as it was found."""
+        listed = DocumentImport.refresh(run.sources) if run.sources.is_dir() else None
+        if listed is None or not run.listing or run.listing not in details:
+            return details
+        return details.replace(run.listing, listed.render())
+
     def failed(self, name: str) -> str | None:
         """Where and why a run stopped on an error (nothing is waiting, yet a step is still to run)."""
         snapshot = self._graph.get_state(self.config(name))
@@ -348,6 +357,8 @@ class DocumentPipeline:
         if failure is not None:
             lines += ["", f"STOPPED BY AN ERROR at {failure[:600]}", ""]
             lines.append(f"retry from that step: uv run agentswarm approve {name} --choice retry")
+        if question is not None and question.title == self.SOURCES_QUESTION:
+            question = question.model_copy(update={"details": self.current(run, question.details)})
         if question is not None:
             lines += ["", f"WAITING: {question.title}", question.details, ""]
             lines.append(

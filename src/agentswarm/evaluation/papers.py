@@ -504,12 +504,35 @@ class ReadingFolder(Frozen):
         (folder / self.LISTING).write_text(self.render())
 
     def match(self, name: str, text: str) -> Found | None:
-        """The paper a file holds: by its name, else by the paper's title on its first page."""
+        """The paper a file holds: by its name; else by its DOI or its title on the first page; else by most
+        of its title's words there (a two-column first page interleaves the title with the authors: Nishida et
+        al. 2009, fetched by hand as bhn155.pdf, 2026-11-01)."""
         named = next((f for f in self.papers if name in (f.file, f.paper.file)), None)
         if named is not None:
             return named
-        opening = self.letters(text[: self.OPENING])
-        return next((f for f in self.papers if self.letters(f.paper.title) in opening), None)
+        start = text[: self.OPENING]
+        opening = self.letters(start)
+        for found in self.papers:
+            doi = self.doi(found.paper.page)
+            if (doi and doi in start.lower()) or self.letters(found.paper.title) in opening:
+                return found
+        words = set(re.findall(r"[a-z0-9]+", start.lower()))
+        scored = [(self.covered(f.paper.title, words), f) for f in self.papers]
+        best = max(scored, key=lambda pair: pair[0], default=(0.0, None))
+        return best[1] if best[0] >= self.COVERED else None
+
+    COVERED: ClassVar[float] = 0.9  # of a title's words found on the first page, for a match by words
+
+    @staticmethod
+    def doi(page: str) -> str:
+        """The DOI in a landing page's address (https://doi.org/10.1093/cercor/bhn155), lower-cased."""
+        found = re.search(r"10\.\d{4,9}/\S+", page)
+        return found.group(0).lower() if found else ""
+
+    @staticmethod
+    def covered(title: str, words: set[str]) -> float:
+        wanted = [w for w in re.findall(r"[a-z0-9]+", title.lower()) if len(w) > 2]
+        return sum(w in words for w in wanted) / len(wanted) if len(wanted) >= 4 else 0.0
 
     def refreshed(self, files: Sequence[tuple[str, str]]) -> "ReadingFolder":
         """With each paper's file as found among (name, text) of the folder's documents."""
