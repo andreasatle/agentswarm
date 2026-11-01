@@ -23,6 +23,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
+from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, Choice, DocumentRun, Question, RunRequest, Stage
 from agentswarm.pipeline.stages import Stages
@@ -32,6 +33,7 @@ type Update = dict[str, Any]
 
 class DocumentPipeline:
     THREADS = "SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id"
+    SOURCES_QUESTION = "Approve the sources"
     # Our types in a saved run, named for the checkpointer's serializer (it warns about, and will refuse,
     # types it wasn't told about)
     SAVED: ClassVar[list[tuple[str, str]]] = [
@@ -173,7 +175,7 @@ class DocumentPipeline:
         rest = self._policy.expected(words) - self._policy.estimates.find
         answer = self.ask(
             Question(
-                title="Approve the sources",
+                title=self.SOURCES_QUESTION,
                 details=f"{run.listing}\nAdd, remove or swap files in {run.sources}, then approve. "
                 f"Spent so far ${spent:.2f} of ${run.request.budget:.2f}; the rest is expected to cost "
                 f"about ${rest:.2f}.",
@@ -298,6 +300,11 @@ class DocumentPipeline:
                 self._graph.invoke(None, self.config(name))  # from the step that failed
                 return self.run(name)
             raise ValueError(f"{name} isn't waiting for an answer")
+        question = self.waiting(name)
+        run = self.run(name)
+        sourcing = question is not None and question.title == self.SOURCES_QUESTION
+        if sourcing and answer.choice is Choice.YES and not DocumentImport.files([run.sources]):
+            raise ValueError(f"no documents in {run.sources} yet: add at least one, then approve")
         self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
         return self.run(name)
 

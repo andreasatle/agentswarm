@@ -29,6 +29,8 @@ class FakeSources:
     def find(self, run: DocumentRun, policy: Policy) -> str:
         self.calls += 1
         self._ledger.usd += 0.05
+        run.sources.mkdir(parents=True, exist_ok=True)
+        (run.sources / "a-paper.txt").write_text("A paper.")
         return "1. A paper"
 
 
@@ -202,6 +204,18 @@ class TestDocumentPipeline:
             runs.answer("sleep", Answer(choice=Choice.YES))  # only a retry restarts it
         run = runs.answer("sleep", Answer(choice=Choice.RETRY))
         assert run.stage is Stage.SOURCES and runs.failed("sleep") is None
+
+    def test_sources_cannot_be_approved_while_the_folder_is_empty(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16])
+        runs = pipeline(project, ledger)
+        runs.start(request(), tmp_path)
+        (tmp_path / "sources" / "a-paper.txt").unlink()  # nothing downloaded, nothing added
+        with pytest.raises(ValueError, match="no documents"):
+            runs.answer("sleep", Answer(choice=Choice.YES))
+        assert project.writes == 0 and runs.waiting("sleep") is not None
+        (tmp_path / "sources" / "fetched-by-hand.pdf").write_text("x")
+        assert runs.answer("sleep", Answer(choice=Choice.YES)).stage is Stage.PUBLISHING
 
     def test_a_waiting_run_survives_a_restart(self, tmp_path: Path) -> None:
         ledger = Ledger()

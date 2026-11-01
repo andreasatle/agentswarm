@@ -60,3 +60,11 @@ Open-web research (goal 14), software projects through the same command (they ha
 - **The budget, honestly:** before each paid stage the run's spend so far (every stage, every day, from the machine's ledger under `run-NAME` and `doc-NAME`) plus the stage's expected cost must fit the budget, and the document project's own cap is set to what the run has left. That stops the run between stages and within the writing and reviewing; it is not yet the audit's A03 (admission before every single model call, reserving a worst case), so a stage can still overshoot by its last calls. A03 itself stays the next step for unattended runs.
 - **Settings in one file:** `pipeline/policy.yaml` (papers, words, review threshold 75%, one review round, audit of 20, the homepage, the cost estimates, the brief's template). The estimates come from the runs of 2026-10-18/19.
 - **Each stage runs in a fresh thread** (the first real run, 2026-11-01): LangGraph hands its configuration to whatever runs inside a node through context variables, so a model call, a LangChain agent and itself a LangGraph graph, took the pipeline's synchronous checkpointer as its own and failed ("SqliteSaver does not support async methods"). A new thread starts with no context; a test runs a graph inside a stage. A run stopped by an error is kept: `runs` says where and why, and `approve NAME --choice retry` restarts it from that step. Our saved types are named to the checkpointer's serializer, which otherwise warns and will refuse them.
+
+## What the user needed on the first real run (2026-11-01), the list goal 13 grows from
+
+1. The commands written with `uv run` (fixed in the printed hints).
+2. A model call inside a stage failed on LangGraph's checkpointer (fixed: stages in a fresh thread), and a crashed run had no way on (fixed: reported, `--choice retry`).
+3. The expected cost ($2.27) was over the budget ($1.50) without saying what that meant (fixed: the plan step by step, and that the run will pause before a step that won't fit).
+4. None of the five sources downloaded (publishers refuse programs): the user fetches them by hand. Approving an empty folder would have crashed the writing; now refused. The real fix is goal 14 (sources a program may fetch) or the picker preferring reliably free copies.
+
