@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% set active = "runs" %}
+{% block main %}
+<div class="heading">
+  <h1>Runs</h1>
+  <p class="muted">Every document run: where it is, what it has cost, and what it waits for.</p>
+</div>
+<div data-refresh="/runs" data-every="4000">
+{% include "_runs.html" %}
+</div>
+{% endblock %}

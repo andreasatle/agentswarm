@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}New run · AgentSwarm studio{% endblock %}
+{% block main %}
+<div class="heading">
+  <h1>New run</h1>
+  <p class="muted">A document on a topic, for a reader, within a budget. Nothing is written until you approve its sources.</p>
+</div>
+{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+<form id="new" class="layout" method="post" action="/new" enctype="multipart/form-data">
+  <section class="card">
+    <label class="field">
+      <span>Topic</span>
+      <input name="topic" required value="{{ values.topic or '' }}" placeholder="how sleep affects memory" autofocus>
+    </label>
+    <label class="field">
+      <span>Reader <small>who it is for, and what they know</small></span>
+      <input name="reader" required value="{{ values.reader or '' }}" placeholder="an educated adult, no biology">
+    </label>
+    <div class="row">
+      <label class="field">
+        <span>Budget <small>dollars, all steps</small></span>
+        <input name="budget" type="number" min="0.1" step="0.1" required value="{{ values.budget or default_budget }}">
+      </label>
+      <label class="field">
+        <span>Length <small>words</small></span>
+        <input name="words" type="number" min="500" step="500" value="{{ values.words or '' }}" placeholder="{{ default_words }}">
+      </label>
+      <label class="field">
+        <span>Sources from</span>
+        <select name="source">
+          {% for s in sources %}<option value="{{ s.value }}"{% if values.source == s.value %} selected{% endif %}>{{ s.value }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label class="field">
+      <span>Name <small>for its folder and page address</small></span>
+      <input name="name" value="{{ values.name or '' }}" pattern="[a-z0-9][a-z0-9\-]{0,59}" placeholder="from the topic" data-slug-of="topic">
+    </label>
+    <details{% if values.urls or values.goal %} open{% endif %}>
+      <summary>Your own sources and brief</summary>
+      <label class="field">
+        <span>Your own documents <small>instead of a search</small></span>
+        <input name="files" type="file" multiple accept=".pdf,.docx,.html,.htm,.txt,.md">
+      </label>
+      <label class="field">
+        <span>Pages to include <small>one link per line</small></span>
+        <textarea name="urls" rows="3" placeholder="https://…">{{ values.urls or '' }}</textarea>
+      </label>
+      <label class="field">
+        <span>The brief in your own words <small>instead of the standard one</small></span>
+        <textarea name="goal" rows="4">{{ values.goal or '' }}</textarea>
+      </label>
+    </details>
+    <div class="actions">
+      <button class="button primary" type="submit">Find sources</button>
+      <a class="button quiet" href="/">Cancel</a>
+    </div>
+  </section>
+  <aside class="card plan" id="plan" data-plan-of="new">
+    {% include "_plan.html" %}
+  </aside>
+</form>
+{% endblock %}

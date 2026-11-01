@@ -1,13 +1,8 @@
-import json
-import threading
-import urllib.request
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
 
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import ArtifactId, AttemptFailed, Scored, Spent, Tally
-from agentswarm.monitor.server import MonitorServer, Watched
 from agentswarm.monitor.state import MonitorState, Status
 from tests.support.harness import Harness
 from tests.support.samples import Samples
@@ -100,35 +95,3 @@ class TestMonitorState:
         detail = w.state().detail(w.merged.id)
         assert detail is not None and any("discarded" in line for _, line in detail.lines)
         assert w.state().detail(ArtifactId("a-0099")) is None
-
-
-class TestMonitorServer:
-    def test_serves_the_page_and_the_state_and_only_reads(self, tmp_path: Path) -> None:
-        w = Demo(tmp_path)
-        before = w.h.log.head()
-        later = CONFIG.model_copy(update={"project": "later"})
-        projects = {
-            "demo": Watched(config=CONFIG, board=tmp_path / "events.sqlite"),
-            "later": Watched(config=later, board=tmp_path / "not-started" / "blackboard.sqlite"),
-        }
-        server = MonitorServer(projects, port=0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with urllib.request.urlopen(server.url) as page:
-                assert b"AgentSwarm monitor" in page.read()
-            with urllib.request.urlopen(server.url + "api/projects") as reply:
-                rows: list[dict[str, Any]] = json.load(reply)
-            assert [(r["project"], r["started"], r["seen"]) for r in rows] == [
-                ("demo", True, 0.4),
-                ("later", False, None),
-            ]
-            with urllib.request.urlopen(server.url + "api/projects/demo/state") as reply:
-                state: dict[str, Any] = json.load(reply)
-            assert state["overview"]["project"] == "demo"
-            with urllib.request.urlopen(f"{server.url}api/projects/demo/artifact/{w.merged.id}") as reply:
-                assert json.load(reply)["id"] == w.merged.id
-        finally:
-            server.shutdown()
-            server.server_close()
-        assert w.h.log.head() == before

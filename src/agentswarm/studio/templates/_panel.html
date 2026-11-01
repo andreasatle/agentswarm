@@ -1,0 +1,125 @@
+<div id="panel"{% if busy %} data-refresh="/runs/{{ name }}/panel" data-replace="outer" data-every="3000"{% endif %}>
+<div class="heading run-heading">
+  <div>
+    <h1>{{ view.run.request.topic if view else name }}</h1>
+    {% if view %}<p class="muted">for {{ view.run.request.reader }}</p>{% endif %}
+  </div>
+  {% if view %}
+  <div class="spend">
+    <span class="meter wide"><i style="width: {{ (share * 100)|round(1) }}%"></i></span>
+    <span><b>{{ view.spent|usd }}</b> <span class="muted">of {{ view.run.request.budget|usd }}</span></span>
+  </div>
+  {% endif %}
+</div>
+
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+
+<div class="layout">
+  <div class="column">
+    {% if busy %}
+    <section class="card now working">
+      <h2><span class="spinner" aria-hidden="true"></span>{{ busy|capitalize }}…</h2>
+      <p>This takes a few minutes. The page follows along; you can close it and come back.</p>
+      {% if board %}
+      <p class="muted">The teams are working on {{ board.working }} step{{ "" if board.working == 1 else "s" }} now{% if board.escalations %}, {{ board.escalations }} escalated{% endif %}.
+        <a href="/board#{{ board.project }}">Watch the board</a></p>
+      {% endif %}
+    </section>
+    {% elif error %}
+    <section class="card now error">
+      <h2>Stopped by an error</h2>
+      <pre class="error-text">{{ error[:1200] }}</pre>
+      <p>Nothing is lost: the run is kept, and trying again starts from the step that failed.</p>
+      <form method="post" action="/runs/{{ name }}/answer" class="actions">
+        <button class="button primary" name="choice" value="retry">Try again</button>
+      </form>
+    </section>
+    {% elif view and view.question %}
+    <section class="card now waiting">
+      <p class="eyebrow">Waiting for you</p>
+      <h2>{{ view.question.title }}</h2>
+      <div class="prose">{{ view.question.details|prose }}</div>
+      {% if sourcing %}
+      <form class="drop" method="post" action="/runs/{{ name }}/files" enctype="multipart/form-data">
+        <input id="drop-input" type="file" name="files" multiple accept=".pdf,.docx,.html,.htm,.txt,.md">
+        <label for="drop-input"><b>Add papers you fetched by hand</b><span>Drop files here or choose them. They keep their names and are matched to the list by their title or DOI.</span></label>
+      </form>
+      {% endif %}
+      <div class="choices">
+        {% for c in view.question.choices %}
+          {% if c.value == "budget" %}
+          <form method="post" action="/runs/{{ name }}/answer" class="inline">
+            <label class="money"><span>$</span><input name="budget" type="number" step="0.05" min="{{ '%.2f'|format(view.spent) }}" value="{{ '%.2f'|format(view.spent + view.run.need + 0.05) }}" aria-label="The new budget"></label>
+            <button class="button primary" name="choice" value="budget">{{ choices[c] }}</button>
+          </form>
+          {% else %}
+          <form method="post" action="/runs/{{ name }}/answer" class="inline">
+            <button class="button {{ 'quiet' if c.value == 'stop' else 'primary' if loop.first else '' }}" name="choice" value="{{ c.value }}"{% if c.value == "stop" %} data-confirm="Stop this run? It can't be resumed."{% endif %}>{{ choices[c] }}</button>
+          </form>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </section>
+    {% elif view and view.run.stage.value == "published" %}
+    <section class="card now done">
+      <h2>The page is written</h2>
+      <p>It is beside the run: <code>{{ view.run.page }}</code>. The homepage changes only when you put it there.</p>
+      <div class="actions">
+        <a class="button" href="/runs/{{ name }}/document" target="_blank" rel="noopener">Read the document</a>
+        <form method="post" action="/runs/{{ name }}/homepage" class="inline">
+          <button class="button primary" data-confirm="Put this page on the homepage? Committing and deploying stay yours.">Put on the homepage</button>
+        </form>
+      </div>
+    </section>
+    {% elif view and view.run.stage.value == "stopped" %}
+    <section class="card now stopped">
+      <h2>Stopped</h2>
+      <p>This run was stopped. Its folder is kept: <code>{{ view.run.folder }}</code>.</p>
+    </section>
+    {% endif %}
+
+    {% if view and view.run.notes %}
+    <section class="card">
+      <h2>What happened</h2>
+      <ol class="timeline">
+        {% for note in view.run.notes %}<li>{{ note }}</li>{% endfor %}
+      </ol>
+    </section>
+    {% endif %}
+  </div>
+
+  {% if view %}
+  <aside class="column">
+    <section class="card">
+      <h2>The run</h2>
+      <dl class="facts">
+        <dt>Stage</dt><dd><span class="pill {{ status }}">{{ stages[view.run.stage] }}</span></dd>
+        <dt>Sources from</dt><dd>{{ "your files" if view.run.request.files else view.run.request.source.value }}</dd>
+        <dt>Length</dt><dd>{{ "{:,}".format(view.run.request.words) ~ " words" if view.run.request.words else "the standard length" }}</dd>
+        {% if view.run.sections %}<dt>Sections</dt><dd>{{ view.run.sections }}</dd>{% endif %}
+        <dt>Fact reviews</dt><dd>{{ view.run.reviews }}</dd>
+        <dt>Folder</dt><dd><code>{{ view.run.folder }}</code></dd>
+      </dl>
+    </section>
+    {% if view.run.audits %}
+    {% set a = view.run.audits[-1] %}
+    <section class="card">
+      <h2>Citations</h2>
+      <p class="big">{{ (a.share * 100)|round|int }}%<span class="muted"> fully supported</span></p>
+      <div class="stack" role="img" aria-label="{{ a.render() }}">
+        <i class="supported" style="flex: {{ a.supported }}"></i><i class="partly" style="flex: {{ a.partly }}"></i><i class="unsupported" style="flex: {{ a.unsupported }}"></i>{% if a.unruled %}<i class="unruled" style="flex: {{ a.unruled }}"></i>{% endif %}
+      </div>
+      <p class="legend"><span class="supported">{{ a.supported }} supported</span><span class="partly">{{ a.partly }} partly</span><span class="unsupported">{{ a.unsupported }} not</span></p>
+      <p class="hint">A sample of {{ a.total }} cited statements, each checked against the page it cites.</p>
+    </section>
+    {% endif %}
+    {% if view.run.document or board %}
+    <section class="card links">
+      {% if view.run.document %}<a class="button" href="/runs/{{ name }}/document" target="_blank" rel="noopener">Read the document</a>{% endif %}
+      {% if board %}<a class="button" href="/board#{{ board.project }}">Its board</a>{% endif %}
+    </section>
+    {% endif %}
+  </aside>
+  {% endif %}
+</div>
+</div>

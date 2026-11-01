@@ -2,6 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "studio",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "agentswarm",
+        "studio"
+      ],
+      "port": 8770
+    },
+    {
       "name": "monitor",
       "runtimeExecutable": "uv",
       "runtimeArgs": [

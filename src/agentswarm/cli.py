@@ -3,7 +3,7 @@
 import argparse
 import asyncio
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 
@@ -67,14 +67,16 @@ from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.llm.catalog import OpenRouterCatalog
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
+from agentswarm.monitor.boards import Watched
 from agentswarm.monitor.report import HardeningSummary, Report, RunVerdict
-from agentswarm.monitor.server import MonitorServer, Watched
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, Choice, RunRequest
 from agentswarm.pipeline.stages import Stages
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
+from agentswarm.studio.app import Studio
+from agentswarm.studio.worker import ThreadWorker
 from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
 from agentswarm.teams.routing import Beliefs, Prior, RoutingLedger
@@ -89,10 +91,12 @@ class Cli:
                                                    (sources, publishing); [--source --words --url --files]
         runs [NAME]                                every document run, or one in full with what it waits for
         approve NAME [--choice C] [--budget USD]   answer a waiting run (yes, stop, retry, accept, drop...)
+        publish NAME                               put an approved run's page on the homepage
+        studio [--port N]                          all of the above as a web page on localhost
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
         monitor [CONFIG --root DIR] [--project CONFIG=ROOT]... [--swarm FILE] [--port N]
-                                                   a read-only web page of one or more projects, on localhost
+                                                   the studio's board view of one or more projects
         status CONFIG --root DIR                   every artifact's history
         evaluate SUITE --workdir DIR [--active P]  run a task suite; record outcomes; print calibration
         routing LEDGER                             what the router has learned: outcomes per model and band
@@ -210,6 +214,8 @@ class Cli:
                 return self.approve_run(args)
             case "publish":
                 return self.publish_run(args)
+            case "studio":
+                return self.open_studio(args)
             case "audit-citations":
                 return self.audit_citations(args)
             case "questions":
@@ -387,14 +393,21 @@ class Cli:
             if config.project in projects:
                 raise SystemExit(f"two projects are called {config.project!r}")
             projects[config.project] = Watched(config=config, board=root.expanduser() / "blackboard.sqlite")
-        server = MonitorServer(projects, port=args.port)
-        self._show(f"monitoring {', '.join(projects)} at {server.url} (Ctrl-C to stop)")
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            server.server_close()
+        studio = self.studio(args.port, projects)
+        self._show(f"the board of {', '.join(projects)} at {studio.url}board (Ctrl-C to stop)")
+        studio.serve()
+        return 0
+
+    def studio(self, port: int, projects: Mapping[str, Watched] | None = None) -> Studio:
+        return Studio(
+            self.documents(), Policy.load(), self.RUNS.expanduser(), ThreadWorker(), projects, port=port
+        )
+
+    def open_studio(self, args: argparse.Namespace) -> int:
+        """Document runs started, followed and answered in a browser; the board view beside them."""
+        studio = self.studio(args.port)
+        self._show(f"the studio at {studio.url} (Ctrl-C to stop)")
+        studio.serve()
         return 0
 
     def import_toml(self, args: argparse.Namespace) -> int:
@@ -898,7 +911,13 @@ class Cli:
             "--project", action="append", default=[], help="another project, as CONFIG=ROOT (repeatable)"
         )
         monitor.add_argument("--swarm", help="a swarm file: every project in it")
-        monitor.add_argument("--port", type=int, default=8765, help="the port on 127.0.0.1 (default 8765)")
+        monitor.add_argument(
+            "--port", type=int, default=Studio.PORT, help=f"on 127.0.0.1 (default {Studio.PORT})"
+        )
+        studio = commands.add_parser("studio", help="document runs as a web page on localhost")
+        studio.add_argument(
+            "--port", type=int, default=Studio.PORT, help=f"on 127.0.0.1 (default {Studio.PORT})"
+        )
         toml = commands.add_parser("import-toml", help="the toml-test suite as a seed project")
         toml.add_argument("suite", help="a checkout of github.com/toml-lang/toml-test")
         toml.add_argument("--out", required=True, help="where the seed and the held-out tests go")

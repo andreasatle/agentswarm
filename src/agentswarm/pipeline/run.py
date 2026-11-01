@@ -122,3 +122,15 @@ class DocumentRun(BaseModel):
     @property
     def board(self) -> Path:
         return self.folder / "board"
+
+
+class RunView(BaseModel):
+    """A run as the user sees it, for the commands and the studio: its state, its cost, what it waits for (the
+    reading list as the folder holds it now), and where an error stopped it."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    run: DocumentRun
+    spent: float
+    question: Question | None = None
+    failure: str | None = None  # "<step>: <error>" when an error stopped it

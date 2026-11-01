@@ -25,7 +25,7 @@ from langgraph.types import Command, interrupt
 
 from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.pipeline.policy import Policy
-from agentswarm.pipeline.run import Answer, Choice, DocumentRun, Question, RunRequest, Stage
+from agentswarm.pipeline.run import Answer, Choice, DocumentRun, Question, RunRequest, RunView, Stage
 from agentswarm.pipeline.stages import Stages
 
 type Update = dict[str, Any]
@@ -315,18 +315,31 @@ class DocumentPipeline:
         )
         return page
 
-    def answer(self, name: str, answer: Answer) -> DocumentRun:
-        if self.waiting(name) is None:
-            if self.failed(name) is not None and answer.choice is Choice.RETRY:
-                self._graph.invoke(None, self.config(name))  # from the step that failed
-                return self.run(name)
-            raise ValueError(f"{name} isn't waiting for an answer")
+    def check(self, name: str, answer: Answer) -> None:
+        """Raises ValueError, saying why, when the run can't take this answer now; needs no model, so the
+        studio answers at once before handing the step to the background."""
+        if not self.exists(name):
+            raise ValueError(f"no run named {name!r}")
         question = self.waiting(name)
+        if question is None:
+            if self.failed(name) is not None and answer.choice is Choice.RETRY:
+                return
+            raise ValueError(f"{name} isn't waiting for an answer")
+        if answer.choice not in question.choices:
+            raise ValueError(f"{name} can't take {answer.choice} now: {', '.join(question.choices)}")
+        if answer.choice is Choice.BUDGET and answer.budget is None:
+            raise ValueError("raising the budget needs the new total")
         run = self.run(name)
-        sourcing = question is not None and question.title == self.SOURCES_QUESTION
+        sourcing = question.title == self.SOURCES_QUESTION
         if sourcing and answer.choice is Choice.YES and not DocumentImport.files([run.sources]):
             raise ValueError(f"no documents in {run.sources} yet: add at least one, then approve")
-        self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
+
+    def answer(self, name: str, answer: Answer) -> DocumentRun:
+        self.check(name, answer)
+        if self.waiting(name) is None:  # a retry of the step that failed
+            self._graph.invoke(None, self.config(name))
+        else:
+            self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
         return self.run(name)
 
     @staticmethod
@@ -362,11 +375,18 @@ class DocumentPipeline:
     def spent(self, name: str) -> float:
         return self._stages.spending.spent(self.run(name))
 
+    def view(self, name: str) -> RunView:
+        run, question = self.run(name), self.waiting(name)
+        if question is not None and question.title == self.SOURCES_QUESTION:
+            question = question.model_copy(update={"details": self.current(run, question.details)})
+        return RunView(run=run, spent=self.spent(name), question=question, failure=self.failed(name))
+
     def report(self, name: str) -> str:
         """The run for the user: where it is, what it cost, what happened, and what it waits for."""
-        run, question = self.run(name), self.waiting(name)
+        view = self.view(name)
+        run, question, failure = view.run, view.question, view.failure
         lines = [
-            f"{name}: {run.stage}, ${self.spent(name):.2f} of ${run.request.budget:.2f} spent",
+            f"{name}: {run.stage}, ${view.spent:.2f} of ${run.request.budget:.2f} spent",
             f"  topic: {run.request.topic}",
             *(f"  - {note}" for note in run.notes),
         ]
@@ -374,12 +394,9 @@ class DocumentPipeline:
             lines.append(f"  document: {run.document}")
         if run.page is not None:
             lines.append(f"  page: {run.page}")
-        failure = self.failed(name)
         if failure is not None:
             lines += ["", f"STOPPED BY AN ERROR at {failure[:600]}", ""]
             lines.append(f"retry from that step: uv run agentswarm approve {name} --choice retry")
-        if question is not None and question.title == self.SOURCES_QUESTION:
-            question = question.model_copy(update={"details": self.current(run, question.details)})
         if question is not None:
             lines += ["", f"WAITING: {question.title}", question.details, ""]
             lines.append(
@@ -389,11 +406,12 @@ class DocumentPipeline:
 
     def line(self, name: str) -> str:
         """One line per run, for `agentswarm runs`."""
-        run, question = self.run(name), self.waiting(name)
-        waits = f", waiting: {question.title.lower()}" if question is not None else ""
-        if self.failed(name) is not None:
+        view = self.view(name)
+        waits = f", waiting: {view.question.title.lower()}" if view.question is not None else ""
+        if view.failure is not None:
             waits = ", stopped by an error (retry it)"
-        return f"{name:<28} {run.stage:<11} ${self.spent(name):.2f} of ${run.request.budget:.2f}{waits}"
+        run = view.run
+        return f"{name:<28} {run.stage:<11} ${view.spent:.2f} of ${run.request.budget:.2f}{waits}"
 
     def exists(self, name: str) -> bool:
         return bool(self._graph.get_state(self.config(name)).values)

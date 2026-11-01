@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ view.run.request.topic if view else name }} · AgentSwarm studio{% endblock %}
+{% block main %}
+<p class="crumbs"><a href="/">Runs</a> / {{ name }}</p>
+{% include "_panel.html" %}
+{% endblock %}

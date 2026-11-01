@@ -1,0 +1,33 @@
+{% if not rows %}
+<section class="card empty">
+  <h2>No runs yet</h2>
+  <p>Start one with a topic, a reader and a budget. The run finds sources and then waits for you to approve them.</p>
+  <a class="button primary" href="/new">New run</a>
+</section>
+{% else %}
+<ul class="runs">
+{% for r in rows %}
+  <li>
+    <a class="run-row" href="/runs/{{ r.name }}">
+      <span class="status-dot {{ r.status }}" aria-hidden="true"></span>
+      <span class="run-main">
+        <b>{{ r.view.run.request.topic if r.view else r.name }}</b>
+        <span class="muted">{{ r.name }}</span>
+      </span>
+      <span class="run-state">
+        {% if r.status == "working" %}<span class="pill working">{{ r.busy or "working" }}</span>
+        {% elif r.status == "error" %}<span class="pill error">stopped by an error</span>
+        {% elif r.status == "waiting" %}<span class="pill waiting">{{ r.view.question.title }}</span>
+        {% elif r.view %}<span class="pill {{ r.status }}">{{ stages[r.view.run.stage] }}</span>{% endif %}
+      </span>
+      <span class="run-cost">
+        {% if r.view %}
+        <span class="meter"><i style="width: {{ (r.share * 100)|round(1) }}%"></i></span>
+        <span class="muted">{{ r.view.spent|usd }} of {{ r.view.run.request.budget|usd }}</span>
+        {% endif %}
+      </span>
+    </a>
+  </li>
+{% endfor %}
+</ul>
+{% endif %}

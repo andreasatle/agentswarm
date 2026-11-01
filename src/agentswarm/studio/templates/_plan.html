@@ -1,0 +1,13 @@
+<h2>Expected cost</h2>
+<ol class="steps">
+{% for label, cost in steps %}
+  <li><span>{{ label }}</span><b>{{ cost|usd }}</b></li>
+{% endfor %}
+</ol>
+<p class="total"><span>About</span><b>{{ expected|usd }}</b></p>
+{% if budget is not none and expected > budget %}
+<p class="hint warn">The budget may not cover every step. The run pauses and asks you before a step that won't fit.</p>
+{% elif budget is not none %}
+<p class="hint">Within the budget of {{ budget|usd }}.</p>
+{% endif %}
+<p class="hint">Estimates from earlier runs, for {{ "{:,}".format(words) }} words. You approve the sources, and the publishing, before either happens.</p>

@@ -19,7 +19,9 @@ src/agentswarm/
   evaluation/  task suites with known answers, evaluation runs, mutation testing
   pipeline/    one command from topic to published document: the stages, the policy, and the LangGraph graph
                that orders them and pauses for the user's approvals
-  monitor/     text reports and a read-only web page over a board (`agentswarm status`, `monitor`)
+  monitor/     text reports and the board view's data, read only (`agentswarm status`, `monitor`)
+  studio/      the web app on localhost (FastAPI): document runs started, followed and answered, and the
+               board view (`agentswarm studio`)
   project.py   wires one project together; swarm.py runs several; cli.py is the command line;
                prompts.py collects every prompt and Jev question into docs/PROMPTS.md
 tests/         mirrors src/agentswarm/; shared helpers live in tests/support/

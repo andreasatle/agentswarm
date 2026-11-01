@@ -3,20 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AgentSwarm monitor</title>
+<title>AgentSwarm board</title>
+<link rel="stylesheet" href="/static/studio.css">
 <style>
-  :root {
-    --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b70; --line: #e3e3e0;
-    --seen: #2f6fdb; --held: #c2410c; --done: #15803d; --merged: #65a30d; --working: #2f6fdb;
-    --split: #7c3aed; --escalated: #dc2626; --dropped: #9ca3af; --waiting: #a16207; --queued: #6b7280;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #141416; --panel: #1d1d20; --ink: #ececee; --muted: #9a9aa2; --line: #2e2e33;
-      --seen: #6ea1ff; --held: #fb923c; --done: #4ade80; --merged: #a3e635; --working: #6ea1ff;
-      --split: #a78bfa; --escalated: #f87171; --dropped: #6b7280; --waiting: #facc15; --queued: #9ca3af;
-    }
-  }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
@@ -69,7 +58,7 @@
 </head>
 <body>
 <header>
-  <nav id="nav"><a href="#" id="all">All projects</a></nav>
+  <nav id="nav"><a href="/">Runs</a> · <a href="#" id="all">All boards</a></nav>
   <h1 id="title">AgentSwarm</h1>
   <p id="star"></p>
 </header>
@@ -132,7 +121,7 @@ for (const s of STATES) $("status").insertAdjacentHTML("beforeend", `<option>${s
 
 function render(state) {
   const o = state.overview;
-  document.title = `${o.project}: AgentSwarm monitor`;
+  document.title = `${o.project}: AgentSwarm board`;
   $("title").textContent = o.project + (o.paused ? " (paused)" : "");
   $("star").textContent = o.north_star;
   const p = o.progress.at(-1) || {};
@@ -218,7 +207,7 @@ $("expand").onclick = () => { collapsed.clear(); last && tree(last.nodes); };
 $("collapse").onclick = () => { last && last.nodes.forEach((n) => collapsed.add(n.id)); last && tree(last.nodes); };
 
 function list() {
-  document.title = "AgentSwarm monitor";
+  document.title = "AgentSwarm board";
   $("title").textContent = "AgentSwarm";
   $("star").textContent = `${projects.length} projects`;
   $("projects").innerHTML = `<tr><th>Project</th><th class="num">Seen</th><th class="num">Held out</th><th class="num">Spent today</th><th class="num">Working</th><th class="num">Escalations</th><th>Last event</th></tr>` +
@@ -261,7 +250,7 @@ async function poll(now) {
         if (state.overview.head !== head) { head = state.overview.head; if (opened) detail(opened); }
       }
     }
-  } catch (err) { $("star").textContent = "can't reach the monitor: " + err; }
+  } catch (err) { $("star").textContent = "can't reach the studio: " + err; }
   timer = setTimeout(poll, 3000);
 }
 poll();
