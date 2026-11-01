@@ -173,7 +173,10 @@ class TestCandidate:
             year=1999,
             abstract="",
         )
-        assert replay.file == "nadasdy-1999-replay-and-time-compression-of-recurring-spike-sequences.pdf"
+        assert (
+            replay.download_name
+            == "nadasdy-1999-replay-and-time-compression-of-recurring-spike-sequences.pdf"
+        )
 
 
 class TestPaperFinder:
@@ -183,7 +186,7 @@ class TestPaperFinder:
         picked = await found.find("test-time compute", "ML", 5, tmp_path)
         assert [c.id for c in asked[0].candidates] == ["1", "2", "3"]
         assert [f.paper.id for f in picked.papers] == ["3", "1"]  # in the picker's order
-        assert search.downloaded == ["3", "1"] and (tmp_path / paper("3").file).is_file()
+        assert search.downloaded == ["3", "1"] and (tmp_path / paper("3").download_name).is_file()
         assert ReadingFolder.load(tmp_path) == picked
 
     async def test_known_titles_come_first_and_only_when_found(self, tmp_path: Path) -> None:
@@ -245,6 +248,8 @@ class TestReadingFolder:
         assert folder.match("bhn155.pdf", "doi:10.1093/cercor/bhn155\n" + two_columns) == folder.papers[0]
         assert folder.match("x.pdf", two_columns) == folder.papers[0]  # by its words, without the DOI
         assert folder.match("y.pdf", "Sleep homeostasis in mice, a review") is None
+        planned = rem.download_name  # a name the finder would have given it, on some other document
+        assert folder.match(planned, "An unrelated document") is None
 
 
 class TestDocumentFiles:
@@ -301,7 +306,7 @@ class TestWikipediaSearch:
         murano, torcello = Answering().search("venice islands", 5)
         assert (murano.title, torcello.title) == ("Murano", "Torcello")
         assert murano.abstract == "Murano is a series of islands." and murano.year == 2026
-        assert murano.file == "wikipedia-murano.txt"
+        assert murano.download_name == "wikipedia-murano.txt"
         reference = murano.reference("wikipedia-murano")
         assert (
             reference.short == "Wikipedia: Murano" and reference.url == "https://en.wikipedia.org/wiki/Murano"
@@ -326,5 +331,5 @@ class TestWebPage:
 
         page, data = Answering().record("https://whc.unesco.org/en/list/394/", 2026)
         assert page.title == "Venice and its Lagoon - UNESCO World Heritage" and data.startswith(b"<html>")
-        assert page.site == "whc.unesco.org" and page.file.endswith(".html")
+        assert page.site == "whc.unesco.org" and page.download_name.endswith(".html")
         assert page.reference("x").url == "https://whc.unesco.org/en/list/394/"

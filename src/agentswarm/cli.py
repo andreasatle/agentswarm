@@ -599,8 +599,10 @@ class Cli:
             except OSError as error:
                 self._show(f"can't fetch {url}: {error}")
                 continue
-            (out / page.file).write_bytes(data)
-            named.append(Found(paper=page, why="Named by the user as a starting source.", file=page.file))
+            (out / page.download_name).write_bytes(data)
+            named.append(
+                Found(paper=page, why="Named by the user as a starting source.", file=page.download_name)
+            )
         if named:
             found = found.model_copy(update={"papers": (*found.papers, *named)})
             found.save(out)

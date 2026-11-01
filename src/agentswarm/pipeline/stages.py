@@ -125,8 +125,10 @@ class SourceStage:
                 page, data = WebPage().record(url, date.today().year)
             except OSError:
                 continue
-            (run.sources / page.file).write_bytes(data)
-            named.append(Found(paper=page, why="Named by the user as a starting source.", file=page.file))
+            (run.sources / page.download_name).write_bytes(data)
+            named.append(
+                Found(paper=page, why="Named by the user as a starting source.", file=page.download_name)
+            )
         if named:
             found = found.model_copy(update={"papers": (*found.papers, *named)})
             found.save(run.sources)

@@ -2214,9 +2214,10 @@ class Candidate(Frozen):
     NAME: ClassVar[int] = 70  # characters of a file name, about
 
     @property
-    def file(self) -> str:
-        """Its PDF's name, readable: stickgold-2005-sleep-dependent-memory-consolidation.pdf (the user,
-        2026-10-18, on names like W2086162146.pdf)."""
+    def download_name(self) -> str:
+        """The name a file gets when this program downloads it, readable (stickgold-2005-sleep-dependent-
+        memory-consolidation.pdf). Only for files the program writes itself: a name is never shown or
+        matched before its file exists (the user, 2026-11-01: made-up names lead to broken links)."""
         first = self.site or (self.surname(self.authors[0]) if self.authors else "anonymous")
         named = f"{first} {self.title}" if self.site else f"{first} {self.year} {self.title}"
         plain = unicodedata.normalize("NFKD", named).encode("ascii", "ignore")

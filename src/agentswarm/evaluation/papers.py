@@ -51,9 +51,10 @@ class Candidate(Frozen):
     NAME: ClassVar[int] = 70  # characters of a file name, about
 
     @property
-    def file(self) -> str:
-        """Its PDF's name, readable: stickgold-2005-sleep-dependent-memory-consolidation.pdf (the user,
-        2026-10-18, on names like W2086162146.pdf)."""
+    def download_name(self) -> str:
+        """The name a file gets when this program downloads it, readable (stickgold-2005-sleep-dependent-
+        memory-consolidation.pdf). Only for files the program writes itself: a name is never shown or
+        matched before its file exists (the user, 2026-11-01: made-up names lead to broken links)."""
         first = self.site or (self.surname(self.authors[0]) if self.authors else "anonymous")
         named = f"{first} {self.title}" if self.site else f"{first} {self.year} {self.title}"
         plain = unicodedata.normalize("NFKD", named).encode("ascii", "ignore")
@@ -507,7 +508,7 @@ class ReadingFolder(Frozen):
         """The paper a file holds: by its name; else by its DOI or its title on the first page; else by most
         of its title's words there (a two-column first page interleaves the title with the authors: Nishida et
         al. 2009, fetched by hand as bhn155.pdf, 2026-11-01)."""
-        named = next((f for f in self.papers if name in (f.file, f.paper.file)), None)
+        named = next((f for f in self.papers if f.file is not None and name == f.file), None)
         if named is not None:
             return named
         start = text[: self.OPENING]
@@ -647,11 +648,11 @@ in one sentence what each adds."""
         done: list[Found] = []
         for found in picked:
             try:
-                await asyncio.to_thread(self._search.download, found.paper, out / found.paper.file)
+                await asyncio.to_thread(self._search.download, found.paper, out / found.paper.download_name)
             except OSError:
                 done.append(found)  # the user fetches it by hand
                 continue
-            done.append(found.model_copy(update={"file": found.paper.file}))
+            done.append(found.model_copy(update={"file": found.paper.download_name}))
         folder = ReadingFolder(topic=topic, papers=tuple(done))
         folder.save(out)
         return folder
