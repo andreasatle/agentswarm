@@ -504,16 +504,24 @@ class Cli:
             goal=args.goal,
         )
         words = request.words or policy.words
-        self._show(
-            f"{name}: expected cost about ${policy.expected(words):.2f} (budget ${request.budget:.2f})"
-        )
+        expected = policy.expected(words)
+        self._show(f"{name}: expected {policy.plan(words)}")
+        self._show(f"  about ${expected:.2f} in all; budget ${request.budget:.2f}")
+        if expected > request.budget:
+            self._show(
+                "  the budget may not cover every step: the run pauses and asks before one that won't fit"
+            )
         runs = self.documents(Path(args.policy) if args.policy else None)
         try:
             runs.start(request, self.RUNS.expanduser() / name)
-            self._show(runs.report(name))
         except ValueError as error:
             self._show(str(error))
+            runs.close()
             return 2
+        except Exception:  # a step failed: the run is kept, and its report says where and how to retry
+            pass
+        try:
+            self._show(runs.report(name))
         finally:
             runs.close()
         return 0
@@ -540,10 +548,14 @@ class Cli:
         runs = self.documents()
         try:
             runs.answer(args.name, Answer(choice=choice, budget=args.budget))
-            self._show(runs.report(args.name))
         except ValueError as error:
             self._show(str(error))
+            runs.close()
             return 2
+        except Exception:  # a step failed: the run is kept, and its report says where and how to retry
+            pass
+        try:
+            self._show(runs.report(args.name))
         finally:
             runs.close()
         return 0

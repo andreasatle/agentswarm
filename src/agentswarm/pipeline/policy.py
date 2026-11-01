@@ -52,6 +52,15 @@ class Policy(BaseModel):
     def brief(self, topic: str, reader: str) -> str:
         return self.goal.format(topic=topic, reader=reader)
 
+    def plan(self, words: int, sections: int = 10) -> str:
+        """The run's expected costs, step by step, for the user before it starts."""
+        e = self.estimates
+        review = e.review(sections) + e.audit
+        return (
+            f"sources ${e.find:.2f}, writing ${e.write(words):.2f}, citation audit ${e.audit:.2f}; "
+            f"if fewer than {self.review_threshold:.0%} of citations hold up, a fact review ${review:.2f}"
+        )
+
     def expected(self, words: int, sections: int = 10) -> float:
         """The whole run's expected cost: sources, writing, an audit, and each allowed review with its
         audit."""

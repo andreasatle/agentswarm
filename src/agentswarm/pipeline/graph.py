@@ -13,9 +13,12 @@ stage that wouldn't fit pauses the run for the user to raise the budget or stop.
 """
 
 import sqlite3
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
@@ -29,12 +32,24 @@ type Update = dict[str, Any]
 
 class DocumentPipeline:
     THREADS = "SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id"
+    # Our types in a saved run, named for the checkpointer's serializer (it warns about, and will refuse,
+    # types it wasn't told about)
+    SAVED: ClassVar[list[tuple[str, str]]] = [
+        ("agentswarm.evaluation.papers", "PaperSource"),
+        *(
+            (
+                "agentswarm.pipeline.run",
+                name,
+            )
+            for name in ("RunRequest", "Stage", "Choice", "Answer", "AuditResult", "DocumentRun", "Question")
+        ),
+    ]
 
     def __init__(self, stages: Stages, policy: Policy, checkpoints: sqlite3.Connection) -> None:
         self._stages = stages
         self._policy = policy
         self._db = checkpoints
-        self._saver = SqliteSaver(checkpoints)
+        self._saver = SqliteSaver(checkpoints, serde=JsonPlusSerializer(allowed_msgpack_modules=self.SAVED))
         self._graph = self.build().compile(checkpointer=self._saver)
 
     @classmethod
@@ -80,7 +95,7 @@ class DocumentPipeline:
         blocked = self.over(run, self._policy.estimates.find, "find")
         if blocked is not None:
             return blocked
-        listing = self._stages.sources.find(run, self._policy)
+        listing = self.apart(self._stages.sources.find, run, self._policy)
         return {
             "stage": Stage.SOURCES,
             "blocked": None,
@@ -93,7 +108,7 @@ class DocumentPipeline:
         blocked = self.over(run, self._policy.estimates.write(words), "write")
         if blocked is not None:
             return blocked
-        written = self._stages.writing.write(run, self._policy, self.left(run))
+        written = self.apart(self._stages.writing.write, run, self._policy, self.left(run))
         note = f"written: {written.sections} sections" + (
             f", {len(written.failed)} failed" if written.failed else ""
         )
@@ -110,7 +125,7 @@ class DocumentPipeline:
         blocked = self.over(run, self._policy.estimates.audit, "audit")
         if blocked is not None:
             return blocked
-        result = self._stages.checking.audit(run, self._policy)
+        result = self.apart(self._stages.checking.audit, run, self._policy)
         return {
             "stage": Stage.CHECKING,
             "blocked": None,
@@ -122,7 +137,7 @@ class DocumentPipeline:
         blocked = self.over(run, self._policy.estimates.review(run.sections), "review")
         if blocked is not None:
             return blocked
-        written = self._stages.checking.review(run, self._policy, self.left(run))
+        written = self.apart(self._stages.checking.review, run, self._policy, self.left(run))
         note = f"facts review {run.reviews + 1} done" + (
             f"; {len(written.failed)} fixes left unfinished" if written.failed else ""
         )
@@ -138,8 +153,17 @@ class DocumentPipeline:
         return {"stage": Stage.PUBLISHING}
 
     def publish(self, run: DocumentRun) -> Update:
-        page = self._stages.publishing.publish(run, self._policy)
+        page = self.apart(self._stages.publishing.publish, run, self._policy)
         return {"stage": Stage.PUBLISHED, "page": page, "notes": (*run.notes, f"published: {page}")}
+
+    @staticmethod
+    def apart[**P, T](work: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+        """Runs a stage in a fresh thread, outside the graph's context: LangGraph hands its configuration to
+        whatever runs inside a node through context variables, and a model call (a LangChain agent, itself a
+        LangGraph graph) then took the pipeline's checkpointer as its own and failed (2026-11-01, the first
+        real run: "SqliteSaver does not support async methods"). A new thread starts with no context."""
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(work, *args, **kwargs).result()
 
     # Pauses for the user
 
@@ -168,7 +192,7 @@ class DocumentPipeline:
             )
         )
         if answer.choice in (Choice.RETRY, Choice.ACCEPT, Choice.DROP):
-            self._stages.writing.settle(run, answer.choice)
+            self.apart(self._stages.writing.settle, run, answer.choice)
         return self.answered(run, answer)
 
     def approve_publishing(self, run: DocumentRun) -> Update:
@@ -270,9 +294,20 @@ class DocumentPipeline:
 
     def answer(self, name: str, answer: Answer) -> DocumentRun:
         if self.waiting(name) is None:
+            if self.failed(name) is not None and answer.choice is Choice.RETRY:
+                self._graph.invoke(None, self.config(name))  # from the step that failed
+                return self.run(name)
             raise ValueError(f"{name} isn't waiting for an answer")
         self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
         return self.run(name)
+
+    def failed(self, name: str) -> str | None:
+        """Where and why a run stopped on an error (nothing is waiting, yet a step is still to run)."""
+        snapshot = self._graph.get_state(self.config(name))
+        if not snapshot.next or any(task.interrupts for task in snapshot.tasks):
+            return None
+        errors = [f"{task.name}: {task.error}" for task in snapshot.tasks if task.error]
+        return errors[0] if errors else f"{snapshot.next[0]}: stopped before it finished"
 
     def run(self, name: str) -> DocumentRun:
         snapshot = self._graph.get_state(self.config(name))
@@ -302,6 +337,10 @@ class DocumentPipeline:
             lines.append(f"  document: {run.document}")
         if run.page is not None:
             lines.append(f"  page: {run.page}")
+        failure = self.failed(name)
+        if failure is not None:
+            lines += ["", f"STOPPED BY AN ERROR at {failure[:600]}", ""]
+            lines.append(f"retry from that step: uv run agentswarm approve {name} --choice retry")
         if question is not None:
             lines += ["", f"WAITING: {question.title}", question.details, ""]
             lines.append(
@@ -313,6 +352,8 @@ class DocumentPipeline:
         """One line per run, for `agentswarm runs`."""
         run, question = self.run(name), self.waiting(name)
         waits = f", waiting: {question.title.lower()}" if question is not None else ""
+        if self.failed(name) is not None:
+            waits = ", stopped by an error (retry it)"
         return f"{name:<28} {run.stage:<11} ${self.spent(name):.2f} of ${run.request.budget:.2f}{waits}"
 
     def exists(self, name: str) -> bool:

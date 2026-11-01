@@ -1,7 +1,11 @@
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportMissingTypeStubs=false
+# pyright: reportArgumentType=false
+import asyncio
 import sqlite3
 from pathlib import Path
 
 import pytest
+from langgraph.graph import END, START, StateGraph
 
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
@@ -26,6 +30,30 @@ class FakeSources:
         self.calls += 1
         self._ledger.usd += 0.05
         return "1. A paper"
+
+
+class NestedSources(FakeSources):
+    """Runs a LangGraph graph of its own, asynchronously, as a model call does (a LangChain agent runs on
+    LangGraph): the first real run failed there, its agent borrowing the pipeline's checkpointer."""
+
+    def find(self, run: DocumentRun, policy: Policy) -> str:
+        graph = StateGraph(dict[str, int])
+        graph.add_node("one", lambda state: {"n": 1})
+        graph.add_edge(START, "one")
+        graph.add_edge("one", END)
+        result = asyncio.run(graph.compile().ainvoke({"n": 0}))
+        assert result == {"n": 1}
+        return super().find(run, policy)
+
+
+class FlakySources(FakeSources):
+    """Fails the first time, as a provider outage or a bug would."""
+
+    def find(self, run: DocumentRun, policy: Policy) -> str:
+        if self.calls == 0:
+            self.calls += 1
+            raise RuntimeError("the provider answered 503")
+        return super().find(run, policy)
 
 
 class FakeProject:
@@ -153,6 +181,27 @@ class TestDocumentPipeline:
         runs.answer("sleep", Answer(choice=Choice.STOP))
         with pytest.raises(ValueError, match="isn't waiting"):
             runs.answer("sleep", Answer(choice=Choice.YES))
+
+    def test_a_stage_may_run_langgraph_itself(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16])
+        runs = pipeline(project, ledger, NestedSources(ledger))
+        run = runs.start(request(), tmp_path)
+        assert run.stage is Stage.SOURCES
+
+    def test_a_run_stopped_by_an_error_says_so_and_retries_from_that_step(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[16])
+        runs = pipeline(project, ledger, FlakySources(ledger))
+        with pytest.raises(RuntimeError):
+            runs.start(request(), tmp_path)
+        failure = runs.failed("sleep")
+        assert failure is not None and "find" in failure and "503" in failure
+        assert "STOPPED BY AN ERROR" in runs.report("sleep") and "--choice retry" in runs.report("sleep")
+        with pytest.raises(ValueError, match="isn't waiting"):
+            runs.answer("sleep", Answer(choice=Choice.YES))  # only a retry restarts it
+        run = runs.answer("sleep", Answer(choice=Choice.RETRY))
+        assert run.stage is Stage.SOURCES and runs.failed("sleep") is None
 
     def test_a_waiting_run_survives_a_restart(self, tmp_path: Path) -> None:
         ledger = Ledger()
