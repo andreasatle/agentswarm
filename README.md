@@ -2,6 +2,8 @@
 
 Independent teams of agents (an executor, an integration tester, a red team, a planner, ...) move work up a ladder of maturity levels, from a branch per task to production, through gates. Teams never call each other: each watches one level of a shared, append-only blackboard and reacts to its state, so there is nothing to deadlock. **Language models produce, Jev decides, plain code controls**, and every one of Jev's decisions is logged and scored against what turned out to be true.
 
+**Shipping:** this repository runs on this Mac and is never deployed; `git push` only puts the code on GitHub. The homepage (atle.dev) is a separate repository, `~/Projects/AgenticFramework`, put live with `scripts/deploy.sh` there; pushing AgentSwarm doesn't change it, and its deploy doesn't need AgentSwarm pushed (it only notes unpushed commits, since the homepage links here).
+
 - [docs/OVERVIEW.md](docs/OVERVIEW.md): the broad picture: the parts, a run from start to finish, how agents get their instructions.
 - [tutorial/](tutorial/): the system one layer at a time, with a script to run for every step.
 - [docs/REFERENCE.md](docs/REFERENCE.md): every config key, event, team, judge, report and command.
