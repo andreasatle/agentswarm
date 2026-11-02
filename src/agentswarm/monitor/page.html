@@ -179,6 +179,8 @@ function tree(nodes) {
       <span class="meta">${esc(n.status)}${n.team ? " · " + esc(n.team) : ""}${n.last_model ? " · " + esc(n.last_model) : ""}${n.attempts ? " · " + n.attempts + " tries" : ""}${n.spent_usd ? " · " + usd(n.spent_usd) : ""}</span></div>
       ${children.length && open ? `<ul class="tree">${children.map(item).join("")}</ul>` : ""}</li>`;
   };
+  const nested = nodes.some((n) => n.parent && byId.has(n.parent));  // a flat plan has nothing to fold
+  $("expand").hidden = $("collapse").hidden = !nested;
   const roots = nodes.filter((n) => !n.parent || !byId.has(n.parent)).filter(visible);
   $("tree").innerHTML = roots.map(item).join("") || '<li class="muted">nothing matches</li>';
 }
