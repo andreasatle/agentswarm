@@ -201,7 +201,7 @@ class MonitorState:
         )
         levels = Counter(a.level for a in views.artifacts() if not views.is_umbrella(a.id))
         escalations = [f"{e.artifact}: {e.reason}" for e in views.open_escalations() if e.artifact]
-        escalations += [f"project: {e.reason}" for e in views.project_escalations()[-3:]]
+        escalations += [f"project, {notice}" for notice in views.project_notices(3)]
         return Overview(
             project=self._config.project,
             north_star=self._config.north_star,

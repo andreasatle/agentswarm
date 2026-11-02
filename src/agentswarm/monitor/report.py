@@ -158,7 +158,7 @@ class Report:
         billed = views.billed()
         split = f"${billed:.2f} billed by providers, ${usd - billed:.2f} estimated from prices"
         header = [f"spent: ${usd:.2f} ({split})" + (f"; {unpriced} unpriced model runs" if unpriced else "")]
-        header += [f"ESCALATED (project): {e.reason}" for e in views.project_escalations()[-5:]]
+        header += [f"ESCALATED (project), {notice}" for notice in views.project_notices(5)]
         header += ["PAUSED"] if views.paused else []
         header += [cls.line(views.scores()[-1])] if views.scores() else []
         blocks: list[str] = ["\n".join(header)]
@@ -226,5 +226,5 @@ class RunVerdict:
         lines = [verdict]
         if waiting:
             lines.append(f"  {len(waiting)} waiting for a person: agentswarm escalations")
-        lines += [f"  notice: {e.reason}" for e in views.project_escalations()[-3:]]
+        lines += [f"  notice, {notice}" for notice in views.project_notices(3)]
         return "\n".join(lines)

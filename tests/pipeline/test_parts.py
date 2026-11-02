@@ -1,4 +1,3 @@
-import json
 import sqlite3
 from pathlib import Path
 
@@ -43,19 +42,10 @@ class TestPolicy:
 
 
 class TestPageStage:
-    def test_a_page_goes_beside_the_run_and_onto_the_homepage_only_when_asked(self, tmp_path: Path) -> None:
-        homepage = tmp_path / "site"
-        (homepage / "src/web").mkdir(parents=True)
-        (homepage / "src/web/tutorials.json").write_text(json.dumps([{"href": "/old", "title": "Old"}]))
-        policy = Policy.load().model_copy(update={"homepage": homepage})
-        assert PageStage().publish(run(tmp_path), policy) == tmp_path / "page.html"
-        assert (homepage / "src/web/tutorials.json").read_text().count("href") == 1  # untouched
-        page = PageStage().homepage(run(tmp_path), policy)
-        assert page == homepage / "src/web/static/agentswarm/sleep.html"
+    def test_the_page_goes_beside_the_run(self, tmp_path: Path) -> None:
+        page = PageStage().publish(run(tmp_path), Policy.load())
+        assert page == tmp_path / "page.html"
         assert "80% of cited statements fully supported" in page.read_text()
-        listing = json.loads((homepage / "src/web/tutorials.json").read_text())
-        assert [e["href"] for e in listing] == ["/static/agentswarm/sleep.html", "/old"]
-        assert listing[0]["title"] == "Sleep and Memory"
 
 
 class TestProjectStage:
@@ -108,6 +98,4 @@ class TestDocumentCommands:
             cli.dispatch(["approve", "sleep-and-memory"]) == 0 and "WAITING: Approve publishing" in shown[-1]
         )
         assert cli.dispatch(["approve", "sleep-and-memory", "--choice", "budget"]) == 2  # needs --budget
-        assert cli.dispatch(["publish", "sleep-and-memory"]) == 2 and "isn't approved" in shown[-1]
-        assert cli.dispatch(["approve", "sleep-and-memory"]) == 0
-        assert cli.dispatch(["publish", "sleep-and-memory"]) == 0 and "on the homepage" in shown[-1]
+        assert cli.dispatch(["approve", "sleep-and-memory"]) == 0 and "page written" in shown[-1]

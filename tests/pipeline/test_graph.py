@@ -107,15 +107,8 @@ class FakeProject:
 
 
 class FakePage:
-    def __init__(self) -> None:
-        self.homepages = 0
-
     def publish(self, run: DocumentRun, policy: Policy) -> Path:
         return run.folder / "page.html"
-
-    def homepage(self, run: DocumentRun, policy: Policy) -> Path:
-        self.homepages += 1
-        return run.folder / "site" / "page.html"
 
 
 def pipeline(project: FakeProject, ledger: Ledger, sources: FakeSources | None = None) -> DocumentPipeline:
@@ -150,24 +143,6 @@ class TestDocumentPipeline:
         run = runs.answer("sleep", Answer(choice=Choice.YES))
         assert run.stage is Stage.PUBLISHED and run.page == tmp_path / "page.html"
         assert runs.waiting("sleep") is None and runs.runs() == ["sleep"]
-
-    def test_the_homepage_changes_only_when_the_user_says_so(self, tmp_path: Path) -> None:
-        ledger = Ledger()
-        page = FakePage()
-        project = FakeProject(ledger, shares=[16])
-        runs = DocumentPipeline(
-            Stages(FakeSources(ledger), project, project, page, ledger),
-            Policy.load(),
-            sqlite3.connect(":memory:", check_same_thread=False),
-        )
-        runs.start(request(), tmp_path)
-        runs.answer("sleep", Answer(choice=Choice.YES))
-        with pytest.raises(ValueError, match="isn't approved"):
-            runs.homepage("sleep")
-        runs.answer("sleep", Answer(choice=Choice.YES))
-        assert page.homepages == 0  # approving writes the page beside the run only
-        assert runs.homepage("sleep") == tmp_path / "site" / "page.html" and page.homepages == 1
-        assert "on the homepage" in runs.report("sleep")
 
     def test_no_review_when_the_audit_meets_the_threshold(self, tmp_path: Path) -> None:
         ledger = Ledger()

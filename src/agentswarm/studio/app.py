@@ -99,7 +99,6 @@ class Studio:
         app.add_api_route("/runs/{name}/answer", self.answer, methods=["POST"], **page)
         app.add_api_route("/runs/{name}/files", self.files, methods=["POST"], **page)
         app.add_api_route("/runs/{name}/document", self.document, methods=["GET"], **page)
-        app.add_api_route("/runs/{name}/homepage", self.homepage, methods=["POST"], **page)
         app.add_api_route("/board", self.board, methods=["GET"], **page)
         app.add_api_route("/api/projects", self.projects, methods=["GET"], response_model=None)
         app.add_api_route("/api/projects/{project}/state", self.state, methods=["GET"], response_model=None)
@@ -219,14 +218,6 @@ class Studio:
             return self.missing(request, name)
         return HTMLResponse(self._renderer.render(run.document.read_text(), PageStage.note(run)))
 
-    def homepage(self, name: str) -> Response:
-        try:
-            page = self._pipeline.homepage(name)
-            self._notices[name] = f"on the homepage: {page}. Commit and deploy it when you want it live."
-        except ValueError as error:
-            self._notices[name] = str(error)
-        return RedirectResponse(f"/runs/{name}", status_code=303)
-
     def board(self) -> Response:
         return HTMLResponse(self.boards.page())
 
@@ -274,8 +265,6 @@ class Studio:
             "error": None if busy else error,
             "board": board,
             "status": self.status(view, busy, error),
-            "stages": self.STAGES,
-            "choices": self.CHOICES,
             "notice": self._notices.pop(name, None),
             "sourcing": view is not None and view.run.stage is Stage.SOURCES and view.question is not None,
             "share": self.share(view),
@@ -300,7 +289,9 @@ class Studio:
         )
 
     def render(self, request: Request, template: str, status_code: int = 200, **context: Any) -> Response:
-        return self._templates.TemplateResponse(request, template, context, status_code=status_code)
+        """Every page gets the labels: the runs list shows a stage too, not only a run's own page."""
+        labels = {"stages": self.STAGES, "choices": self.CHOICES}
+        return self._templates.TemplateResponse(request, template, labels | context, status_code=status_code)
 
     def missing(self, request: Request, name: str) -> Response:
         return self.render(request, "missing.html", name=name, status_code=404)

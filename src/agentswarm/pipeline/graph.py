@@ -211,8 +211,7 @@ class DocumentPipeline:
                 title="Approve publishing",
                 details=f"The document: {run.document}\nCitations: {audit}; fact reviews: {run.reviews}.\n"
                 f"Cost: ${spent:.2f} of ${run.request.budget:.2f}.\n"
-                "yes writes the page beside the run; the homepage changes only with "
-                f"`uv run agentswarm publish {run.request.name}`.",
+                "yes writes the page beside the run.",
                 choices=(Choice.YES, Choice.STOP),
             )
         )
@@ -301,19 +300,6 @@ class DocumentPipeline:
             raise ValueError(f"a run named {request.name!r} exists already: `agentswarm runs`")
         self._graph.invoke(DocumentRun(request=request, folder=folder), self.config(request.name))
         return self.run(request.name)
-
-    def homepage(self, name: str) -> Path:
-        """Puts an approved run's page on the homepage, when the user says so (deploying stays theirs)."""
-        if not self.exists(name):
-            raise ValueError(f"no run named {name!r}: `uv run agentswarm runs`")
-        run = DocumentRun.model_validate(self._graph.get_state(self.config(name)).values)
-        if run.stage is not Stage.PUBLISHED:
-            raise ValueError(f"{name} isn't approved for publishing yet: `uv run agentswarm runs {name}`")
-        page = self.apart(self._stages.publishing.homepage, run, self._policy)
-        self._graph.update_state(
-            self.config(name), {"notes": (*run.notes, f"on the homepage: {page}")}, as_node="publish"
-        )
-        return page
 
     def check(self, name: str, answer: Answer) -> None:
         """Raises ValueError, saying why, when the run can't take this answer now; needs no model, so the

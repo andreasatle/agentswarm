@@ -63,12 +63,9 @@
     {% elif view and view.run.stage.value == "published" %}
     <section class="card now done">
       <h2>The page is written</h2>
-      <p>It is beside the run: <code>{{ view.run.page }}</code>. The homepage changes only when you put it there.</p>
+      <p>It is beside the run: <code>{{ view.run.page }}</code>.</p>
       <div class="actions">
-        <a class="button" href="/runs/{{ name }}/document" target="_blank" rel="noopener">Read the document</a>
-        <form method="post" action="/runs/{{ name }}/homepage" class="inline">
-          <button class="button primary" data-confirm="Put this page on the homepage? Committing and deploying stay yours.">Put on the homepage</button>
-        </form>
+        <a class="button primary" href="/runs/{{ name }}/document" target="_blank" rel="noopener">Read the document</a>
       </div>
     </section>
     {% elif view and view.run.stage.value == "stopped" %}

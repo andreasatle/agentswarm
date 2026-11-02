@@ -84,7 +84,9 @@ class BoardViews:
     _attacks: list[Attacked] = field(default_factory=list[Attacked])
     _briefs: list[Briefed] = field(default_factory=list[Briefed])
     _scored_at: int = 0  # how many attacks there were at the latest score: a run starts with one
-    _project_escalations: list[Escalated] = field(default_factory=list[Escalated])
+    _project_escalations: list[tuple[datetime, Escalated]] = field(
+        default_factory=list[tuple[datetime, Escalated]]
+    )
     paused: bool = False  # project-wide: teams that start new work wait (see Team.pausable)
     _umbrellas: set[ArtifactId] = field(default_factory=set[ArtifactId])
     _resolved: set[FindingId] = field(default_factory=set[FindingId])
@@ -181,7 +183,7 @@ class BoardViews:
                     self._unjudged.pop(event.artifact, None)
                     self._escalations[event.artifact] = event
                 else:
-                    self._project_escalations.append(event)
+                    self._project_escalations.append((envelope.at, event))
             case EscalationResolved():
                 self._escalations.pop(event.artifact, None)
                 match event.resolution:
@@ -261,7 +263,12 @@ class BoardViews:
 
     def project_escalations(self) -> list[Escalated]:
         """Escalations about the whole project, such as an exhausted budget, oldest first."""
-        return list(self._project_escalations)
+        return [event for _, event in self._project_escalations]
+
+    def project_notices(self, last: int) -> list[str]:
+        """The latest project-wide escalations with when they were raised: an old one stays on the board,
+        and "spent today" in a budget notice means that day (yesterday's read as today's otherwise)."""
+        return [f"{at:%Y-%m-%d %H:%M} UTC: {e.reason}" for at, e in self._project_escalations[-last:]]
 
     def spent_since(self, since: datetime) -> float:
         """US dollars spent on models since a moment (e.g. the start of the day)."""

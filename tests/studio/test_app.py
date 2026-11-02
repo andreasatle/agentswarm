@@ -89,9 +89,8 @@ class TestStudio:
         (f.runs / "sleep-and-memory" / "document.md").write_text("# Sleep\n\nIt helps.\n")
         assert "It helps." in f.client.get("/runs/sleep-and-memory/document").text
         page = f.answer("yes")
-        assert "The page is written" in page and f.page.homepages == 0  # the homepage waits for the user
-        page = f.client.post("/runs/sleep-and-memory/homepage").text
-        assert "on the homepage" in page and f.page.homepages == 1
+        assert "The page is written" in page and "homepage" not in page
+        assert "page written" in f.client.get("/").text  # a finished run in the list shows its stage
 
     def test_the_form_says_what_is_wrong_and_keeps_what_was_typed(self, tmp_path: Path) -> None:
         f = Fixture(tmp_path)

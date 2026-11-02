@@ -91,7 +91,6 @@ class Cli:
                                                    (sources, publishing); [--source --words --url --files]
         runs [NAME]                                every document run, or one in full with what it waits for
         approve NAME [--choice C] [--budget USD]   answer a waiting run (yes, stop, retry, accept, drop...)
-        publish NAME                               put an approved run's page on the homepage
         studio [--port N]                          all of the above as a web page on localhost
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
@@ -212,8 +211,6 @@ class Cli:
                 return self.document_runs(args)
             case "approve":
                 return self.approve_run(args)
-            case "publish":
-                return self.publish_run(args)
             case "studio":
                 return self.open_studio(args)
             case "audit-citations":
@@ -573,19 +570,6 @@ class Cli:
             self._show(runs.report(args.name))
         finally:
             runs.close()
-        return 0
-
-    def publish_run(self, args: argparse.Namespace) -> int:
-        """An approved run's page onto the homepage; committing and deploying stay the user's."""
-        runs = self.documents()
-        try:
-            page = runs.homepage(args.name)
-        except ValueError as error:
-            self._show(str(error))
-            return 2
-        finally:
-            runs.close()
-        self._show(f"on the homepage: {page}\ncommit and deploy the homepage when you want it live")
         return 0
 
     def find_papers(self, args: argparse.Namespace) -> int:
@@ -1004,8 +988,6 @@ class Cli:
         approve.add_argument("name")
         approve.add_argument("--choice", choices=[c.value for c in Choice], default=Choice.YES.value)
         approve.add_argument("--budget", type=float, help="with --choice budget: the new total")
-        publish = commands.add_parser("publish", help="put an approved document run's page on the homepage")
-        publish.add_argument("name")
         find = commands.add_parser("find-papers", help="papers for a topic (OpenAlex or arXiv), for `learn`")
         find.add_argument("topic", help="e.g. 'test-time compute for language model reasoning'")
         find.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")

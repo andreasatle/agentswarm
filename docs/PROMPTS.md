@@ -2261,13 +2261,23 @@ class Candidate(Frozen):
         )
 
     @staticmethod
-    def surname(author: str) -> str:
-        return author.split()[-1] if author.split() else author
+    def names(author: str) -> list[str]:
+        """The name's words, without a stray initial after the surname: OpenAlex gave "Jan Born A" for Jan
+        Born, and the document cited "Gais and A, 2004" (2026-11-01)."""
+        names = author.split()
+        if len(names) > 2 and len(names[-1].rstrip(".")) == 1:
+            return names[:-1]
+        return names
+
+    @classmethod
+    def surname(cls, author: str) -> str:
+        names = cls.names(author)
+        return names[-1] if names else author
 
     @classmethod
     def initialled(cls, author: str) -> str:
         """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") as it is."""
-        names = author.split()
+        names = cls.names(author)
         if len(names) < 2:
             return author
         return f"{names[-1]}, " + " ".join(f"{n[0]}." for n in names[:-1])

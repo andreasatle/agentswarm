@@ -52,6 +52,15 @@ class Board:
 
 
 class TestBlackboardViews:
+    def test_a_project_notice_says_when_it_was_raised(self) -> None:
+        b = Board()
+        b.board.append([Escalated(artifact=None, reason="budget exhausted: $1.42 of $1.45 spent today")])
+        b.clock.advance(timedelta(days=1))
+        views = b.board.append([Escalated(artifact=None, reason="later")])
+        day = Samples.AT.strftime("%Y-%m-%d %H:%M")
+        assert views.project_notices(1) == [f"{(Samples.AT + timedelta(days=1)):%Y-%m-%d %H:%M} UTC: later"]
+        assert views.project_notices(2)[0] == f"{day} UTC: budget exhausted: $1.42 of $1.45 spent today"
+
     def test_artifacts_are_listed_at_their_level(self) -> None:
         b = Board()
         views = b.board.append([Samples.created(), Samples.created(Samples.B)])

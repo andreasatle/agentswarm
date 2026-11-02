@@ -3,7 +3,6 @@ the citation audit, the page). The graph (graph.py) only orders them and pauses 
 has a Protocol so the graph can be tested with fakes."""
 
 import asyncio
-import json
 import shutil
 from datetime import date
 from pathlib import Path
@@ -65,10 +64,6 @@ class Checking(Protocol):
 class Publishing(Protocol):
     def publish(self, run: DocumentRun, policy: Policy) -> Path:
         """The page, beside the run."""
-        ...
-
-    def homepage(self, run: DocumentRun, policy: Policy) -> Path:
-        """The page on the homepage, listed under Writing: only when the user says so."""
         ...
 
 
@@ -281,12 +276,8 @@ class LedgerSpending:
 
 
 class PageStage:
-    """The document as a page: beside the run once it is approved, and in the homepage repository's static
-    folder, listed in its tutorials.json (src/web/tutorials.py there reads it), only when the user asks (the
-    user, 2026-11-01: "I don't want to update the homepage everytime. Just when I tell it to")."""
-
-    STATIC = Path("src/web/static/agentswarm")
-    LISTING = Path("src/web/tutorials.json")
+    """The document as a page beside the run, once it is approved. The program never touches the homepage
+    (the user, 2026-11-02: "I don't want the coupling to the homepage"); updating it is a separate job."""
 
     def __init__(self, renderer: PageRenderer | None = None) -> None:
         self._renderer = renderer or PageRenderer()
@@ -294,29 +285,6 @@ class PageStage:
     def publish(self, run: DocumentRun, policy: Policy) -> Path:
         assert run.document is not None
         return self._renderer.write(run.document, run.folder / "page.html", self.note(run))
-
-    def homepage(self, run: DocumentRun, policy: Policy) -> Path:
-        assert run.document is not None
-        if policy.homepage is None:
-            raise ValueError("the policy names no homepage (policy.yaml: homepage)")
-        page = self._renderer.write(
-            run.document, policy.homepage / self.STATIC / f"{run.request.name}.html", self.note(run)
-        )
-        listing = policy.homepage / self.LISTING
-        entries: list[dict[str, str]] = json.loads(listing.read_text()) if listing.is_file() else []
-        href = f"/static/agentswarm/{run.request.name}.html"
-        entries = [e for e in entries if e.get("href") != href]
-        entries.insert(
-            0,
-            {
-                "href": href,
-                "title": self._renderer.title(run.document),
-                "date": date.today().isoformat(),
-                "summary": run.request.topic,
-            },
-        )
-        listing.write_text(json.dumps(entries, indent=1) + "\n")
-        return page
 
     @staticmethod
     def note(run: DocumentRun) -> str:

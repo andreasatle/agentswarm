@@ -70,7 +70,3 @@ class PageRenderer:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(self.render(document.read_text(), note))
         return out
-
-    @staticmethod
-    def title(document: Path) -> str:
-        return document.read_text().partition("\n")[0].lstrip("# ").strip() or document.stem

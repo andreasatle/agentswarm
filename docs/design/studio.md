@@ -8,7 +8,7 @@ Written 2026-11-01. The user wants to run document runs without Claude and witho
 
 - **Runs:** every run with its stage, its spend against its budget, and whether it waits for the user, works, or stopped on an error.
 - **New run:** topic, reader, budget, length, source, a name, links and the user's own files; the expected cost step by step as the fields change.
-- **A run:** what it waits for, as a card with its choices (approve, stop, raise the budget to ..., retry, accept, drop); the reading list with what to fetch by hand, and a drop zone for those files; what happened so far; the audit's numbers; the document to read; the board while it writes; and, once approved, "Put on the homepage" (a separate button: the homepage changes only when the user says so).
+- **A run:** what it waits for, as a card with its choices (approve, stop, raise the budget to ..., retry, accept, drop); the reading list with what to fetch by hand, and a drop zone for those files; what happened so far; the audit's numbers; the document to read; and the board while it writes. Nothing in the studio touches the homepage (the user, 2026-11-02: no coupling to it).
 
 ## How it is built
 

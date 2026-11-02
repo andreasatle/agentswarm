@@ -36,7 +36,6 @@ class Policy(BaseModel):
     review_rounds: int = Field(default=1, ge=0)  # facts rounds at most
     audit_sample: int = Field(default=20, gt=0)
     audit_seed: int = 1
-    homepage: Path | None = None  # the site repository a page is published into; None: the page file only
     estimates: Estimates = Estimates()
     goal: str  # the brief's template: {topic} and {reader}
 
@@ -44,10 +43,7 @@ class Policy(BaseModel):
 
     @classmethod
     def load(cls, path: Path | None = None) -> Self:
-        policy = cls.model_validate(yaml.safe_load((path or cls.DEFAULT).read_text()))
-        if policy.homepage is not None:
-            policy = policy.model_copy(update={"homepage": policy.homepage.expanduser()})
-        return policy
+        return cls.model_validate(yaml.safe_load((path or cls.DEFAULT).read_text()))
 
     def brief(self, topic: str, reader: str) -> str:
         return self.goal.format(topic=topic, reader=reader)
