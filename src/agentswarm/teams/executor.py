@@ -5,6 +5,7 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from typing import ClassVar
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -475,7 +476,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
                 worktree, Parts.checks(self._checks, ctx), self._tests, self._step_budget
             )
             toolbox.ruled = ruled
-            kept = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox, carried)
+            attempt = uuid4().hex
+            with SpendScope.attempt(attempt):  # the attempt's spend and the events ending it share its id
+                outcome = await self._attempt(ctx, worktree, model, worker, last, nudged, toolbox, carried)
+            kept = self.tagged(outcome, attempt)
             events.extend(toolbox.rulings)
             if toolbox.calls:  # where the model's tokens went, for the board
                 used = ToolsUsed(
@@ -505,6 +509,18 @@ You are the executor in a software team. Implement the task in `instruction.goal
         if climbing and self._split_on_failure and model is not None:
             return self.split_when_exhausted(ctx, events, failed | {model})
         return events
+
+    @staticmethod
+    def tagged(outcome: list[Event] | AttemptFailed, attempt: str) -> list[Event] | AttemptFailed:
+        """An attempt's outcome, its id on the events routing settles it by (a failure, a model's commit)."""
+        if isinstance(outcome, AttemptFailed):
+            return outcome.model_copy(update={"attempt": attempt})
+        return [
+            e.model_copy(update={"attempt": attempt})
+            if isinstance(e, AttemptFailed) or (isinstance(e, CommitPushed) and e.model is not None)
+            else e
+            for e in outcome
+        ]
 
     def split_when_exhausted(
         self, ctx: ArtifactContext, events: list[Event], failed: set[str]

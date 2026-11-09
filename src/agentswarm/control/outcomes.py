@@ -127,11 +127,11 @@ class OutcomeRecorder:
         for index, event in enumerate(history):
             if isinstance(event, AttemptFailed) and event.team == routed.team:
                 model_id = self.model_id(event.model, routed)
-                usd = self.cost(history[since:index], routed.team, event.model)
+                usd = self.attempt_cost(history, since, index, routed.team, event.model, event.attempt)
                 since = index + 1
                 yield Settled(routed=routed, model_id=model_id, settles=index, success=False, usd=usd)
             elif isinstance(event, CommitPushed) and event.model is not None:
-                usd = self.cost(history[since:index], routed.team, event.model)
+                usd = self.attempt_cost(history, since, index, routed.team, event.model, event.attempt)
                 since = index + 1
                 success = self.commit_outcome(history[index + 1 :])
                 if success is not None:
@@ -153,6 +153,24 @@ class OutcomeRecorder:
                     success=event.passed,
                     kind=CallKind.REPAIR,
                 )
+
+    @classmethod
+    def attempt_cost(
+        cls,
+        history: Sequence[Event],
+        since: int,
+        index: int,
+        team: TeamName,
+        model: str | None,
+        attempt: str | None,
+    ) -> float | None:
+        """What one attempt cost: the spend carrying its id, wherever it landed on the board (audit A04).
+        Attempts from before ids were recorded: the spend between the previous marker and this one.
+        """
+        if attempt is None:
+            return cls.cost(history[since:index], team, model)
+        spent = [e.usd for e in history if isinstance(e, Spent) and e.attempt == attempt]
+        return sum(spent) if spent else None
 
     @staticmethod
     def cost(events: Sequence[Event], team: TeamName, model: str | None) -> float | None:

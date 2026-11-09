@@ -125,6 +125,7 @@ class CommitPushed(Frozen):
     artifact: ArtifactId
     commit: str
     model: str | None = None  # the model tier that made it, when a model did (§13.3)
+    attempt: str | None = None  # the executor attempt that made it: its spend carries the same id (audit A04)
 
     @property
     def subject(self) -> ArtifactId:
@@ -420,6 +421,7 @@ class Spent(Frozen):
     largest_input: int = 0  # the input tokens of the largest single call
     billed: bool = False  # usd is what the provider reported charging, not a price-list estimate
     artifact: ArtifactId | None = None  # what it was spent on, when a team spent it acting on one artifact
+    attempt: str | None = None  # the executor attempt it was spent in: its AttemptFailed or CommitPushed
 
     @property
     def subject(self) -> ArtifactId | None:
@@ -640,6 +642,7 @@ class AttemptFailed(Frozen):
         False  # it said it was done without changing a file: told so, it gets one more try
     )
     kept: bool = False  # it passed the checks but was unfinished: kept on the branch for the next attempt
+    attempt: str | None = None  # the attempt's id: its spend carries the same one (audit A04)
 
     @property
     def subject(self) -> ArtifactId:

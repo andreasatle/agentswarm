@@ -1,6 +1,10 @@
+from collections.abc import Callable
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from agentswarm.board.artifacts import ArtifactFactory
+from agentswarm.board.spend import Meter, SpendLedger, SpendScope
 from agentswarm.control.outcomes import OutcomeRecorder
 from agentswarm.core.config import JevMode
 from agentswarm.core.domain import (
@@ -23,14 +27,18 @@ from agentswarm.core.domain import (
     Spent,
     TeamName,
     Unbuildable,
+    Usage,
 )
 from agentswarm.judging.deciders import FakeDecider
 from agentswarm.judging.judgement import Judgement
 from agentswarm.judging.judges import CallProfile, Judge
 from agentswarm.judging.policy import Policy
-from agentswarm.teams.routing import Router, RoutingLedger
+from agentswarm.llm.workers import FakeWorker, Toolbox
+from agentswarm.teams.executor import ExecutorReport, ExecutorTeam
+from agentswarm.teams.routing import Router, RoutingLedger, Tier
 from tests.support.harness import Harness
 from tests.support.samples import Samples
+from tests.teams.test_executor import Steps, Toolboxes
 
 SMALL, LARGE = "ollama:small", "ollama:large"
 MODELS = {"small": SMALL, "large": LARGE}
@@ -224,3 +232,78 @@ class TestPlanOutcomes:
         assert r.recorder.settle_plans(r.h.board.current(), success=False) == 1
         assert [(c.kind, c.success) for c in r.ledger.calls()] == [(CallKind.PLAN, False)]
         assert r.recorder.settle_plans(r.h.board.current(), success=False) == 0
+
+
+class MeteredWorker:
+    """A scripted worker that reports a fixed cost per run to its meter, as LangChainWorker does on exit."""
+
+    def __init__(self, worker: FakeWorker, meter: Meter, usd: float) -> None:
+        self._worker = worker
+        self._meter = meter
+        self._usd = usd
+
+    async def run[T: BaseModel](
+        self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
+    ) -> T:
+        answer = await self._worker.run(instructions, payload, output, toolbox)
+        self._meter(Usage(input_tokens=1, model_calls=1, billed_usd=self._usd, billed_calls=1))
+        return answer
+
+
+class TestAttemptCostThroughTheExecutor:
+    """Audit A04: a runner publishes an action's events after all of its spend, so attempts are matched to
+    their spend by id, not by position on the board."""
+
+    @staticmethod
+    async def act(r: Recording, tiers: list[Tier], climb: bool) -> list[Event]:
+        worktree = r.h.repository.checkout_artifact(r.artifact)
+        team = ExecutorTeam(tiers, [Toolboxes.CHECK], Samples.RAW, attempts=2, climb=climb)
+        with SpendScope.on(r.artifact.id):
+            return await team.act(r.h.contexts.build(r.artifact.id), worktree)
+
+    @staticmethod
+    def worker(ledger: SpendLedger, model: str, usd: float, *steps: Callable[..., ExecutorReport]) -> Tier:
+        return Tier(
+            model, MeteredWorker(FakeWorker(list(steps)), ledger.meter(Samples.EXECUTOR, model, None), usd)
+        )
+
+    async def test_each_model_is_charged_its_own_attempt(self, tmp_path: Path) -> None:
+        r = Recording(tmp_path)
+        ledger = SpendLedger(r.h.board)
+        tiers = [
+            self.worker(ledger, "small", 0.5, Steps.write({"greeting.py": "def hello(): ...\n"})),
+            self.worker(ledger, "large", 0.3, Steps.write({"greeting.py": "def farewell(name): ...\n"})),
+        ]
+        r.step(r.routed(Samples.EXECUTOR, CallKind.PRODUCE))
+        events = await self.act(r, tiers, climb=True)
+        r.step(*events, r.promoted())  # the runner's batch lands after both attempts' spend
+        assert [(c.model_id, c.success, c.usd) for c in r.ledger.calls()] == [
+            (SMALL, False, 0.5),
+            (LARGE, True, 0.3),
+        ]
+
+    async def test_two_attempts_on_one_model_are_charged_separately(self, tmp_path: Path) -> None:
+        r = Recording(tmp_path)
+        ledger = SpendLedger(r.h.board)
+        failing, passing = (
+            Steps.write({"greeting.py": "def hello(): ...\n"}),
+            Steps.write({"greeting.py": "def farewell(name): ...\n"}),
+        )
+        meter = ledger.meter(Samples.EXECUTOR, "small", None)
+        costs = iter([0.5, 0.25])
+
+        class Varying(MeteredWorker):
+            async def run[T: BaseModel](
+                self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
+            ) -> T:
+                self._usd = next(costs)
+                return await super().run(instructions, payload, output, toolbox)
+
+        tier = Tier("small", Varying(FakeWorker([failing, passing]), meter, 0.0))
+        r.step(r.routed(Samples.EXECUTOR, CallKind.PRODUCE))
+        events = await self.act(r, [tier], climb=False)
+        r.step(*events, r.promoted())
+        assert [(c.model_id, c.success, c.usd) for c in r.ledger.calls()] == [
+            (SMALL, False, 0.5),
+            (SMALL, True, 0.25),
+        ]

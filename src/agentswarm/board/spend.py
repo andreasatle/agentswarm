@@ -29,6 +29,7 @@ class SpendScope:
 
     _current: ClassVar[ContextVar[ArtifactId | None]] = ContextVar("spend_artifact", default=None)
     _allowed: ClassVar[ContextVar[Callable[[], bool] | None]] = ContextVar("spend_allowed", default=None)
+    _attempt: ClassVar[ContextVar[str | None]] = ContextVar("spend_attempt", default=None)
 
     @classmethod
     @contextmanager
@@ -40,6 +41,22 @@ class SpendScope:
         finally:
             cls._allowed.reset(allowed_token)
             cls._current.reset(token)
+
+    @classmethod
+    @contextmanager
+    def attempt(cls, attempt: str) -> Generator[None]:
+        """Within one executor attempt: its spend carries the attempt's id, as do the events that end it, so
+        the cost of each attempt is read by identity, not by where the events landed on the board (audit
+        A04: a runner publishes an action's events after all its spend, so position misattributed it)."""
+        token = cls._attempt.set(attempt)
+        try:
+            yield
+        finally:
+            cls._attempt.reset(token)
+
+    @classmethod
+    def current_attempt(cls) -> str | None:
+        return cls._attempt.get()
 
     @classmethod
     def allowed(cls) -> bool:
@@ -91,6 +108,7 @@ class SpendLedger:
                     model_calls=usage.model_calls,
                     largest_input=usage.largest_input,
                     artifact=SpendScope.current(),
+                    attempt=SpendScope.current_attempt(),
                 )
             ]
         )

@@ -1,32 +1,38 @@
-# Where we are (2026-10-18, before a ten-day break)
+# Where we are (2026-11-09)
 
-A note to pick up from after the user's trip (back about 2026-10-29). Details live in the docs named.
+Details live in the docs named.
 
 ## What works
 
 - **Building software to a definition of done** (stages 1-3, docs/ROADMAP.md): CommonMark, TOML, jq, YAML 1.2 and HTML5 from empty stubs, 87-100% of held-out tests; self-supervised TOML, YAML and JSONPath (every test hidden) 97-100%.
 - **Hardening by red teams** (docs/design/hardening.md): jq 87% to 94% held out over three rounds and the combination focus; YAML-self 97% to 98%. Diminishing returns per round.
 - **Documents** (docs/design/documents.md): briefer, one-call section writers, author-year citations with pages, perspective reviewers (facts, coverage, reader, consistency) and a citation audit. Measured on Qasper: perspectives suggestive, not proven (19 against 15-18 of 36).
-- **Real use:** `import-docs` (a report from your own files: the Challenger report), `learn` (a tutorial from papers: JEPA, test-time compute), `find-papers` (a topic to papers from OpenAlex or arXiv, picked by a model, real because they come from the search; downloads what it can, lists the rest with free links for the user).
+- **One command from topic to document (goal 13, docs/design/pipeline.md):** `agentswarm write / runs / approve`, a LangGraph graph over plain stages that pauses for the user's approval of the sources and the publishing; settings in pipeline/policy.yaml. First real run 2026-11-01: how sleep affects memory, $1.57 of a $1.60 budget, finished and approved; not on the homepage (only `agentswarm publish NAME` puts it there, when the user says so). What that run needed is listed in the design doc.
+- **The studio** (`agentswarm studio`): document runs started, followed and answered in a browser on localhost, with the board view.
+- **Real use:** `import-docs` (the Challenger report), `learn` (tutorials from papers: JEPA, test-time compute, mechanistic interpretability), `find-papers`, the Venice guide from Wikipedia; the tutorials are on the homepage.
+
+## Cost (the user's top priority, 2026-11-09)
+
+- **The user: "I don't want to spend $10-20 every day I'm working on this."** The machine's daily backstop (`~/agentswarm-data/limits.yaml`) is now $5, lowered from $21. Every paid run still needs the user's yes, with its expected cost and the day's spend.
+- **Where the money went:** $132 over 13 working days in October (about $10 a day), mostly software builds (CommonMark $40, jq $23, YAML $14). A document run is about $1.50, of which the perspective reviewers (an expensive model, 25-55k tokens per call) are about 60%.
+- **Research on cheaper review** (docs/RESEARCH.md section 14): long context still reads slightly better than retrieval at our input sizes; the established cheap structure for checking a text against sources is claim by claim (split, retrieve per claim, verify with a small model such as MiniCheck), with a fallback to the full source (Self-Route). Not decided.
+
+- **Audit A04 done (2026-11-09):** each executor attempt's spend carries the attempt's id, so the router learns each attempt's real cost.
 
 ## Measured weak spots
 
-- **Citations:** about 75% of cited statements fully supported after one facts review (65% before); most of the rest overstate. Checking every statement is parked (docs/BACKLOG.md).
-- **Downloads:** publishers refuse most programs; on sleep and memory none of five picks downloaded, the user fetched three by hand. Repository copies (PubMed Central, arXiv) are reliable; "bronze" open access is not.
-- **Budget checks** happen between attempts, so a run can overshoot its cap (one trial: estimated $0.30, cost $2.16).
+- **Citations:** about 75% of cited statements fully supported after one facts review (65% before); most of the rest overstate.
+- **Downloads:** publishers refuse most programs; on sleep and memory none of five picks downloaded, the user fetched them by hand. Repository copies (PubMed Central, arXiv) are reliable; "bronze" open access is not. Goal 14 is the real fix.
+- **Budget checks** happen between stages and attempts, not before each model call, so a run can overshoot its cap (one trial: estimated $0.30, cost $2.16).
 
-## Open, in the order I'd take them
+## Open, in order
 
-0. **Goal 13 built (2026-11-01, docs/design/pipeline.md):** `agentswarm write / runs / approve`, a LangGraph graph over plain stages, pausing for the user's approval of the sources and the publishing; settings in pipeline/policy.yaml; not yet run for real. Next: the user runs the sleep-and-memory document with it, and what they miss becomes the next work.
-0. **First, an outside audit (2026-10-19, ChatGPT; triage in docs/BACKLOG.md):** A01 and most of A02 fixed the same day (a failed test runner or a run with no test outcome is an error, never "done"; tests are counted in a guarded copy where the producer's conftest, pytest config and stand-ins for pytest are gone). After the break, in order: the rest of A02 when it matters (product code in the test process), then goal 13 with the audit's A03 and A06 built in (spending admitted at every call, pause honoured between actions), then A04 and A05, then goal 14.
-0. **Two goals from the user, 2026-10-19, before anything below** (docs/BACKLOG.md): one command from topic to published document with the user's approvals built in, and research from the open web beyond papers and Wikipedia. Since this note was first written: the mechanistic interpretability tutorial (fact-reviewed, about 62% of citations fully supported) and a Venice guide from Wikipedia are on the homepage.
-1. **Sleep and memory tutorial** (the first non-technical test of `learn`): three of five papers in `~/agentswarm-data/sleep-and-memory`; Siegel 2001 is free in PubMed Central (link in papers.md). About $0.20. Tells whether `learn` serves a lay reader.
-2. **The picker told how each paper is open** (green and gold before bronze), so it prefers reliably free copies when two papers are equally good. Free work.
-3. **Homepage:** deployed by the user; the tutorials and the Venice guide are under Writing (static pages listed by src/web/tutorials.py in ~/Projects/AgenticFramework). Deploys are the user's (`scripts/deploy.sh`).
-4. **Stage 4, when a swarm is competitive** (COLLABORATION.md goal 2): waits until the framework behaves well. The document path is close to that; software is there.
+1. **Audit A03 (with A06):** every model call admitted against the run's budget first, reserving its worst case, so an approved budget is a hard cap.
+2. **Cheaper runs:** rank the savings from the spend data; candidates are the reviewers (claim-level checking with retrieval, or a cheaper model) and routing. Measured on an existing run before any change, each paid step approved first.
+3. **Later:** the rest of A02 (product code in the test process) when there is any sign of tampering; A05; goal 14 (research from the open web); stage 4, when a swarm is competitive (waits until the framework behaves well).
 
 ## Standing rules to remember
 
-- No daily budget: each paid run gets its expected cost and the day's spend, and the user decides (memory: spending-levels).
+- No standing budget: each paid run gets its expected cost and the day's spend, and the user decides (memory: spending-levels). The $5 daily limit is a backstop, not a budget to fill.
 - Chat answers short, main message first; the user learns by asking.
 - Nothing runs unattended while the user is away.
