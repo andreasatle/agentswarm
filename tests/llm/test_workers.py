@@ -277,6 +277,26 @@ class TestChatModels:
             ModelConfig(model="ollama:x", base_url="http://gpu:11434")
         )
 
+    def test_claude_through_openrouter_asks_for_prompt_caching(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        router = "https://openrouter.ai/api/v1"
+        monkeypatch.setenv("TEST_ROUTER_KEY", "k-test")
+
+        def body(model: str, base_url: str | None = router) -> object:
+            config = ModelConfig(model=model, base_url=base_url, api_key_env="TEST_ROUTER_KEY")
+            return ChatModels.settings(config).get("extra_body")
+
+        assert body("openai:anthropic/claude-haiku-5.5") == {"cache_control": {"type": "ephemeral"}}
+        assert body("openai:qwen/qwen3-coder") is None  # other families cache by themselves
+        assert body("openai:anthropic/claude-haiku-5.5", base_url="http://gpu:8000/v1") is None
+        model = ChatModels(
+            {
+                "m": ModelConfig(
+                    model="openai:anthropic/claude-haiku-5.5", base_url=router, api_key_env="TEST_ROUTER_KEY"
+                )
+            }
+        ).get("m")
+        assert model.model_dump()["extra_body"] == {"cache_control": {"type": "ephemeral"}}
+
     def test_thinking_can_be_switched_off_for_ollama_and_is_refused_elsewhere(self) -> None:
         assert (
             ChatModels.settings(ModelConfig(model="ollama:gemma4:26b", thinking=False))["reasoning"] is False

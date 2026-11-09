@@ -17,6 +17,7 @@ Details live in the docs named.
 - **Where the money went:** $132 over 13 working days in October (about $10 a day), mostly software builds (CommonMark $40, jq $23, YAML $14). A document run is about $1.50, of which the perspective reviewers (an expensive model, 25-55k tokens per call) are about 60%.
 - **Research on cheaper review** (docs/RESEARCH.md section 14): long context still reads slightly better than retrieval at our input sizes; the established cheap structure for checking a text against sources is claim by claim (split, retrieve per claim, verify with a small model such as MiniCheck), with a fallback to the full source (Self-Route). Not decided.
 
+- **Claude through OpenRouter is now cached (2026-11-09):** haiku55's writers and executors sent 137M input tokens with none cached, because the Anthropic caching middleware ignores a model reached through "openai"; requests to OpenRouter for `anthropic/` models now carry a top-level `cache_control` (llm/models.py). Not yet confirmed by a live call.
 - **Audit A04 done (2026-11-09):** each executor attempt's spend carries the attempt's id, so the router learns each attempt's real cost.
 - **Audit A03 and A06 done (2026-11-09):** every model call is admitted against the budget first with its worst case, so an approved budget is a cap (a refused call's work waits, and the supervisor says why); the runner rechecks pause and budget before every action. Open: nothing is reserved while a call runs, so concurrent runs can share headroom (BACKLOG.md).
 

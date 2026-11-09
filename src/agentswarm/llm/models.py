@@ -86,6 +86,7 @@ class ChatModels:
                 )
             candidates[setting] = config.thinking
         candidates["api_key"] = cls.api_key(config)
+        candidates["extra_body"] = cls.cache_request(config)
         context = config.context_window or cls.DEFAULT_CONTEXT.get(config.provider)
         if context is not None:
             setting = cls.CONTEXT_SETTING.get(config.provider)
@@ -96,6 +97,26 @@ class ChatModels:
                 )
             candidates[setting] = context
         return {key: value for key, value in candidates.items() if value is not None}
+
+    # Hosts that cache a model family's prompts only when the request asks, by host and model-name prefix.
+    # OpenRouter caches Claude only with a top-level `cache_control`; it then places the breakpoint on the
+    # last block and moves it forward as an agent's history grows. AnthropicPromptCachingMiddleware does
+    # nothing for a model reached through "openai": haiku55's writers and executors sent 137M input tokens
+    # with none of them cached (spend data, 2026-11-09).
+    CACHE_ON_REQUEST: ClassVar[dict[tuple[str, str], dict[str, object]]] = {
+        ("openrouter.ai", "anthropic/"): {"cache_control": {"type": "ephemeral"}},
+    }
+
+    @classmethod
+    def cache_request(cls, config: ModelConfig) -> dict[str, object] | None:
+        """What a request must carry for its host to cache the prompt, or None when nothing is needed."""
+        if config.provider != "openai":  # `extra_body` belongs to OpenAI-compatible clients
+            return None
+        name = config.model.split(":", 1)[1]
+        for (host, prefix), body in cls.CACHE_ON_REQUEST.items():
+            if config.account == host and name.startswith(prefix):
+                return body
+        return None
 
     # Providers whose package reads its own key from the environment (OPENAI_API_KEY, ANTHROPIC_API_KEY):
     # sent to another host through `base_url`, that key would leak, so such a model must name its own key.
