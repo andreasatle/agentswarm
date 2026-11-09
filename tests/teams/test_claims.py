@@ -70,6 +70,16 @@ class TestSourceText:
             + ("compressed in time.")
         )
 
+    async def test_each_cited_part_gives_its_own_passages(self) -> None:
+        source_text = Retrieved(PassageIndex(HashingEmbedder(), chunker=Chunker(size=100)), k=2)
+        other = "# Flies\n\nFruit flies scale their synapses down during sleep.\n"
+        statement = CitedStatement.all_in(
+            "s.md", "Rats replay, and flies scale synapses [@paper] [@flies].\n"
+        )[0]
+        cited = await source_text.cited(statement, {"paper": PAPER, "flies": other})
+        assert [c.name for c in cited] == ["paper", "flies"]
+        assert "Fruit flies" in cited[1].text and "replay" in cited[0].text.lower()
+
 
 class TestClaimChecker:
     async def test_each_claim_gets_a_verdict_with_a_quote_only_when_it_is_in_the_source(self) -> None:

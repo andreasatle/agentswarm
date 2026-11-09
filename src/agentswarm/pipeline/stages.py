@@ -173,12 +173,15 @@ class ProjectStage:
         return self.run(run, self.capped(self.reviewing(run, policy, budget_left), run, budget_left))
 
     def reviewing(self, run: DocumentRun, policy: Policy, budget_left: float) -> Path:
-        """The writing's configuration with a facts review added."""
+        """The writing's configuration with a review of every cited statement added: a cheap model checks each
+        against its cited part (the review A/B, 2026-11-09: 19 of 23 problems caught for $0.16, against 5 of
+        23 for $0.20 by the facts reviewer on GPT-6.1 Sol; docs/design/documents.md)."""
         config: dict[str, Any] = yaml.safe_load(self.config(run, policy, budget_left).read_text())
         config["review"] = {
-            "model": "gpt-sol",
+            "model": "gpt-sol",  # unused by the claims perspective; a review names its reviewers' model
             "referee": "referee",
-            "perspectives": ["facts"],
+            "perspectives": ["claims"],
+            "claims": {"model": "haiku55"},
             "quiet_rounds": 1,
         }
         path = run.project / self.REVIEW

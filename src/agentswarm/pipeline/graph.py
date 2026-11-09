@@ -146,7 +146,7 @@ class DocumentPipeline:
         written = self.apart(self._stages.checking.review, run, self._policy, self.left(run))
         if written.document is None:
             raise RuntimeError("the review left no sections; nothing to check or publish")
-        note = f"facts review {run.reviews + 1} done" + (
+        note = f"review {run.reviews + 1} done" + (
             f"; {len(written.failed)} fixes left unfinished" if written.failed else ""
         )
         return {

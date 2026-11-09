@@ -1,15 +1,15 @@
 # What a document run decides without asking (agentswarm/pipeline/policy.py). Override per run with --policy.
 papers: 5                 # sources the finder picks
 words: 5000               # the document's length cap, unless the run says otherwise
-review_threshold: 0.75    # below this share of fully supported citations, a facts review round runs
-review_rounds: 1          # facts rounds at most (each about $0.18 a section)
+review_threshold: 0.75    # below this share of fully supported citations, a review round runs
+review_rounds: 1          # review rounds at most (each about $0.07 a section: every cited statement checked)
 audit_sample: 20          # cited statements checked against their sources after writing
 audit_seed: 1
 estimates:                # expected costs, from the runs of 2026-10-18/19
   find: 0.06
   write_per_1000_words: 0.05
   audit: 0.08
-  review_per_section: 0.18
+  review_per_section: 0.07
 goal: >-
   A tutorial, not a literature review, on {topic}, for {reader}, from the sources given. Organize it around
   concepts, principles and the questions the reader must understand, using the sources as evidence rather

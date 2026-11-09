@@ -88,18 +88,18 @@ class Retrieved:
 
     def __init__(self, index: PassageIndex, k: int = 6) -> None:
         self._index = index
-        self._k = k  # passages per claim, across its cited parts
+        self._k = k  # passages per cited part
 
     async def cited(self, statement: CitedStatement, sources: Mapping[str, str]) -> tuple[CitedSource, ...]:
+        """k passages from each cited part: shared across the parts, a statement citing four papers was given
+        passages of one and judged unsupported (the review A/B, 2026-11-09)."""
         await self._index.sync(sources)
-        names = [c.name for c in statement.citations if c.name in sources]
-        found = await self._index.search(statement.claim(), names, self._k)
         cited: list[CitedSource] = []
         for c in statement.citations:
             if c.name not in sources:
                 cited.append(CitedSource(name=c.name, page=c.page, text="(no such source)"))
                 continue
-            passages = [p for p in found if p.source == c.name]
+            passages = await self._index.search(statement.claim(), [c.name], self._k)
             text = "\n\n[...]\n\n".join(
                 (f"[page {p.page}]\n" if p.page is not None else "") + p.text for p in passages
             )
