@@ -44,6 +44,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
 | [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionText` |
 | [Citation audit: does the cited source support a document's statement?](#citation-audit-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
+| [Claim checker (review, `claims` perspective): one cited statement against its source](#claim-checker-review-claims-perspective-one-cited-statement-against-its-source) | (`ClaimChecker`) | `ClaimVerdict` |
 | [Paper finder: search queries (and well-known titles) for a topic, run against arXiv](#paper-finder-search-queries-and-well-known-titles-for-a-topic-run-against-arxiv) | (`PaperFinder`) | `SearchQueries` |
 | [Paper finder: picks the papers a tutorial is written from, among the candidates found](#paper-finder-picks-the-papers-a-tutorial-is-written-from-among-the-candidates-found) | (`PaperFinder`) | `ReadingList` |
 | [Briefer: drafts a document's brief and outline from the goal and the sources](#briefer-drafts-a-documents-brief-and-outline-from-the-goal-and-the-sources) | (`Briefer`) | `BriefDraft` |
@@ -2046,6 +2047,117 @@ class CitationAnswer(Frozen):
 ### What happens to the answer
 
 `CitationAudit`: 
+
+## Claim checker (review, `claims` perspective): one cited statement against its source
+
+### ClaimChecker
+
+`agentswarm.teams.claims.ClaimChecker`
+
+```text
+You check one statement of a document against the source text it cites. Decide from that text alone whether
+it supports the statement: supported (it says this), partly (it says some of it, or something weaker or
+narrower than the statement claims), or unsupported (it doesn't say this, or says otherwise). The text may be
+the passages of a source found most relevant to the statement rather than the whole source. Quote the words
+that settle it exactly as they appear.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "statement": "I-JEPA predicts target-block representations with an L2 loss [@ijepa-p003, page 4].",
+  "sources": [
+    {
+      "name": "ijepa-p003",
+      "page": 4,
+      "text": "[page 4]\nThe loss is the average L2 distance ..."
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class CitationRequest(Frozen):
+    """The payload a referee receives: one statement and the source text it cites."""
+
+    statement: str
+    sources: tuple[CitedSource, ...]
+
+
+class CitedSource(Frozen):
+    name: str
+    page: int | None  # the page the statement names, if any
+    text: str  # the cited part, or the named page and its neighbours
+```
+
+### Answer
+
+```python
+class ClaimVerdict(Frozen):
+    """Your ruling on one statement: first your reasoning, then the verdict."""
+
+    reason: str = Field(description="what the source text says about the statement")
+    support: Support = Field(description="supported, partly (some of it, or overstated), or unsupported")
+    source_quote: str = Field(
+        default="",
+        description="the words of the source text that settle it (that say otherwise, or say less), copied "
+        "exactly; empty when the source says nothing about it",
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "Support": {
+      "enum": [
+        "supported",
+        "partly",
+        "unsupported"
+      ],
+      "title": "Support",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Your ruling on one statement: first your reasoning, then the verdict.",
+  "properties": {
+    "reason": {
+      "description": "what the source text says about the statement",
+      "title": "Reason",
+      "type": "string"
+    },
+    "support": {
+      "$ref": "#/$defs/Support",
+      "description": "supported, partly (some of it, or overstated), or unsupported"
+    },
+    "source_quote": {
+      "default": "",
+      "description": "the words of the source text that settle it (that say otherwise, or say less), copied exactly; empty when the source says nothing about it",
+      "title": "Source Quote",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reason",
+    "support"
+  ],
+  "title": "ClaimVerdict",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`ClaimChecker`: 
 
 ## Paper finder: search queries (and well-known titles) for a topic, run against arXiv
 

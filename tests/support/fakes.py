@@ -1,5 +1,8 @@
-"""Fake LangChain chat models, so the real create_agent loop runs offline."""
+"""Fake LangChain chat models, so the real create_agent loop runs offline; and a fake embedding model."""
 
+import hashlib
+import math
+import re
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Self
 
@@ -77,3 +80,31 @@ class ScriptedWorker:
         result = self._handlers[output](payload, toolbox)
         assert isinstance(result, output)
         return result
+
+
+class HashingEmbedder:
+    """A deterministic stand-in for an embedding model: each word adds to the dimension its hash picks, so
+    texts sharing words lie close. Counts the texts it embeds, to show what an index keeps."""
+
+    def __init__(self, dimensions: int = 64, name: str = "fake:hashing") -> None:
+        self._dimensions = dimensions
+        self._name = name
+        self.embedded = 0
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def vector(self, text: str) -> list[float]:
+        vector = [0.0] * self._dimensions
+        for word in re.findall(r"[a-z0-9]+", text.lower()):
+            vector[int(hashlib.md5(word.encode()).hexdigest(), 16) % self._dimensions] += 1.0
+        norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+        return [v / norm for v in vector]
+
+    async def documents(self, texts: Sequence[str]) -> list[list[float]]:
+        self.embedded += len(texts)
+        return [self.vector(t) for t in texts]
+
+    async def query(self, text: str) -> list[float]:
+        return self.vector(text)

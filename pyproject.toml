@@ -33,6 +33,9 @@ openai = [
 anthropic = [
     "langchain-anthropic>=1.7.5",
 ]
+retrieval = [
+    "sqlite-vec>=0.1.9",
+]
 
 [project.scripts]
 agentswarm = "agentswarm.cli:Cli.main"

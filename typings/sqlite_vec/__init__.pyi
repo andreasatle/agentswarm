@@ -1,0 +1,6 @@
+# The two functions of sqlite-vec (the `retrieval` extra) that retrieval/passages.py uses; it ships no stubs.
+import sqlite3
+from collections.abc import Sequence
+
+def load(conn: sqlite3.Connection) -> None: ...
+def serialize_float32(vector: Sequence[float]) -> bytes: ...

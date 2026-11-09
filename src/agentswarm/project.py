@@ -21,7 +21,7 @@ from agentswarm.control.scheduler import Scheduler
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
-from agentswarm.core.config import ProjectConfig, SpendLimits
+from agentswarm.core.config import ClaimsConfig, ProjectConfig, SpendLimits
 from agentswarm.core.domain import Artifact, Level, OverBudget, ProjectId, TeamName, Usage
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionProgress, QuestionScore
 from agentswarm.evaluation.score import Measure, Progress
@@ -36,10 +36,13 @@ from agentswarm.judging.deciders import Decider, FallbackDecider, JevDecider, LL
 from agentswarm.judging.decisions import DecisionStore, SqliteDecisions
 from agentswarm.judging.judgement import Judgements, ModeTable
 from agentswarm.judging.judges import JudgeCatalog
+from agentswarm.llm.embeddings import LangChainEmbedder
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, Meter, Worker, WorkerProvider
+from agentswarm.retrieval.passages import PassageIndex
 from agentswarm.teams.campaign import Campaign
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
+from agentswarm.teams.claims import ClaimChecker, Retrieved, SourceText, WholeParts
 from agentswarm.teams.hardening import Hardener
 from agentswarm.teams.referee import Referee
 from agentswarm.teams.review import ReviewCampaign
@@ -353,6 +356,7 @@ class Project:
                     Referee(judge, config.models[reviewing.referee].model, ()),
                     budget,
                     progress,
+                    cls.claim_checker(reviewing.claims, root, workers.worker, metered, owned),
                 )
             )
         return cls(
@@ -372,6 +376,28 @@ class Project:
             specifier,
             lambda model, role: workers.worker(model, 1, metered(role, model)),
         )
+
+    @staticmethod
+    def claim_checker(
+        config: ClaimsConfig | None,
+        root: Path,
+        worker: Callable[[str, int, Meter], Worker],
+        metered: Callable[[str, str], Meter],
+        owned: list[Closeable],
+    ) -> ClaimChecker | None:
+        """The `claims` perspective's checker: a cheap model, on each claim's cited part whole or on the
+        passages hybrid search finds (retrieval.sqlite in the project root keeps the index and embeddings)."""
+        if config is None:
+            return None
+        source_text: SourceText = WholeParts()
+        if config.retrieval is not None:
+            embedder = LangChainEmbedder(
+                config.retrieval.embeddings, config.retrieval.query_prefix, config.retrieval.document_prefix
+            )
+            index = PassageIndex(embedder, root / "retrieval.sqlite")
+            owned.append(index)
+            source_text = Retrieved(index, config.retrieval.k)
+        return ClaimChecker(worker(config.model, 3, metered("claim-checker", config.model)), source_text)
 
     def worker(self, model: str, role: str) -> Worker:
         """One of the project's models as a worker whose spend is recorded under `role` (a tool beside the

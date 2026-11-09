@@ -77,6 +77,7 @@ from agentswarm.teams.analyzer import (
     ReviewReport,
     TextTester,
 )
+from agentswarm.teams.claims import ClaimChecker, ClaimVerdict
 from agentswarm.teams.decomposer import Decomposer, Split, SplitRequest
 from agentswarm.teams.documents import (
     AudienceReviewer,
@@ -576,6 +577,14 @@ class PromptCatalogue:
                 CitationAudit,
                 SampleData.citation(),
                 CitationAnswer,
+                None,
+            ),
+            CallFamily(
+                "Claim checker (review, `claims` perspective): one cited statement against its source",
+                (Caller("", ClaimChecker, ClaimChecker.INSTRUCTIONS),),
+                ClaimChecker,
+                SampleData.citation(),
+                ClaimVerdict,
                 None,
             ),
             CallFamily(

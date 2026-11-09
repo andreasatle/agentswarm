@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import sys
 from collections.abc import Callable, Mapping, Sequence
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import yaml
@@ -28,9 +28,10 @@ from agentswarm.core.domain import (
     ProjectId,
     Resolution,
     Scored,
+    Spent,
     Usage,
 )
-from agentswarm.evaluation.citations import CitationAudit
+from agentswarm.evaluation.citations import Audited, CitationAudit
 from agentswarm.evaluation.commonmark import CommonMarkImport
 from agentswarm.evaluation.compare import (
     ComparisonFiles,
@@ -51,6 +52,7 @@ from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionTrace
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
+from agentswarm.evaluation.review_comparison import Arm, ArmResult, ComparisonRecord, ReviewComparison
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
 from agentswarm.evaluation.score import Progress, Scoreboard
 from agentswarm.evaluation.suite import EvalTask, TaskSuite
@@ -65,6 +67,7 @@ from agentswarm.judging.judges import JudgeCatalog
 from agentswarm.judging.labelling import SpotCheck
 from agentswarm.judging.tuning import ThresholdTuner, TuningReport
 from agentswarm.llm.catalog import OpenRouterCatalog
+from agentswarm.llm.embeddings import LangChainEmbedder
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
 from agentswarm.monitor.boards import Watched
@@ -75,10 +78,12 @@ from agentswarm.pipeline.run import Answer, Choice, RunRequest
 from agentswarm.pipeline.stages import Stages
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
+from agentswarm.retrieval.passages import PassageIndex
 from agentswarm.studio.app import Studio
 from agentswarm.studio.worker import ThreadWorker
 from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.catalog import TeamCatalog
+from agentswarm.teams.claims import ClaimChecker, Retrieved, WholeParts
 from agentswarm.teams.routing import Beliefs, Prior, RoutingLedger
 from agentswarm.workspace.sandbox import Sandboxes
 from agentswarm.workspace.view import LevelFolders
@@ -215,6 +220,8 @@ class Cli:
                 return self.open_studio(args)
             case "audit-citations":
                 return self.audit_citations(args)
+            case "compare-review":
+                return self.compare_review(args)
             case "questions":
                 return self.questions(args)
             case "score":
@@ -644,6 +651,64 @@ class Cli:
         self._show(CitationAudit.render(results))
         return 0
 
+    def compare_review(self, args: argparse.Namespace) -> int:
+        """The facts reviewer against the claim checker (whole part, retrieved) on a finished document, each
+        judged by the citation audit of every cited statement (evaluation/review_comparison.py)."""
+        config = ProjectConfig.load(Path(args.config))
+        root = Path(args.root).expanduser()
+        missing = [m for m in (args.reference, args.reviewer, args.checker) if m not in config.models]
+        if missing:
+            self._show(f"no model {missing[0]!r} in the project")
+            return 2
+        project = Project.open(config, root, ProjectServices(teams=self._catalog))
+        index = PassageIndex(
+            LangChainEmbedder(args.embeddings, args.query_prefix, args.document_prefix),
+            root / "retrieval.sqlite",
+        )
+        start = datetime.now(UTC)
+        try:
+            level = root / "levels" / config.levels.base
+            comparison = ReviewComparison(level, config.north_star)
+            statements = comparison.statements()[: args.limit]
+            whole = ClaimChecker(project.worker(args.checker, "ab:claims-whole"), WholeParts())
+            retrieved = ClaimChecker(
+                project.worker(args.checker, "ab:claims-retrieved"), Retrieved(index, args.k)
+            )
+
+            async def run() -> tuple[list[Audited], list[ArmResult]]:
+                reference = await comparison.reference(
+                    project.worker(args.reference, "ab:reference"), statements
+                )
+                arms = [
+                    await comparison.facts_reviewer(
+                        project.worker(args.reviewer, "ab:facts-reviewer"), statements
+                    ),
+                    await comparison.claims(Arm.CLAIMS_WHOLE, whole, statements),
+                    await comparison.claims(Arm.CLAIMS_RETRIEVED, retrieved, statements),
+                ]
+                return reference, arms
+
+            reference, arms = asyncio.run(run())
+            spent: dict[str, float] = {}
+            for envelope in project.board.log.read():
+                if isinstance(envelope.event, Spent) and envelope.at >= start:
+                    spent[envelope.event.by] = spent.get(envelope.event.by, 0.0) + envelope.event.usd
+        finally:
+            index.close()
+            project.close()
+        roles = {
+            Arm.FACTS_REVIEWER: "ab:facts-reviewer",
+            Arm.CLAIMS_WHOLE: "ab:claims-whole",
+            Arm.CLAIMS_RETRIEVED: "ab:claims-retrieved",
+        }
+        arms = [a.model_copy(update={"usd": spent.get(roles[a.arm], 0.0)}) for a in arms]
+        if args.out:
+            record = ComparisonRecord(reference=tuple(reference), arms=tuple(arms))
+            Path(args.out).expanduser().write_text(record.model_dump_json(indent=2))
+        self._show(ReviewComparison.render(reference, arms))
+        self._show(f"reference audit ${spent.get('ab:reference', 0.0):.3f}; total ${sum(spent.values()):.3f}")
+        return 0
+
     def import_docs(self, args: argparse.Namespace) -> int:
         """The user's own documents as sources, and a project per audience that drafts a brief first."""
         files = [Path(f).expanduser() for f in args.files]
@@ -1024,6 +1089,21 @@ class Cli:
         cites.add_argument("--sample", type=int, default=20, help="statements to check")
         cites.add_argument("--seed", type=int, default=1, help="the sample's seed, for a repeatable draw")
         cites.add_argument("--model", help="the checking model (default: the project's referee)")
+
+        compare = commands.add_parser(
+            "compare-review", help="the facts reviewer against claim checking, on a finished document"
+        )
+        compare.add_argument("config", help="the project's YAML configuration")
+        compare.add_argument("--root", required=True, help="directory holding the project's log and levels")
+        compare.add_argument("--reference", default="referee", help="the audit's model, of another family")
+        compare.add_argument("--reviewer", default="gpt-sol", help="the facts reviewer's model")
+        compare.add_argument("--checker", default="haiku55", help="the claim checker's model")
+        compare.add_argument("--embeddings", default="ollama:nomic-embed-text", help="for retrieval")
+        compare.add_argument("--query-prefix", default="search_query: ", help="the embedding model's")
+        compare.add_argument("--document-prefix", default="search_document: ", help="the embedding model's")
+        compare.add_argument("--k", type=int, default=6, help="passages given with each claim")
+        compare.add_argument("--limit", type=int, default=None, help="only the first N cited statements")
+        compare.add_argument("--out", help="a JSON file for every verdict, to read disagreements later")
 
         traced = commands.add_parser("questions", help="a document's hidden questions, score by score")
         traced.add_argument("config", help="the project's YAML configuration")

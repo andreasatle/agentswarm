@@ -1,11 +1,14 @@
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
-from agentswarm.core.config import ReviewConfig
+from agentswarm.core.config import ClaimsConfig, ReviewConfig
 from agentswarm.core.domain import Attacked, Escalated, Event, Perspective, Scored, Sized, TeamName
+from agentswarm.evaluation.citations import Support
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
+from agentswarm.teams.claims import ClaimChecker, ClaimVerdict, WholeParts
 from agentswarm.teams.referee import FindingAnswer, FindingRequest, Referee
 from agentswarm.teams.review import Evidence, ReviewCampaign, ReviewFinding, ReviewFindings, ReviewRequest
 from tests.support.harness import Harness
@@ -43,6 +46,7 @@ class Review:
         reviewer: list[Step[BaseModel]],
         referee: list[Step[BaseModel]],
         perspectives: tuple[Perspective, ...] = (Perspective.FACTS,),
+        checker: list[Step[BaseModel]] | None = None,  # the claim checker's script, for `claims`
     ) -> None:
         tmp_path.mkdir(parents=True, exist_ok=True)
         self.h = Harness(tmp_path)
@@ -55,7 +59,9 @@ class Review:
         level.remove()
         self.reviewer = FakeWorker(reviewer)
         self.referee = FakeWorker(referee)
-        config = ReviewConfig(model="rev", referee="ref", perspectives=perspectives)
+        self.checker = FakeWorker(checker or [])
+        claims = ClaimsConfig(model="cheap") if checker is not None else None
+        config = ReviewConfig(model="rev", referee="ref", perspectives=perspectives, claims=claims)
         self.campaign = ReviewCampaign(
             config,
             Harness.NORTH_STAR,
@@ -65,6 +71,7 @@ class Review:
             ArtifactFactory(self.h.board, Harness.LADDER),
             self.reviewer,
             Referee(self.referee, "deepseek", ()),
+            claims=ClaimChecker(self.checker, WholeParts()) if checker is not None else None,
         )
 
     def events(self) -> list[Event]:
@@ -174,3 +181,43 @@ class TestMaterial:
         assert isinstance(request, ReviewRequest)
         assert [m.name for m in request.material] == ["p1"] and "97.1% accuracy" in request.material[0].text
         assert request.document == ""  # the whole document only for the consistency perspective
+
+
+def claim(support: Support, quote: str = "") -> Step[BaseModel]:
+    def step(toolbox: Toolbox | None) -> BaseModel:
+        return ClaimVerdict(reason="the paper reports 97.1%", support=support, source_quote=quote)
+
+    return step
+
+
+class TestClaims:
+    async def test_each_cited_statement_is_checked_and_the_unsupported_go_to_the_referee(
+        self, tmp_path: Path
+    ) -> None:
+        r = Review(
+            tmp_path,
+            [],
+            [ruling(True), ruling(True)],
+            perspectives=(Perspective.CLAIMS,),
+            checker=[
+                claim(Support.UNSUPPORTED, "reaches 97.1% accuracy on the test set"),
+                claim(Support.SUPPORTED),
+            ],
+        )
+        assert await r.campaign.step() == 1
+        attacked = r.attacked()
+        assert (attacked.focus, attacked.reported, attacked.confirmed) == ("claims", 1, 1)
+        assert not r.reviewer.calls  # the expensive reviewer is never asked
+        assert len(r.checker.calls) == 2  # one call per cited statement
+        ruled = r.referee.calls[0][1]
+        assert isinstance(ruled, FindingRequest)
+        assert [(e.file, e.quote) for e in ruled.evidence] == [
+            ("sections/01-tagging.md", "The tagger reaches 99% accuracy [@p1]."),
+            ("sources/p1.md", "reaches 97.1% accuracy on the test set"),
+        ]
+        task = next(a for a in r.h.board.current().artifacts() if a.id == attacked.tasks[0])
+        assert "does not support this statement" in task.task
+
+    def test_the_claims_perspective_needs_a_checker_model(self) -> None:
+        with pytest.raises(ValueError, match="needs `claims:`"):
+            ReviewConfig(model="rev", referee="ref", perspectives=(Perspective.CLAIMS,))

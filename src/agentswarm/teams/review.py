@@ -32,10 +32,12 @@ from agentswarm.core.domain import (
     Sized,
     TeamName,
 )
+from agentswarm.evaluation.citations import Support
 from agentswarm.evaluation.score import Measure
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.analyzer import Quotes
 from agentswarm.teams.campaign import Campaign, Part
+from agentswarm.teams.claims import CheckedClaim, CitedStatement, ClaimChecker
 from agentswarm.teams.referee import FindingRequest, QuotedPassage, Referee
 from agentswarm.workspace.git import Repository, Worktree
 
@@ -131,6 +133,11 @@ document is finished as far as its writer knows. Find what is wrong with this se
             "Anything. Find whatever most needs fixing in this section for the brief and its reader. Quote "
             "the passage it is about."
         ),
+        Perspective.CLAIMS: (
+            "Claims. A cited statement that its source doesn't support, or supports only in part (it says "
+            "less, or something narrower). The statement is quoted from the section and, where one settles "
+            "it, the source passage."
+        ),
     }
     # Quotes the evidence must hold, at least: (from the document's sections, from the sources)
     NEEDS: ClassVar[dict[Perspective, tuple[int, int]]] = {
@@ -139,6 +146,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
         Perspective.READER: (1, 0),
         Perspective.CONSISTENCY: (2, 0),
         Perspective.GENERAL: (1, 0),
+        Perspective.CLAIMS: (1, 0),
     }
 
     def __init__(
@@ -153,8 +161,10 @@ document is finished as far as its writer knows. Find what is wrong with this se
         referee: Referee,
         budget: Budget | None = None,
         progress: Measure | None = None,
+        claims: ClaimChecker | None = None,  # checks each cited statement, for the `claims` perspective
     ) -> None:
         super().__init__(board, repository, ladder, config.quiet_rounds, budget, progress)
+        self._claims = claims
         self._config = config
         self._north_star = north_star
         self._artifacts = artifacts
@@ -226,7 +236,10 @@ document is finished as far as its writer knows. Find what is wrong with this se
             )
 
         try:
-            report = await self._worker.run(self.INSTRUCTIONS, request, ReviewFindings)
+            if focus is Perspective.CLAIMS:
+                report = await self.claim_findings(worktree, part)
+            else:
+                report = await self._worker.run(self.INSTRUCTIONS, request, ReviewFindings)
         except WorkerError as error:
             return [attacked(0, (), (f"the reviewer failed: {error}",), failed=True)]
         found = report.findings[: self._config.max_findings]
@@ -270,6 +283,43 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 Sized(artifact=task, fits=True)
             )  # one section's revision: the writer tries it whole
         return [*events, attacked(len(found), tasks, dropped, findings, rejections)]
+
+    async def claim_findings(self, worktree: Worktree, part: Part) -> ReviewFindings:
+        """Every cited statement of the section checked on its own; the unsupported first, then the partly."""
+        if self._claims is None:
+            raise WorkerError("the `claims` perspective has no claim checker")
+        folder = f"{self._config.sources}/"
+        sources: dict[str, str] = {}
+        for file in worktree.files():
+            if file.startswith(folder) and file.endswith(".md"):
+                try:
+                    sources[file.removeprefix(folder).removesuffix(".md")] = worktree.read(file)
+                except (OSError, UnicodeDecodeError, ValueError):
+                    continue
+        checked = await self._claims.check(CitedStatement.all_in(part.title, part.text), sources)
+        flagged = [c for c in checked if c.support is Support.UNSUPPORTED] + [
+            c for c in checked if c.support is Support.PARTLY
+        ]
+        return ReviewFindings(
+            summary=f"{len(checked)} cited statements checked, {len(flagged)} not fully supported",
+            findings=tuple(self.claim_finding(c) for c in flagged),
+        )
+
+    def claim_finding(self, checked: CheckedClaim) -> ReviewFinding:
+        statement = checked.statement
+        evidence = [Evidence(file=statement.file, quote=statement.text)]
+        if checked.source is not None and checked.source_quote:
+            evidence.append(
+                Evidence(file=f"{self._config.sources}/{checked.source}.md", quote=checked.source_quote)
+            )
+        cited = ", ".join(c.name for c in statement.citations)
+        verb = "does not support" if checked.support is Support.UNSUPPORTED else "supports only part of"
+        return ReviewFinding(
+            title=f"{checked.support}: {statement.claim()[:80]}",
+            problem=f"The cited source ({cited}) {verb} this statement: {checked.reason}",
+            fix="State only what the source says, or cite the source that says it.",
+            evidence=tuple(evidence),
+        )
 
     MATERIAL_LIMIT = 200_000  # characters of source text given with a review
 

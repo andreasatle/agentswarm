@@ -14,6 +14,7 @@ src/agentswarm/
   judging/     judge specs, threshold policy, deciders, decision log, calibration, tuning, audit (§12, §15)
   jev/         the Jev client and typed question specs
   llm/         chat models and workers: the only place LangChain is imported (§13)
+  retrieval/   hybrid search over a document's sources (keywords and vectors in one SQLite file)
   teams/       the team loop, executors, analyzers, decomposer, document teams, team catalog (§10)
   control/     plain-code controllers: finding router, supervisor, escalations, scheduler, budgets (§14)
   evaluation/  task suites with known answers, evaluation runs, mutation testing
@@ -36,7 +37,7 @@ New code goes in the subpackage whose responsibility it shares; a new subpackage
 - **Inject dependencies through constructors.** Swappable parts (deciders, workers, clocks, git) are `Protocol`s with a real implementation and a fake.
 - **Typed end to end.** Pydantic models for data, `StrEnum` for closed sets. No string parsing, no dict indexing with hand-written keys.
 - **Tests are grouped in classes**, one `Test<Subject>` per class under test.
-- **LangChain and LangGraph stay in `agentswarm/llm/`** (`models.py`, `workers.py`), with one exception: `pipeline/graph.py` builds the document run's LangGraph graph (the user, 2026-11-01: a fixed workflow that pauses for a person, and a learning goal). The rest of the code sees only our own interfaces and Pydantic models. Those files may relax pyright's `reportUnknown*` rules with a file-level comment; nowhere else.
+- **LangChain and LangGraph stay in `agentswarm/llm/`** (`models.py`, `workers.py`, `embeddings.py`), with one exception: `pipeline/graph.py` builds the document run's LangGraph graph (the user, 2026-11-01: a fixed workflow that pauses for a person, and a learning goal). The rest of the code sees only our own interfaces and Pydantic models. Those files may relax pyright's `reportUnknown*` rules with a file-level comment; nowhere else.
 - **Provider agnostic.** Never hard-code a model provider. Models are chosen in the project config as `"<provider>:<model>"` and built with `init_chat_model`; provider packages are optional extras.
 
 ## Deferred work

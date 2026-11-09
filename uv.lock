@@ -32,6 +32,9 @@ ollama = [
 openai = [
     { name = "langchain-openai" },
 ]
+retrieval = [
+    { name = "sqlite-vec" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -60,9 +63,10 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "python-multipart", specifier = ">=0.0.33" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "sqlite-vec", marker = "extra == 'retrieval'", specifier = ">=0.1.9" },
     { name = "uvicorn", specifier = ">=0.54.0" },
 ]
-provides-extras = ["ollama", "openai", "anthropic"]
+provides-extras = ["ollama", "openai", "anthropic", "retrieval"]
 
 [package.metadata.requires-dev]
 dev = [

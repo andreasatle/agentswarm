@@ -323,6 +323,22 @@ class BriefConfig(Strict):
     approve: bool = True  # pause after the brief, for the user to read it and `agentswarm resume`
 
 
+class RetrievalConfig(Strict):
+    """Hybrid search over the sources (retrieval/passages.py), for checking a claim on a few passages."""
+
+    embeddings: str = Field(pattern=r"^[A-Za-z0-9_\-]+:.+$")  # e.g. "ollama:nomic-embed-text" (local, free)
+    k: int = Field(default=6, gt=0)  # passages given with each claim
+    query_prefix: str = ""  # a task prefix the embedding model was trained with, e.g. "search_query: "
+    document_prefix: str = ""  # e.g. "search_document: "
+
+
+class ClaimsConfig(Strict):
+    """Each cited statement checked against its source by a cheap model (teams/claims.py)."""
+
+    model: str  # a name in `models`
+    retrieval: RetrievalConfig | None = None  # None: the cited part whole (its named page and neighbours)
+
+
 class ReviewConfig(Strict):
     """Reviewers attack a finished document, one section and perspective at a time, until a round confirms
     nothing new (docs/design/documents.md). Each confirmed finding becomes a writer's task."""
@@ -341,6 +357,13 @@ class ReviewConfig(Strict):
     max_findings: int = Field(default=3, ge=1)  # findings taken from one review
     quiet_rounds: int = Field(default=2, ge=1)
     max_model_calls: int = Field(default=30, gt=0)  # per review
+    claims: ClaimsConfig | None = None  # how the `claims` perspective checks each cited statement
+
+    @model_validator(mode="after")
+    def _claims_configured(self) -> Self:
+        if Perspective.CLAIMS in self.perspectives and self.claims is None:
+            raise ValueError("the `claims` perspective needs `claims:` (the model that checks each claim)")
+        return self
 
 
 class SupervisorConfig(Strict):
@@ -558,7 +581,8 @@ class ProjectConfig(Strict):
                     "a project drafts a specification (`specify`) or a brief (`brief`), not both"
                 )
         if self.review is not None:
-            for model in (self.review.model, self.review.referee):
+            claims = self.review.claims
+            for model in (self.review.model, self.review.referee, *([claims.model] if claims else [])):
                 if model not in self.models:
                     raise ValueError(f"review uses undefined model {model!r}")
         if self.hardening is not None:
