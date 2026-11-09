@@ -371,6 +371,12 @@ class Resumed(Frozen):
         return None
 
 
+class OverBudget(Exception):
+    """A model call refused before it was made: its worst case would not fit what may still be spent (audit
+    A03). Not the model's failure and not the task's: the action stops, nothing is published, and the work
+    waits until the budget allows it (raised, or the next day)."""
+
+
 class Usage(Frozen):
     """Tokens one model call (or a run of them) used.
 

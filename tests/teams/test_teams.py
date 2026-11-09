@@ -9,6 +9,7 @@ from agentswarm.core.domain import (
     EscalationResolved,
     Event,
     Level,
+    Paused,
     Resolution,
     TeamName,
 )
@@ -59,6 +60,20 @@ class TestTeamRunner:
         h.push(artifact, {"a.txt": "a"})  # something new happened to the artifact
         assert await runner.step() == 1
         assert len(team.acted) == 2
+
+    async def test_an_action_that_pauses_the_project_stops_the_rest_of_the_step(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+
+        class Pausing(RecordingTeam):
+            async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+                await super().act(ctx, worktree)
+                return [Paused(reason="the model provider is unavailable")]
+
+        team = Pausing()
+        for artifact in (Samples.A, Samples.B):
+            h.create(artifact)
+        assert await h.runner(team).step() == 1  # audit A06: the second candidate waits for Resumed
+        assert [ctx.artifact.id for ctx in team.acted] == [Samples.A]
 
     async def test_parked_and_dropped_artifacts_are_left_alone(self, tmp_path: Path) -> None:
         h = Harness(tmp_path)

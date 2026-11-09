@@ -18,6 +18,7 @@ from agentswarm.core.domain import (
     ArtifactId,
     Event,
     Level,
+    OverBudget,
     ProjectId,
     TeamName,
 )
@@ -94,12 +95,15 @@ class TeamRunner:
 
     async def step(self) -> int:
         """Act on every artifact that needs this team. Returns how many it acted on."""
-        if self._team.pausable and self._board.current().paused:
-            return 0  # nothing is marked handled, so the work is picked up after Resumed
         acted = 0
         for artifact in self._candidates():
+            # Checked before every action, not once per step (audit A06): an action that paused the project
+            # or spent the budget stops the rest of this step's batch too. Nothing is marked handled, so
+            # the work is picked up after Resumed, or when the budget allows it.
+            if self._team.pausable and self._board.current().paused:
+                break
             if self._budget is not None and self._budget.exhausted(self._board.current()):
-                break  # checked before every action, not once per step; the rest waits for tomorrow
+                break
             if await self._handle(artifact):
                 acted += 1
         return acted
@@ -146,6 +150,11 @@ class TeamRunner:
                     else:
                         async with self._scheduler.model_call(self._project):
                             events = await self._team.act(ctx, worktree)
+            except OverBudget as refused:
+                # A model call didn't fit the budget (audit A03): the action's work is dropped unpublished,
+                # and the artifact waits, unhandled, until the budget allows it; the supervisor reports why.
+                self._log.warning("%s: %s stopped: %s", artifact.id, self._team.name, refused)
+                return False
             finally:
                 worktree.remove()
             published = self._claims.publish(claim, version, events)

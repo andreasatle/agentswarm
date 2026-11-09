@@ -18,18 +18,17 @@ Details live in the docs named.
 - **Research on cheaper review** (docs/RESEARCH.md section 14): long context still reads slightly better than retrieval at our input sizes; the established cheap structure for checking a text against sources is claim by claim (split, retrieve per claim, verify with a small model such as MiniCheck), with a fallback to the full source (Self-Route). Not decided.
 
 - **Audit A04 done (2026-11-09):** each executor attempt's spend carries the attempt's id, so the router learns each attempt's real cost.
+- **Audit A03 and A06 done (2026-11-09):** every model call is admitted against the budget first with its worst case, so an approved budget is a cap (a refused call's work waits, and the supervisor says why); the runner rechecks pause and budget before every action. Open: nothing is reserved while a call runs, so concurrent runs can share headroom (BACKLOG.md).
 
 ## Measured weak spots
 
 - **Citations:** about 75% of cited statements fully supported after one facts review (65% before); most of the rest overstate.
 - **Downloads:** publishers refuse most programs; on sleep and memory none of five picks downloaded, the user fetched them by hand. Repository copies (PubMed Central, arXiv) are reliable; "bronze" open access is not. Goal 14 is the real fix.
-- **Budget checks** happen between stages and attempts, not before each model call, so a run can overshoot its cap (one trial: estimated $0.30, cost $2.16).
 
 ## Open, in order
 
-1. **Audit A03 (with A06):** every model call admitted against the run's budget first, reserving its worst case, so an approved budget is a hard cap.
-2. **Cheaper runs:** rank the savings from the spend data; candidates are the reviewers (claim-level checking with retrieval, or a cheaper model) and routing. Measured on an existing run before any change, each paid step approved first.
-3. **Later:** the rest of A02 (product code in the test process) when there is any sign of tampering; A05; goal 14 (research from the open web); stage 4, when a swarm is competitive (waits until the framework behaves well).
+1. **Cheaper runs:** rank the savings from the spend data; candidates are the reviewers (claim-level checking with retrieval, or a cheaper model) and routing. Measured on an existing run before any change, each paid step approved first.
+2. **Later:** the rest of A02 (product code in the test process) when there is any sign of tampering; A05; goal 14 (research from the open web); stage 4, when a swarm is competitive (waits until the framework behaves well).
 
 ## Standing rules to remember
 

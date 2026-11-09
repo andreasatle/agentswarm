@@ -9,7 +9,7 @@ works. `FakeWorker` follows a script and needs no model.
 """
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any, ClassVar, Protocol
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware
@@ -26,10 +26,21 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ValidationError
 
 from agentswarm.core.config import Price
-from agentswarm.core.domain import Usage
+from agentswarm.core.domain import OverBudget, Usage
 from agentswarm.llm.models import ChatModels
 
 type Meter = Callable[[Usage], None]  # told the token usage of a run (see board/spend.py)
+
+
+@runtime_checkable
+class AdmittingMeter(Protocol):
+    """A meter that also admits each model call before it is made (board/spend.py `LedgerMeter`)."""
+
+    def __call__(self, usage: Usage) -> None: ...
+
+    def admit(self, usd: float) -> None:
+        """Raise OverBudget when a call that could cost `usd` at most wouldn't fit."""
+        ...
 
 
 class WorkerError(Exception):
@@ -155,6 +166,8 @@ class LangChainWorker:
             # differently (the check writer's files ran past 32k tokens of thinking and code, 2026-10-14).
             kind = CutOff if Stops.at_limit(getattr(error, "ai_message", None)) else InvalidAnswer
             raise kind(f"{type(error).__name__}: {error}") from error
+        except OverBudget:
+            raise  # refused before the call: not the model's failure (the meter's budget, audit A03)
         except Exception as error:  # provider failures surface as many types
             if ProviderUnavailable.describes(error):
                 raise ProviderUnavailable(f"{type(error).__name__}: {error}") from error
@@ -195,6 +208,7 @@ class LangChainWorker:
             # but some refuse to be made to call one (Sonnet 5.5): those keep their native typed answer.
             response_format=output if self._native else ToolStrategy(output),
             middleware=[
+                Admitting(self.admission(), tokens, Prompts.system(instructions)),
                 ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
                 *([Trimming(self._price, self._context_window, self._max_model_calls)] if self._trim else []),
                 *self.caching(),
@@ -220,6 +234,7 @@ class LangChainWorker:
         cut = False
         for _ in range(self.FINAL_ANSWER_TRIES):
             tokens = Tokens()
+            self.admission().check(prompt, Usage())
             try:
                 reply = await structured.ainvoke(prompt, config={"callbacks": [tokens]})
             finally:
@@ -235,6 +250,9 @@ class LangChainWorker:
         assert error is not None
         kind = CutOff if cut else InvalidAnswer
         raise kind(f"{type(error).__name__}: {error}") from error
+
+    def admission(self) -> "Admission":
+        return Admission(self._meter, self._price, self._model)
 
     def _report(self, usage: Usage) -> None:
         if self._meter is not None:
@@ -336,6 +354,53 @@ class Trimming(AgentMiddleware[Any, Any]):
         handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
     ) -> ModelResponse[Any] | AIMessage:
         return await handler(request.override(messages=self.trimmed(request.messages)))
+
+
+class Admission:
+    """Asks the meter's budget before every model call of a run (audit A03), with the most the call could
+    cost: what the run has used so far and not yet reported, plus this call's input at the full input price
+    and its whole output allowance. Unpriced models (local ones) are always admitted."""
+
+    OUTPUT_IF_UNKNOWN: ClassVar[int] = 8_192  # the output allowance when the model doesn't say its own
+
+    def __init__(self, meter: Meter | None, price: Price | None, model: BaseChatModel) -> None:
+        self._meter = meter if isinstance(meter, AdmittingMeter) else None
+        self._price = price
+        limit = getattr(model, "max_tokens", None)
+        self._output = limit if isinstance(limit, int) and limit > 0 else self.OUTPUT_IF_UNKNOWN
+
+    def check(self, messages: Sequence[BaseMessage], used: Usage) -> None:
+        if self._meter is None or self._price is None:
+            return
+        worst = Usage(input_tokens=count_tokens_approximately(messages), output_tokens=self._output)
+        self._meter.admit(self._price.usd_of(used) + self._price.usd_of(worst))
+
+
+class Admitting(AgentMiddleware[Any, Any]):
+    """The agent's side of `Admission`: every model call in the tool loop is admitted before it is made."""
+
+    def __init__(self, admission: Admission, tokens: "Tokens", system: str) -> None:
+        super().__init__()
+        self._admission = admission
+        self._tokens = tokens
+        self._system = SystemMessage(system)
+
+    def check(self, request: ModelRequest[Any]) -> None:
+        self._admission.check([self._system, *request.messages], self._tokens.usage)
+
+    def wrap_model_call(
+        self, request: ModelRequest[Any], handler: Callable[[ModelRequest[Any]], ModelResponse[Any]]
+    ) -> ModelResponse[Any] | AIMessage:
+        self.check(request)
+        return handler(request)
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest[Any],
+        handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
+    ) -> ModelResponse[Any] | AIMessage:
+        self.check(request)
+        return await handler(request)
 
 
 class Tokens(BaseCallbackHandler):

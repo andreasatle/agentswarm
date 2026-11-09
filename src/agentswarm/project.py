@@ -22,7 +22,7 @@ from agentswarm.control.supervisor import Supervisor
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ProjectConfig, SpendLimits
-from agentswarm.core.domain import Artifact, Level, ProjectId, TeamName, Usage
+from agentswarm.core.domain import Artifact, Level, OverBudget, ProjectId, TeamName, Usage
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionProgress, QuestionScore
 from agentswarm.evaluation.score import Measure, Progress
 from agentswarm.gating.checks import CheckSet, CommandCheck, RatchetCheck
@@ -188,7 +188,7 @@ class Project:
         routes = any(t.routing for t in config.teams)
         needs_judges = judged_gates or relevance_filters or decomposes or routes
         workers = services.workers or LangChainWorkers(ChatModels(config.models))
-        ledger = SpendLedger(board, shared, config.project, accounts)
+        ledger = SpendLedger(board, shared, config.project, accounts, budget)  # admits every model call
         if decider is None and needs_judges:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
@@ -386,13 +386,18 @@ class Project:
 
     async def step(self) -> int:
         """Run every team, gate and controller (outcome recorder included) once. Returns the actions taken."""
-        if self._specifier is not None and not self._specifier.done():
-            return await self._specifier.step()  # nothing is planned or built before the specification
         actions = 0
-        for runner in self._runners:
-            actions += await runner.step()
-        for campaign in self._campaigns:  # red teams and reviewers attack once the builders are idle
-            actions += await campaign.step()
+        try:
+            if self._specifier is not None and not self._specifier.done():
+                return await self._specifier.step()  # nothing is planned or built before the specification
+            for runner in self._runners:
+                actions += await runner.step()
+            for campaign in self._campaigns:  # red teams and reviewers attack once the builders are idle
+                actions += await campaign.step()
+        except OverBudget:
+            # A model call outside a team's action (the specification, a campaign) didn't fit the budget:
+            # the controllers below still run, so the supervisor reports it (audit A03).
+            pass
         # Gates, the router and the supervisor block (git, sandboxes, synchronous Jev): in a thread, so other
         # projects in the same process keep going meanwhile.
         actions += await asyncio.to_thread(self._publisher.recover)

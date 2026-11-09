@@ -3,13 +3,16 @@ import threading
 from datetime import timedelta
 from pathlib import Path
 
+import pytest
+
 from agentswarm.board.spend import SpendLedger
 from agentswarm.control.budget import Budget
 from agentswarm.control.scheduler import RateLimiter, Scheduler, SchedulerConfig
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.core.config import Price, ProjectConfig
-from agentswarm.core.domain import Escalated, ProjectId, Usage
+from agentswarm.core.domain import ArtifactContext, Escalated, Event, OverBudget, ProjectId, Usage
 from agentswarm.teams.executor import FakeExecutor
+from agentswarm.workspace.git import Worktree
 from agentswarm.workspace.sandbox import LocalSandbox
 from tests.support.harness import Harness
 from tests.support.samples import Samples
@@ -122,3 +125,56 @@ class TestBudget:
         assert supervisor.step() == 0
         escalations = [e.event for e in s.h.log.read() if isinstance(e.event, Escalated)]
         assert escalations[0].artifact is None and "budget exhausted: $5.00 of $5.00" in escalations[0].reason
+
+
+class TestAdmission:
+    """Audit A03: every model call is admitted against the budget before it is made."""
+
+    def test_a_call_whose_worst_case_fits_is_admitted_and_one_that_doesnt_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        s = Spending(tmp_path, usd=4)
+        budget = Budget(5.0, s.h.clock)
+        budget.admit(s.h.board.current(), 1.0)  # $4 + $1 fits $5 exactly
+        with pytest.raises(OverBudget, match=r"needing up to \$1.50 won't fit \(\$4.00 of \$5.00"):
+            budget.admit(s.h.board.current(), 1.5)
+
+    def test_a_refusal_stops_new_actions_for_the_day_and_the_supervisor_says_why(
+        self, tmp_path: Path
+    ) -> None:
+        s = Spending(tmp_path, usd=4)
+        budget = Budget(5.0, s.h.clock)
+        assert not budget.exhausted(s.h.board.current())
+        with pytest.raises(OverBudget):
+            budget.admit(s.h.board.current(), 2.0)
+        assert budget.exhausted(s.h.board.current())  # though $1 is left: the last call needed more
+        assert "won't fit" in budget.describe(s.h.board.current())
+        s.h.clock.advance(timedelta(days=1))
+        assert not budget.exhausted(s.h.board.current())
+
+    def test_the_ledger_admits_through_its_budget_and_without_one_admits_everything(
+        self, tmp_path: Path
+    ) -> None:
+        s = Spending(tmp_path, usd=4)
+        with pytest.raises(OverBudget):
+            SpendLedger(s.h.board, budget=Budget(5.0, s.h.clock)).meter("writer", "m", None).admit(2.0)
+        SpendLedger(s.h.board).meter("writer", "m", None).admit(2.0)
+
+    async def test_a_refused_action_publishes_nothing_and_waits_unhandled(self, tmp_path: Path) -> None:
+        s = Spending(tmp_path, usd=0)
+        s.h.create()
+
+        class Refused(FakeExecutor):
+            calls = 0
+
+            async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+                Refused.calls += 1
+                if Refused.calls == 1:
+                    raise OverBudget("budget: a model call won't fit")
+                return await super().act(ctx, worktree)
+
+        runner = s.h.runner(Refused(Samples.RAW))
+        assert await runner.step() == 0
+        history = [type(e).__name__ for e in s.h.board.current().history(Samples.A)]
+        assert history == ["ArtifactCreated", "Claimed", "Released"]  # nothing of the action's was published
+        assert await runner.step() == 1  # not marked handled: tried again once the budget allows it

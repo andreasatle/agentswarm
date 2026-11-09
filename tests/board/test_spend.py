@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
@@ -10,7 +11,7 @@ from agentswarm.board.eventlog import InMemoryEventLog
 from agentswarm.board.spend import SpendLedger, SpendScope
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import Price
-from agentswarm.core.domain import Spent, Usage
+from agentswarm.core.domain import OverBudget, Spent, Usage
 from agentswarm.llm.workers import LangChainWorker, Tokens, WorkerError
 from tests.support.fakes import FakeToolModel
 from tests.support.samples import Samples
@@ -137,3 +138,65 @@ class TestBilledCost:
         )
         (spent,) = ledger.spent()
         assert not spent.billed and spent.usd == 1.0
+
+
+class Gatekeeper:
+    """An admitting meter: records what it hears and what it was asked to admit; refuses from a call on."""
+
+    def __init__(self, refuse_from: int | None = None) -> None:
+        self.heard: list[Usage] = []
+        self.asked: list[float] = []
+        self._refuse_from = refuse_from
+
+    def __call__(self, usage: Usage) -> None:
+        self.heard.append(usage)
+
+    def admit(self, usd: float) -> None:
+        self.asked.append(usd)
+        if self._refuse_from is not None and len(self.asked) >= self._refuse_from:
+            raise OverBudget("budget: a model call won't fit")
+
+
+class Looking:
+    def tools(self) -> list[Callable[..., str]]:
+        return [self.look_around]
+
+    def look_around(self) -> str:
+        """Look around the workspace."""
+        return "a quiet room"
+
+
+class TestAdmission:
+    """Audit A03: a worker asks its meter before every model call, with what the call could cost at most."""
+
+    PRICE = Price(input=1, output=1)  # a dollar per million tokens
+
+    @staticmethod
+    def replies() -> list[AIMessage]:
+        usage = {"input_tokens": 100_000, "output_tokens": 1_000, "total_tokens": 101_000}
+        look = AIMessage(content="", tool_calls=[{"name": "look_around", "args": {}, "id": "c1"}])
+        answer = AIMessage(content="", tool_calls=[{"name": "Summary", "args": {"text": "done"}, "id": "c2"}])
+        return [look.model_copy(update={"usage_metadata": usage}), answer]
+
+    def worker(self, meter: Gatekeeper, price: Price | None) -> LangChainWorker:
+        model = FakeToolModel(messages=iter(self.replies()))
+        return LangChainWorker(model, meter=meter, price=price)
+
+    async def test_each_call_is_admitted_with_the_run_so_far_plus_its_worst_case(self) -> None:
+        meter = Gatekeeper()
+        await self.worker(meter, self.PRICE).run("Do it.", Request(task="t"), Summary, Looking())
+        first, second = meter.asked
+        assert first > 0
+        # the second call's worst case includes the first call's $0.101, which wasn't reported yet
+        assert second - first > 0.1
+
+    async def test_a_refused_call_stops_the_run_as_over_budget_not_as_a_model_failure(self) -> None:
+        meter = Gatekeeper(refuse_from=2)
+        with pytest.raises(OverBudget):
+            await self.worker(meter, self.PRICE).run("Do it.", Request(task="t"), Summary, Looking())
+        assert [u.input_tokens for u in meter.heard] == [100_000]  # the call that was made is still recorded
+
+    async def test_unpriced_models_are_not_asked(self) -> None:
+        meter = Gatekeeper(refuse_from=1)
+        await self.worker(meter, None).run("Do it.", Request(task="t"), Summary, Looking())
+        assert meter.asked == []

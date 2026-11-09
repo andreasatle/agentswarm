@@ -11,6 +11,7 @@ from contextvars import ContextVar
 from typing import ClassVar
 
 from agentswarm.board.blackboard import Blackboard
+from agentswarm.control.budget import Budget
 from agentswarm.control.limits import SharedSpend
 from agentswarm.core.config import Price
 from agentswarm.core.domain import ArtifactId, Spent, Usage
@@ -69,6 +70,26 @@ class SpendScope:
         return cls._current.get()
 
 
+class LedgerMeter:
+    """One team's meter for one model: records the usage it is told, and admits each model call first.
+
+    A worker asks `admit` before every paid call with what the call could cost at most; the ledger's budget
+    refuses it (OverBudget) when that wouldn't fit (audit A03). Without a budget everything is admitted.
+    """
+
+    def __init__(self, ledger: "SpendLedger", by: str, model: str, price: Price | None) -> None:
+        self._ledger = ledger
+        self._by = by
+        self._model = model
+        self._price = price
+
+    def __call__(self, usage: Usage) -> None:
+        self._ledger.record(self._by, self._model, usage, self._price)
+
+    def admit(self, usd: float) -> None:
+        self._ledger.admit(usd)
+
+
 class SpendLedger:
     def __init__(
         self,
@@ -76,15 +97,22 @@ class SpendLedger:
         shared: SharedSpend | None = None,  # the machine-wide ledger the limits are checked against
         project: str = "",
         accounts: Mapping[str, str] | None = None,  # model name -> who bills it, e.g. "openrouter.ai"
+        budget: Budget | None = None,  # admits every model call against the project's and machine's limits
     ) -> None:
         self._board = board
         self._shared = shared
         self._project = project
         self._accounts = dict(accounts or {})
+        self._budget = budget
 
-    def meter(self, by: str, model: str, price: Price | None) -> Meter:
-        """A callback for one team's worker (or one decision point): records each usage it is given."""
-        return lambda usage: self.record(by, model, usage, price)
+    def meter(self, by: str, model: str, price: Price | None) -> LedgerMeter:
+        """The meter for one team's worker (or one decision point): records each usage it is given."""
+        return LedgerMeter(self, by, model, price)
+
+    def admit(self, usd: float) -> None:
+        """Refuse (OverBudget) a model call whose worst case `usd` wouldn't fit the budget."""
+        if self._budget is not None and usd > 0:
+            self._budget.admit(self._board.current(), usd)
 
     def record(self, by: str, model: str, usage: Usage, price: Price | None) -> None:
         if usage.input_tokens == 0 and usage.output_tokens == 0:
