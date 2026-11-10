@@ -500,9 +500,9 @@ class TavilySearch(Fetching):
     def candidate(self, result: TavilyResult) -> Candidate:
         site = (urllib.parse.urlparse(result.url).hostname or result.url).removeprefix("www.")
         dated = re.match(r"\d{4}", result.published_date or "")
-        arxiv = re.search(r"arxiv\.org/(?:abs|pdf|html)/(\d{2})\d{2}\.\d{4,5}", result.url)
+        arxiv = re.search(r"arxiv\.org/(?:abs|pdf|html)/((\d{2})\d{2}\.\d{4,5})", result.url)
         if arxiv and dated is None:  # an arXiv id starts with its year and month: 2001.08361 is 2020
-            dated = re.match(r"\d{4}", f"20{arxiv.group(1)}")
+            dated = re.match(r"\d{4}", f"20{arxiv.group(2)}")
         return Candidate(
             id=f"web:{result.url}",
             title=" ".join(result.title.split()) or result.url,
@@ -510,11 +510,17 @@ class TavilySearch(Fetching):
             year=int(dated.group(0)) if dated else self._year,
             abstract=" ".join(result.content.split()),
             site=site,
-            kind="txt",
+            # An arXiv page is the paper's abstract: the paper itself is its PDF, which arXiv lets programs
+            # download (2026-11-10: Kaplan et al. came as 7 KB of abstract page)
+            kind="pdf" if arxiv else "txt",
+            pdfs=(ArxivSearch.PDF.format(id=arxiv.group(1)),) if arxiv else (),
             page=result.url,
         )
 
     def download(self, paper: Candidate, path: Path) -> None:
+        if paper.pdfs:
+            Fetching.download(self, paper, path)
+            return
         extracted = TavilyExtracted.model_validate_json(
             self.post("/extract", TavilyExtract(urls=[paper.page]))
         )

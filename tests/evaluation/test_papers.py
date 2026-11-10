@@ -417,6 +417,9 @@ class TestTavilySearch:
         ).encode()
         (kaplan,) = Answering({"/search": answer}).search("scaling laws", 3)
         assert kaplan.year == 2020
+        assert kaplan.kind == "pdf" and kaplan.pdfs == (
+            "https://arxiv.org/pdf/2001.08361",
+        )  # the paper itself
 
     def test_without_a_key_it_says_which_one_is_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(TavilySearch.KEY, raising=False)
