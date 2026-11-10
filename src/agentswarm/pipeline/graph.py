@@ -25,7 +25,7 @@ from langgraph.types import Command, interrupt
 
 from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.pipeline.policy import Policy
-from agentswarm.pipeline.run import Answer, Choice, DocumentRun, Question, RunRequest, RunView, Stage
+from agentswarm.pipeline.run import Answer, Choice, DocumentRun, Question, RunRequest, RunView, Stage, Working
 from agentswarm.pipeline.stages import Stages
 
 type Update = dict[str, Any]
@@ -111,6 +111,8 @@ class DocumentPipeline:
         if blocked is not None:
             return blocked
         written = self.apart(self._stages.writing.write, run, self._policy, self.left(run))
+        if written.held is not None:
+            return self.cut_short(run, "write", written.held)
         if written.document is None:
             raise RuntimeError("the writing left no sections; nothing to check or publish")
         note = f"written: {written.sections} sections" + (
@@ -145,6 +147,8 @@ class DocumentPipeline:
         if blocked is not None:
             return blocked
         written = self.apart(self._stages.checking.review, run, self._policy, self.left(run))
+        if written.held is not None:
+            return self.cut_short(run, "review", written.held)
         if written.document is None:
             raise RuntimeError("the review left no sections; nothing to check or publish")
         note = f"review {run.reviews + 1} done" + (
@@ -155,6 +159,17 @@ class DocumentPipeline:
             "document": written.document,
             "reviews": run.reviews + 1,
             "notes": (*run.notes, note),
+        }
+
+    @staticmethod
+    def cut_short(run: DocumentRun, step: Literal["write", "review"], held: str) -> Update:
+        """A step a limit refused partway: the run waits at the budget question, to be retried once the
+        limit allows (a machine-wide limit resets at midnight UTC), not carried on as if it were done."""
+        return {
+            "blocked": step,
+            "need": 0.0,
+            "held": held,
+            "notes": (*run.notes, f"{step} stopped short: {held}"),
         }
 
     def checked(self, run: DocumentRun) -> Update:
@@ -220,15 +235,24 @@ class DocumentPipeline:
 
     def budget(self, run: DocumentRun) -> Update:
         spent = self._stages.spending.spent(run)
-        answer = self.ask(
-            Question(
+        if run.held is not None:
+            question = Question(
+                title="A spending limit stopped the run",
+                details=f"Spent ${spent:.2f} of ${run.request.budget:.2f}. The {run.blocked} step stopped "
+                f"short: {run.held}. Retry it once the limit allows (a machine-wide limit resets at "
+                "midnight UTC), raise the run's budget if that is the limit, or stop.",
+                choices=(Choice.RETRY, Choice.BUDGET, Choice.STOP),
+            )
+        else:
+            question = Question(
                 title="The budget would run out",
                 details=f"Spent ${spent:.2f} of ${run.request.budget:.2f}; the next step ({run.blocked}) is "
                 f"expected to cost about ${run.need:.2f}. Raise the budget to go on, or stop.",
                 choices=(Choice.BUDGET, Choice.STOP),
             )
-        )
+        answer = self.ask(question)
         update = self.answered(run, answer)
+        update["held"] = None
         if answer.choice is Choice.BUDGET and answer.budget is not None:
             update["request"] = run.request.model_copy(update={"budget": answer.budget})
         return update
@@ -299,7 +323,8 @@ class DocumentPipeline:
     def start(self, request: RunRequest, folder: Path) -> DocumentRun:
         if self.exists(request.name):
             raise ValueError(f"a run named {request.name!r} exists already: `agentswarm runs`")
-        self._graph.invoke(DocumentRun(request=request, folder=folder), self.config(request.name))
+        with Working(folder):
+            self._graph.invoke(DocumentRun(request=request, folder=folder), self.config(request.name))
         return self.run(request.name)
 
     def check(self, name: str, answer: Answer) -> None:
@@ -307,6 +332,8 @@ class DocumentPipeline:
         studio answers at once before handing the step to the background."""
         if not self.exists(name):
             raise ValueError(f"no run named {name!r}")
+        if self.running(name):
+            raise ValueError(f"{name} is running a step now: answer it once that step ends")
         question = self.waiting(name)
         if question is None:
             if self.failed(name) is not None and answer.choice is Choice.RETRY:
@@ -323,10 +350,11 @@ class DocumentPipeline:
 
     def answer(self, name: str, answer: Answer) -> DocumentRun:
         self.check(name, answer)
-        if self.waiting(name) is None:  # a retry of the step that failed
-            self._graph.invoke(None, self.config(name))
-        else:
-            self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
+        with Working(self.run(name).folder):
+            if self.waiting(name) is None:  # a retry of the step that failed
+                self._graph.invoke(None, self.config(name))
+            else:
+                self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
         return self.run(name)
 
     @staticmethod
@@ -343,8 +371,13 @@ class DocumentPipeline:
         snapshot = self._graph.get_state(self.config(name))
         if not snapshot.next or any(task.interrupts for task in snapshot.tasks):
             return None
+        if self.running(name):
+            return None  # in progress in another process, not stopped
         errors = [f"{task.name}: {task.error}" for task in snapshot.tasks if task.error]
         return errors[0] if errors else f"{snapshot.next[0]}: stopped before it finished"
+
+    def running(self, name: str) -> bool:
+        return Working(self.run(name).folder).active()
 
     def run(self, name: str) -> DocumentRun:
         snapshot = self._graph.get_state(self.config(name))
@@ -366,7 +399,13 @@ class DocumentPipeline:
         run, question = self.run(name), self.waiting(name)
         if question is not None and question.title == self.SOURCES_QUESTION:
             question = question.model_copy(update={"details": self.current(run, question.details)})
-        return RunView(run=run, spent=self.spent(name), question=question, failure=self.failed(name))
+        return RunView(
+            run=run,
+            spent=self.spent(name),
+            question=question,
+            failure=self.failed(name),
+            running=self.running(name),
+        )
 
     def report(self, name: str) -> str:
         """The run for the user: where it is, what it cost, what happened, and what it waits for."""
@@ -381,6 +420,8 @@ class DocumentPipeline:
             lines.append(f"  document: {run.document}")
         if run.page is not None:
             lines.append(f"  page: {run.page}")
+        if view.running:
+            lines += ["", "RUNNING: a step is in progress; check again later (don't retry it)"]
         if failure is not None:
             lines += ["", f"STOPPED BY AN ERROR at {failure[:600]}", ""]
             lines.append(f"retry from that step: uv run agentswarm approve {name} --choice retry")
@@ -397,6 +438,8 @@ class DocumentPipeline:
         waits = f", waiting: {view.question.title.lower()}" if view.question is not None else ""
         if view.failure is not None:
             waits = ", stopped by an error (retry it)"
+        if view.running:
+            waits = ", running"
         run = view.run
         return f"{name:<28} {run.stage:<11} ${view.spent:.2f} of ${run.request.budget:.2f}{waits}"
 

@@ -98,7 +98,11 @@ class Project:
         progress: Measure | None = None,
         specifier: Specifier | Briefer | None = None,
         worker_for: Callable[[str, str], Worker] | None = None,
+        budget: Budget | None = None,
     ) -> None:
+        self._budget = (
+            budget  # this project's and the machine's spending limits, as every model call meets them
+        )
         self._worker_for = worker_for  # a metered worker for one of the project's models, by name and role
         self._specifier = specifier  # drafts the specification from the goal before anything is built
         self._worklist = worklist
@@ -375,6 +379,7 @@ class Project:
             progress,
             specifier,
             lambda model, role: workers.worker(model, 1, metered(role, model)),
+            budget,
         )
 
     @staticmethod
@@ -435,6 +440,12 @@ class Project:
         actions += await asyncio.to_thread(self._supervisor.step)
         actions += await asyncio.to_thread(self.outcomes.step)
         return actions
+
+    def held(self) -> str | None:
+        """Why no more work may start today (this project's budget, or a machine-wide limit), or None: a run
+        that went idle for this reason stopped short, it didn't finish (2026-11-10: the daily limit refused
+        the last section of an LLM-scaling analysis, and the pipeline went on as if it were written)."""
+        return self._budget.reason(self.board.current()) if self._budget is not None else None
 
     async def run_until_idle(self, max_rounds: int = 50) -> int:
         """Step until a round takes no action. Returns the number of rounds that took action."""

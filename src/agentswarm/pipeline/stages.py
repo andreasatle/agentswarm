@@ -39,6 +39,7 @@ class Written(Frozen):
     document: Path | None
     sections: int
     failed: tuple[str, ...]  # one line per failed section: its task and why
+    held: str | None = None  # why it stopped short: a budget or a machine-wide limit refused more work
 
 
 class Sources(Protocol):
@@ -235,9 +236,10 @@ class ProjectStage:
                 f"{e.artifact}: {e.reason.splitlines()[-1]}" for e in Escalations(project.board, None).open()
             )
             sections = len(list((level / "sections").glob("*.md")))
+            held = project.held()
         finally:
             project.close()
-        return Written(document=document, sections=sections, failed=failed)
+        return Written(document=document, sections=sections, failed=failed, held=held)
 
     def settle(self, run: DocumentRun, choice: Choice) -> None:
         config = ProjectConfig.load(run.project / "project.yaml")

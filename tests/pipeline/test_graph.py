@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from agentswarm.evaluation.papers import Candidate, Found, ReadingFolder
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
-from agentswarm.pipeline.run import Answer, AuditResult, Choice, DocumentRun, RunRequest, Stage
+from agentswarm.pipeline.run import Answer, AuditResult, Choice, DocumentRun, RunRequest, Stage, Working
 from agentswarm.pipeline.stages import Stages, Written
 
 
@@ -73,7 +73,10 @@ class ListingSources(FakeSources):
 class FakeProject:
     """Writes, fails sections as told, and audits with the shares given, one per audit."""
 
-    def __init__(self, ledger: Ledger, shares: list[int], failures: int = 0, empty: bool = False) -> None:
+    def __init__(
+        self, ledger: Ledger, shares: list[int], failures: int = 0, empty: bool = False, held: int = 0
+    ) -> None:
+        self._held = held  # writes a limit cuts short
         self._ledger = ledger
         self._empty = empty  # writes leave no sections, as the first real run's assembly did
         self._shares = shares  # fully supported of 20, per audit
@@ -88,6 +91,9 @@ class FakeProject:
         failed = ("a-0003: cites no source",) if self.writes <= self._failures else ()
         if self._empty:
             return Written(document=None, sections=0, failed=())
+        if self.writes <= self._held:
+            limit = "a model call won't fit the machine-wide limit: $4.84 of $5.00 spent today"
+            return Written(document=run.folder / "document.md", sections=9, failed=(), held=limit)
         return Written(document=run.folder / "document.md", sections=10, failed=failed)
 
     def settle(self, run: DocumentRun, choice: Choice) -> None:
@@ -278,3 +284,35 @@ class TestDocumentPipeline:
         with pytest.raises(RuntimeError, match="no cited statements"):
             runs.answer("sleep", Answer(choice=Choice.YES))
         assert project.reviews == 0
+
+
+class TestCutShort:
+    def test_a_step_a_limit_cuts_short_waits_to_be_retried_not_carried_on(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[19], held=1)
+        runs = pipeline(project, ledger)
+        runs.start(request(), tmp_path)
+        run = runs.answer("sleep", Answer(choice=Choice.YES))
+        question = runs.waiting("sleep")
+        assert question is not None and question.title == "A spending limit stopped the run"
+        assert "machine-wide limit" in question.details and Choice.RETRY in question.choices
+        assert run.audits == () and run.blocked == "write"  # nothing audited or reviewed on a cut-short draft
+        run = runs.answer("sleep", Answer(choice=Choice.RETRY))
+        assert project.writes == 2 and run.stage is Stage.PUBLISHING and run.held is None
+
+
+class TestRunning:
+    def test_a_step_running_elsewhere_reads_as_running_and_takes_no_answer(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        runs = pipeline(FakeProject(ledger, shares=[19]), ledger)
+        runs.start(request(), tmp_path)
+        assert not (tmp_path / Working.NAME).exists()  # the marker goes when the step ends
+        with Working(tmp_path):
+            assert runs.view("sleep").running and "running" in runs.line("sleep")
+            with pytest.raises(ValueError, match="running a step now"):
+                runs.answer("sleep", Answer(choice=Choice.YES))
+        assert not runs.view("sleep").running
+
+    def test_a_marker_left_by_a_dead_process_is_not_running(self, tmp_path: Path) -> None:
+        (tmp_path / Working.NAME).write_text("999999999")
+        assert not Working(tmp_path).active()
