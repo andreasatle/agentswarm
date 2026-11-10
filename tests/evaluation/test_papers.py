@@ -17,6 +17,8 @@ from agentswarm.evaluation.papers import (
     ReadingFolder,
     ReadingList,
     SearchQueries,
+    Standing,
+    TavilySearch,
     WebPage,
     WikipediaSearch,
 )
@@ -336,3 +338,108 @@ class TestWebPage:
         assert page.title == "Venice and its Lagoon - UNESCO World Heritage" and data.startswith(b"<html>")
         assert page.site == "whc.unesco.org" and page.download_name.endswith(".html")
         assert page.reference("x").url == "https://whc.unesco.org/en/list/394/"
+
+
+class Answering(TavilySearch):
+    """Tavily with canned answers: what it was asked, and no network."""
+
+    def __init__(self, answers: dict[str, bytes]) -> None:
+        super().__init__(key="test-key", year=2026)
+        self.asked: list[tuple[str, BaseModel]] = []
+        self._answers = answers
+
+    def post(self, path: str, body: BaseModel) -> bytes:
+        self.asked.append((path, body))
+        return self._answers[path]
+
+
+class TestTavilySearch:
+    RESULTS = json.dumps(
+        {
+            "results": [
+                {
+                    "url": "https://actv.avmspa.it/en/tickets",
+                    "title": "ACTV  Tickets",
+                    "content": "Fares  and passes.",
+                    "score": 0.9,
+                    "raw_content": None,
+                },
+                {
+                    "url": "https://www.example-blog.com/venice",
+                    "title": "Venice tips",
+                    "content": "Go early.",
+                    "published_date": "2025-04-01",
+                    "score": 0.5,
+                },
+            ],
+            "answer": None,
+        }
+    ).encode()
+
+    def test_pages_are_cited_by_their_site_title_and_link(self) -> None:
+        search = Answering({"/search": self.RESULTS})
+        actv, blog = search.search("venice vaporetto tickets", 30)
+        path, body = search.asked[0]
+        assert path == "/search" and body.model_dump()["max_results"] == 20  # the service's most
+        assert (actv.id, actv.title, actv.site, actv.year) == (
+            "web:https://actv.avmspa.it/en/tickets",
+            "ACTV Tickets",
+            "actv.avmspa.it",
+            2026,
+        )
+        assert actv.abstract == "Fares and passes." and actv.kind == "txt" and blog.year == 2025
+        assert blog.site == "example-blog.com" and search.titled("ACTV Tickets") is None
+        reference = actv.model_copy(update={"standing": Standing.OFFICIAL}).reference("actv")
+        assert reference.venue == "actv.avmspa.it (official)" and reference.url == actv.page
+
+    def test_a_page_downloads_as_its_title_link_and_text(self, tmp_path: Path) -> None:
+        text = (
+            b'{"results": [{"url": "https://actv.avmspa.it/en/tickets", "raw_content": "A 24-hour pass..."}]}'
+        )
+        page = Answering({"/search": self.RESULTS, "/extract": text}).search("q", 1)[0]
+        Answering({"/extract": text}).download(page, tmp_path / "p.txt")
+        assert (
+            tmp_path / "p.txt"
+        ).read_text() == "ACTV Tickets\nhttps://actv.avmspa.it/en/tickets\n\nA 24-hour pass...\n"
+        with pytest.raises(OSError, match="no text"):
+            Answering({"/extract": b'{"results": [], "failed_results": [{"url": "x"}]}'}).download(
+                page, tmp_path / "q.txt"
+            )
+
+    def test_without_a_key_it_says_which_one_is_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv(TavilySearch.KEY, raising=False)
+        with pytest.raises(OSError, match="TAVILY_API_KEY"):
+            TavilySearch().search("venice", 3)
+
+
+class TestThreads:
+    async def test_the_picks_cover_the_threads_and_say_what_kind_of_site_they_are(
+        self, tmp_path: Path
+    ) -> None:
+        asked: list[PickRequest] = []
+
+        def pick(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            assert isinstance(payload, PickRequest)
+            asked.append(payload)
+            return ReadingList(
+                papers=[PickedPaper(id="1", why="fares", covers="getting around", standing=Standing.OFFICIAL)]
+            )
+
+        worker = ScriptedWorker(
+            {
+                SearchQueries: lambda payload, toolbox: SearchQueries(
+                    threads=["getting around", "what to see"], queries=["vaporetto"]
+                ),
+                ReadingList: pick,
+            }
+        )
+        search = FakeSearch({"vaporetto": [paper("1"), paper("2")]})
+        folder = await PaperFinder(worker, search, queries=8).find(
+            "Venice", "a first-time visitor", 5, tmp_path
+        )
+        assert asked[0].threads == ("getting around", "what to see")
+        (found,) = folder.papers
+        assert (found.covers, found.paper.standing) == ("getting around", Standing.OFFICIAL)
+        listing = folder.render()
+        assert "(official)" in listing and "Covers: getting around" in listing
+        assert "**Threads no source covers:** what to see" in listing

@@ -11,6 +11,7 @@ keeps only works with an open PDF); those the user adds by hand.
 
 import asyncio
 import html
+import os
 import re
 import time
 import unicodedata
@@ -18,6 +19,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ElementTree
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Protocol
@@ -30,6 +32,20 @@ from agentswarm.llm.workers import Worker
 
 class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class Standing(StrEnum):
+    """What kind of publisher a web source has: how far a reader may trust it, and for what (RESEARCH.md
+    section 15: deep research agents' citations often rest on weak sites)."""
+
+    OFFICIAL = "official"  # the body that runs or decides the thing: a city, its transit operator, a museum
+    INSTITUTIONAL = "institutional"  # a university, UNESCO, a public agency writing about it
+    SCHOLARLY = "scholarly"  # a paper or a scholarly book
+    REFERENCE = "reference"  # an encyclopedia
+    PRESS = "press"  # a newspaper or magazine with editors
+    GUIDE = "guide"  # an established travel or how-to publisher
+    COMMERCIAL = "commercial"  # a seller of tickets, tours or rooms
+    BLOG = "blog"  # one person's site
 
 
 class Candidate(Frozen):
@@ -46,6 +62,7 @@ class Candidate(Frozen):
     access: str = ""  # how it is open: green (a repository copy), gold, hybrid, bronze (the publisher's whim)
     site: str = ""  # a web source's publisher (Wikipedia, UNESCO): its author and its in-text name
     kind: str = "pdf"  # its file's extension: pdf, txt (Wikipedia's text), html (a web page)
+    standing: Standing | None = None  # a web source's kind of publisher, as the picker judged it
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
@@ -74,7 +91,7 @@ class Candidate(Frozen):
                 authors=self.site,
                 title=self.title,
                 year=str(self.year),
-                venue=self.site,
+                venue=f"{self.site} ({self.standing})" if self.standing else self.site,
                 short=f"{self.site}: {self.title}",
                 url=self.page,
             )
@@ -409,6 +426,101 @@ class WikipediaAnswer(BaseModel):
     query: WikipediaPages | None = None
 
 
+class TavilyQuery(Frozen):
+    query: str
+    max_results: int
+    search_depth: str = "basic"  # 1 credit; "advanced" is 2
+
+
+class TavilyResult(BaseModel):
+    model_config = ConfigDict(frozen=True)  # the service adds fields; only these are read
+
+    url: str
+    title: str
+    content: str = ""  # the passage of the page that matched
+    published_date: str | None = None  # given for news results
+
+
+class TavilyResults(BaseModel):
+    results: list[TavilyResult] = []
+
+
+class TavilyExtract(Frozen):
+    urls: list[str]
+    extract_depth: str = "basic"  # 1 credit per 5 pages; never charged for a page that fails
+
+
+class TavilyPage(BaseModel):
+    url: str
+    raw_content: str | None = None
+
+
+class TavilyExtracted(BaseModel):
+    results: list[TavilyPage] = []
+
+
+class TavilySearch(Fetching):
+    """The open web through Tavily's search API (goal 14; docs/design/web-research.md): ranked pages for a
+    query, and a page's text cleaned of its navigation, so no scraping code of ours meets a site. A key in the
+    environment (TAVILY_API_KEY); 1,000 free credits a month, a search 1 credit, 5 pages' text 1 credit. A web
+    page is cited by its site, its title and its link."""
+
+    API = "https://api.tavily.com"
+    KEY = "TAVILY_API_KEY"
+    PAUSE_S = 0.2
+
+    def __init__(self, key: str | None = None, year: int | None = None) -> None:
+        self._key = key
+        self._year = year or datetime.now(UTC).year  # when a page has no date: the year it was read
+
+    def post(self, path: str, body: BaseModel) -> bytes:
+        key = self._key or os.environ.get(self.KEY)
+        if not key:
+            raise OSError(f"web search needs {self.KEY} in the environment (.env)")
+        request = urllib.request.Request(
+            self.API + path,
+            data=body.model_dump_json().encode(),
+            method="POST",
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"},
+        )
+        with urllib.request.urlopen(request, timeout=self.TIMEOUT_S) as response:
+            data: bytes = response.read()
+        time.sleep(self.PAUSE_S)
+        return data
+
+    def search(self, query: str, limit: int) -> list[Candidate]:
+        found = TavilyResults.model_validate_json(
+            self.post("/search", TavilyQuery(query=query, max_results=min(limit, 20)))
+        )
+        return [self.candidate(r) for r in found.results]
+
+    def titled(self, title: str) -> Candidate | None:
+        return None  # the web has no catalogue of titles: the queries find its pages
+
+    def candidate(self, result: TavilyResult) -> Candidate:
+        site = (urllib.parse.urlparse(result.url).hostname or result.url).removeprefix("www.")
+        dated = re.match(r"\d{4}", result.published_date or "")
+        return Candidate(
+            id=f"web:{result.url}",
+            title=" ".join(result.title.split()) or result.url,
+            authors=(site,),
+            year=int(dated.group(0)) if dated else self._year,
+            abstract=" ".join(result.content.split()),
+            site=site,
+            kind="txt",
+            page=result.url,
+        )
+
+    def download(self, paper: Candidate, path: Path) -> None:
+        extracted = TavilyExtracted.model_validate_json(
+            self.post("/extract", TavilyExtract(urls=[paper.page]))
+        )
+        text = next((r.raw_content for r in extracted.results if r.raw_content), None)
+        if not text:
+            raise OSError(f"no text could be taken from {paper.page}")
+        path.write_text(f"{paper.title}\n{paper.page}\n\n{text.strip()}\n")
+
+
 class WebPage(Fetching):
     """A page the user names (an official site: UNESCO, a city's tourism office), kept as HTML and cited by
     its title, its site and a link."""
@@ -438,6 +550,13 @@ class PaperSource(StrEnum):
     OPENALEX = "openalex"  # every field
     ARXIV = "arxiv"  # machine learning, physics, maths: every paper open
     WIKIPEDIA = "wikipedia"  # background for topics papers don't cover: places, history, art
+    WEB = "web"  # the open web through a search API: official sites, institutions, press, guides
+
+    @property
+    def queries(self) -> int:
+        """Queries a search plan writes: the web needs one or two for every thread of a request (getting
+        around, prices, what to see), a scholarly index fewer, each finding many papers."""
+        return 8 if self is PaperSource.WEB else PaperFinder.QUERIES
 
     def search(self) -> PaperSearch:
         match self:
@@ -447,6 +566,8 @@ class PaperSource(StrEnum):
                 return ArxivSearch()
             case PaperSource.WIKIPEDIA:
                 return WikipediaSearch()
+            case PaperSource.WEB:
+                return TavilySearch()
 
 
 class QueryRequest(Frozen):
@@ -458,8 +579,13 @@ class QueryRequest(Frozen):
 
 
 class SearchQueries(Frozen):
-    """Your queries for the search service: a few words each, covering the topic's main threads."""
+    """Your plan: the threads the document must cover, then short queries for the search service."""
 
+    threads: list[str] = Field(
+        default_factory=list,
+        description="the questions the reader needs answered, one per thread of the topic (for a guide to a "
+        "city: getting there, getting around, what to see, when to go, what it costs, its history)",
+    )
     queries: list[str] = Field(description="short keyword queries, e.g. 'process reward model verification'")
     known: list[str] = Field(
         default_factory=list,
@@ -473,12 +599,19 @@ class PickRequest(Frozen):
     topic: str
     reader_knows: str
     papers: int  # how many to pick
+    threads: tuple[str, ...] = ()  # what the picks must cover between them, each at least once
     candidates: tuple[Candidate, ...]
 
 
 class PickedPaper(Frozen):
     id: str = Field(description="the candidate's id, exactly as given")
-    why: str = Field(description="one sentence: what this paper gives the tutorial that the others don't")
+    why: str = Field(description="one sentence: what this source gives the document that the others don't")
+    covers: str = Field(
+        default="", description="the thread it answers, as listed (empty when none is listed)"
+    )
+    standing: Standing | None = Field(
+        default=None, description="for a web page: what kind of publisher its site is; empty for a paper"
+    )
 
 
 class ReadingList(Frozen):
@@ -490,6 +623,7 @@ class ReadingList(Frozen):
 class Found(Frozen):
     paper: Candidate
     why: str
+    covers: str = ""  # the thread of the request it was picked for
     file: str | None  # its file in the folder; None: not there yet (the download failed)
 
 
@@ -500,6 +634,7 @@ class ReadingFolder(Frozen):
 
     topic: str
     papers: tuple[Found, ...]
+    threads: tuple[str, ...] = ()  # what the request needs covered, as the search plan listed it
 
     RECORDS: ClassVar[str] = "papers.json"
     LISTING: ClassVar[str] = "papers.md"
@@ -566,8 +701,12 @@ class ReadingFolder(Frozen):
             authors = ", ".join(f.paper.authors[:3]) + (" et al." if len(f.paper.authors) > 3 else "")
             where = f.paper.venue or f.paper.id
             state = f"`{f.file}`" if f.file is not None else "**not here yet**"
-            lines.append(f"{n}. **{f.paper.title}** ({authors}, {f.paper.year}), {where}: {state}.")
-            lines.append(f"   {f.why}")
+            standing = f" ({f.paper.standing})" if f.paper.standing else ""
+            lines.append(f"{n}. **{f.paper.title}** ({authors}, {f.paper.year}), {where}{standing}: {state}.")
+            lines.append(f"   {f.why}" + (f" Covers: {f.covers}" if f.covers else ""))
+        uncovered = [t for t in self.threads if all(f.covers != t for f in self.papers)]
+        if uncovered:
+            lines += ["", "**Threads no source covers:** " + "; ".join(uncovered)]
         missing = [f for f in self.papers if f.file is None]
         if missing:
             lines += [
@@ -589,19 +728,23 @@ class PaperFinder:
     PDFs downloaded."""
 
     QUERY = """\
-You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. Write
-the number of short keyword queries asked for, each covering a different thread of the topic (its foundations,
-the main competing ideas or methods, the evidence for them; for a place, its history, buildings, art and
-practical matters), so that together they find the sources it needs. Search ranks by matching words, not
-importance, so also list the exact titles of the well-known papers or articles on the topic that you are sure
-of: each is looked up, and kept only if found."""
+You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
+list the threads the document must cover, as the questions this reader needs answered (for a field: its
+foundations, the main competing ideas or methods, the evidence for them; for a place: getting there, getting
+around, what to see, when to go, what it costs, its history and art). Then write the number of short keyword
+queries asked for, so that every thread has at least one. Search ranks by matching words, not importance, so
+also list the exact titles of the well-known papers or articles on the topic that you are sure of: each is
+looked up, and kept only if found."""
 
     PICK = """\
 You choose the papers a tutorial on the topic will be written from, for the reader described, from the
 candidates found. Pick the number asked for that together teach the topic: the papers that introduced the key
 ideas, the main competing approaches, and the evidence comparing them. Prefer papers that build on one
 another, and influential original work (times cited, where given, is a hint) over small variations; a good
-review may anchor the set. Use only ids from the candidates. Order them as a reader should meet them, and say
+review may anchor the set. When threads are listed, the picks must cover every one of them between them: say
+which thread each answers. For a web page, say what kind of publisher its site is, and prefer official and
+institutional sites where a thread has them: a ticket seller's or a blogger's page only where nothing better
+covers its thread. Use only ids from the candidates. Order them as a reader should meet them, and say
 in one sentence what each adds."""
 
     QUERIES = 5
@@ -610,21 +753,24 @@ in one sentence what each adds."""
     CANDIDATES = 40  # known titles first; 2026-10-18: about 80 full abstracts cost $0.15 a pick on Sonnet
     ABSTRACT = 600  # characters of each abstract the picker reads
 
-    def __init__(self, worker: Worker, search: PaperSearch) -> None:
+    def __init__(self, worker: Worker, search: PaperSearch, queries: int | None = None) -> None:
         self._worker = worker
         self._search = search
+        self._queries = queries or self.QUERIES
         self._found: dict[str, Candidate] = {}  # every candidate as found, PDF links included
+        self._threads: tuple[str, ...] = ()  # the threads the query plan listed, for the picker to cover
 
     async def candidates(self, topic: str, know: str) -> list[Candidate]:
         planned = await self._worker.run(
-            self.QUERY, QueryRequest(topic=topic, reader_knows=know, queries=self.QUERIES), SearchQueries
+            self.QUERY, QueryRequest(topic=topic, reader_knows=know, queries=self._queries), SearchQueries
         )
+        self._threads = tuple(planned.threads)
         found = self._found
         for title in planned.known[: self.KNOWN]:
             known = await asyncio.to_thread(self._search.titled, title)
             if known is not None:
                 found.setdefault(known.id, known)
-        for query in planned.queries[: self.QUERIES]:
+        for query in planned.queries[: self._queries]:
             for candidate in await asyncio.to_thread(self._search.search, query, self.PER_QUERY):
                 found.setdefault(candidate.id, candidate)
         return list(found.values())[: self.CANDIDATES]
@@ -640,7 +786,11 @@ in one sentence what each adds."""
 
     async def pick(self, topic: str, know: str, papers: int, candidates: Sequence[Candidate]) -> list[Found]:
         request = PickRequest(
-            topic=topic, reader_knows=know, papers=papers, candidates=self.shown(candidates)
+            topic=topic,
+            reader_knows=know,
+            papers=papers,
+            threads=self._threads,
+            candidates=self.shown(candidates),
         )
         chosen = await self._worker.run(self.PICK, request, ReadingList)
         known = {c.id: self._found.get(c.id, c) for c in candidates}
@@ -648,7 +798,10 @@ in one sentence what each adds."""
         for paper in chosen.papers:
             name = re.sub(r"v\d+$", "", paper.id.strip())
             if name in known and all(f.paper.id != name for f in picked):  # an invented id is dropped
-                picked.append(Found(paper=known[name], why=paper.why, file=None))
+                held = known[name]
+                if paper.standing is not None:
+                    held = held.model_copy(update={"standing": paper.standing})
+                picked.append(Found(paper=held, why=paper.why, covers=paper.covers, file=None))
         return picked[:papers]
 
     async def find(self, topic: str, know: str, papers: int, out: Path) -> ReadingFolder:
@@ -663,6 +816,6 @@ in one sentence what each adds."""
                 done.append(found)  # the user fetches it by hand
                 continue
             done.append(found.model_copy(update={"file": found.paper.download_name}))
-        folder = ReadingFolder(topic=topic, papers=tuple(done))
+        folder = ReadingFolder(topic=topic, papers=tuple(done), threads=self._threads)
         folder.save(out)
         return folder

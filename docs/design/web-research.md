@@ -22,3 +22,8 @@ Pages that need JavaScript (a headless browser) wait until extraction failures s
 ## Definition of done for the first run
 
 The Venice guide again, for a first-time visitor, from the open web: every thread of the request covered by at least one source of a strong kind, at least 85% of cited statements fully supported by the audit after the review, and the cost within the run's approved budget.
+
+## Built (2026-11-10)
+
+- **Steps 1-3:** `TavilySearch` (`PaperSource.WEB`, `--source web` in `find-papers` and `write`, and in the studio's form): a search is 1 credit, a picked page's text comes from Tavily's extract (1 credit per 5 pages), cited by site, title and link; a web search plan writes 8 queries (`PaperSource.queries`). The query plan lists the request's threads as the reader's questions before its queries, the picker must cover every thread and says which each pick answers, and labels a web page's publisher (`Standing`: official, institutional, scholarly, reference, press, guide, commercial, blog), preferring official and institutional sites. The approval listing (papers.md) shows each pick's standing and thread, and the threads no pick covers; a reference shows its site's standing.
+- **First test search (2026-11-10):** "Venice vaporetto tickets for visitors" gave a pass seller, a family travel blog and a tourism portal, none of them the transit operator: the reason for `Standing` and the preference for official sites.

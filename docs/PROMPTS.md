@@ -2184,12 +2184,13 @@ class ClaimVerdict(Frozen):
 `agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
 ```text
-You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. Write
-the number of short keyword queries asked for, each covering a different thread of the topic (its foundations,
-the main competing ideas or methods, the evidence for them; for a place, its history, buildings, art and
-practical matters), so that together they find the sources it needs. Search ranks by matching words, not
-importance, so also list the exact titles of the well-known papers or articles on the topic that you are sure
-of: each is looked up, and kept only if found.
+You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
+list the threads the document must cover, as the questions this reader needs answered (for a field: its
+foundations, the main competing ideas or methods, the evidence for them; for a place: getting there, getting
+around, what to see, when to go, what it costs, its history and art). Then write the number of short keyword
+queries asked for, so that every thread has at least one. Search ranks by matching words, not importance, so
+also list the exact titles of the well-known papers or articles on the topic that you are sure of: each is
+looked up, and kept only if found.
 ```
 
 ### User message (sample)
@@ -2219,8 +2220,13 @@ class QueryRequest(Frozen):
 
 ```python
 class SearchQueries(Frozen):
-    """Your queries for the search service: a few words each, covering the topic's main threads."""
+    """Your plan: the threads the document must cover, then short queries for the search service."""
 
+    threads: list[str] = Field(
+        default_factory=list,
+        description="the questions the reader needs answered, one per thread of the topic (for a guide to a "
+        "city: getting there, getting around, what to see, when to go, what it costs, its history)",
+    )
     queries: list[str] = Field(description="short keyword queries, e.g. 'process reward model verification'")
     known: list[str] = Field(
         default_factory=list,
@@ -2233,8 +2239,16 @@ class SearchQueries(Frozen):
 ```json
 {
   "additionalProperties": false,
-  "description": "Your queries for the search service: a few words each, covering the topic's main threads.",
+  "description": "Your plan: the threads the document must cover, then short queries for the search service.",
   "properties": {
+    "threads": {
+      "description": "the questions the reader needs answered, one per thread of the topic (for a guide to a city: getting there, getting around, what to see, when to go, what it costs, its history)",
+      "items": {
+        "type": "string"
+      },
+      "title": "Threads",
+      "type": "array"
+    },
     "queries": {
       "description": "short keyword queries, e.g. 'process reward model verification'",
       "items": {
@@ -2277,7 +2291,10 @@ You choose the papers a tutorial on the topic will be written from, for the read
 candidates found. Pick the number asked for that together teach the topic: the papers that introduced the key
 ideas, the main competing approaches, and the evidence comparing them. Prefer papers that build on one
 another, and influential original work (times cited, where given, is a hint) over small variations; a good
-review may anchor the set. Use only ids from the candidates. Order them as a reader should meet them, and say
+review may anchor the set. When threads are listed, the picks must cover every one of them between them: say
+which thread each answers. For a web page, say what kind of publisher its site is, and prefer official and
+institutional sites where a thread has them: a ticket seller's or a blogger's page only where nothing better
+covers its thread. Use only ids from the candidates. Order them as a reader should meet them, and say
 in one sentence what each adds.
 ```
 
@@ -2289,6 +2306,7 @@ in one sentence what each adds.
   "topic": "test-time compute for reasoning",
   "reader_knows": "graduate-level ML",
   "papers": 5,
+  "threads": [],
   "candidates": [
     {
       "id": "2305.20050",
@@ -2306,7 +2324,8 @@ in one sentence what each adds.
       "free": "",
       "access": "",
       "site": "",
-      "kind": "pdf"
+      "kind": "pdf",
+      "standing": null
     }
   ]
 }
@@ -2322,6 +2341,7 @@ class PickRequest(Frozen):
     topic: str
     reader_knows: str
     papers: int  # how many to pick
+    threads: tuple[str, ...] = ()  # what the picks must cover between them, each at least once
     candidates: tuple[Candidate, ...]
 
 
@@ -2339,6 +2359,7 @@ class Candidate(Frozen):
     access: str = ""  # how it is open: green (a repository copy), gold, hybrid, bronze (the publisher's whim)
     site: str = ""  # a web source's publisher (Wikipedia, UNESCO): its author and its in-text name
     kind: str = "pdf"  # its file's extension: pdf, txt (Wikipedia's text), html (a web page)
+    standing: Standing | None = None  # a web source's kind of publisher, as the picker judged it
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
@@ -2367,7 +2388,7 @@ class Candidate(Frozen):
                 authors=self.site,
                 title=self.title,
                 year=str(self.year),
-                venue=self.site,
+                venue=f"{self.site} ({self.standing})" if self.standing else self.site,
                 short=f"{self.site}: {self.title}",
                 url=self.page,
             )
@@ -2424,7 +2445,13 @@ class ReadingList(Frozen):
 
 class PickedPaper(Frozen):
     id: str = Field(description="the candidate's id, exactly as given")
-    why: str = Field(description="one sentence: what this paper gives the tutorial that the others don't")
+    why: str = Field(description="one sentence: what this source gives the document that the others don't")
+    covers: str = Field(
+        default="", description="the thread it answers, as listed (empty when none is listed)"
+    )
+    standing: Standing | None = Field(
+        default=None, description="for a web page: what kind of publisher its site is; empty for a paper"
+    )
 ```
 
 <details><summary>JSON schema</summary>
@@ -2441,9 +2468,27 @@ class PickedPaper(Frozen):
           "type": "string"
         },
         "why": {
-          "description": "one sentence: what this paper gives the tutorial that the others don't",
+          "description": "one sentence: what this source gives the document that the others don't",
           "title": "Why",
           "type": "string"
+        },
+        "covers": {
+          "default": "",
+          "description": "the thread it answers, as listed (empty when none is listed)",
+          "title": "Covers",
+          "type": "string"
+        },
+        "standing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Standing"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "for a web page: what kind of publisher its site is; empty for a paper"
         }
       },
       "required": [
@@ -2452,6 +2497,21 @@ class PickedPaper(Frozen):
       ],
       "title": "PickedPaper",
       "type": "object"
+    },
+    "Standing": {
+      "description": "What kind of publisher a web source has: how far a reader may trust it, and for what (RESEARCH.md\nsection 15: deep research agents' citations often rest on weak sites).",
+      "enum": [
+        "official",
+        "institutional",
+        "scholarly",
+        "reference",
+        "press",
+        "guide",
+        "commercial",
+        "blog"
+      ],
+      "title": "Standing",
+      "type": "string"
     }
   },
   "additionalProperties": false,

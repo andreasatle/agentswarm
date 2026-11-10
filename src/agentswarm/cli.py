@@ -604,7 +604,7 @@ class Cli:
         )
         try:
             found = asyncio.run(
-                PaperFinder(worker, PaperSource(args.source).search()).find(
+                PaperFinder(worker, PaperSource(args.source).search(), PaperSource(args.source).queries).find(
                     args.topic, args.know, args.papers, out
                 )
             )

@@ -119,7 +119,9 @@ class SourceStage:
             for path in request.files:
                 shutil.copy2(path.expanduser(), run.sources / path.name)
             return "your own files: " + ", ".join(p.name for p in request.files)
-        finder = PaperFinder(MeteredFinder(Names.finder(run)).worker(), request.source.search())
+        finder = PaperFinder(
+            MeteredFinder(Names.finder(run)).worker(), request.source.search(), request.source.queries
+        )
         found = asyncio.run(finder.find(request.topic, request.reader, policy.papers, run.sources))
         named: list[Found] = []
         for url in request.urls:
