@@ -2187,7 +2187,8 @@ class ClaimVerdict(Frozen):
 You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
 list the threads the document must cover, as the questions this reader needs answered (for a field: its
 foundations, the main competing ideas or methods, the evidence for them; for a place: getting there, getting
-around, what to see, when to go, what it costs, its history and art). Then write the number of short keyword
+around, what to see, when to go, what it costs, its history and art); when a brief is given, every part of it
+is a thread of its own. Then write the number of short keyword
 queries asked for, so that every thread has at least one. Search ranks by matching words, not importance, so
 also list the exact titles of the well-known papers or articles on the topic that you are sure of: each is
 looked up, and kept only if found.
@@ -2200,7 +2201,8 @@ looked up, and kept only if found.
 {
   "topic": "test-time compute for reasoning",
   "reader_knows": "graduate-level ML",
-  "queries": 5
+  "queries": 5,
+  "brief": ""
 }
 </data>
 ```
@@ -2209,11 +2211,14 @@ looked up, and kept only if found.
 
 ```python
 class QueryRequest(Frozen):
-    """The payload a searcher receives: the topic and the reader."""
+    """The payload a searcher receives: the topic, the reader, and the brief when the user wrote one."""
 
     topic: str
     reader_knows: str
     queries: int  # how many to write
+    # The user's own brief: what the document must cover. 2026-11-10: planned from the topic line alone, a
+    # search for an analysis of LLM scaling found nothing on costs, energy, new architectures or crash risk
+    brief: str = ""
 ```
 
 ### Answer
@@ -2306,6 +2311,7 @@ in one sentence what each adds.
   "topic": "test-time compute for reasoning",
   "reader_knows": "graduate-level ML",
   "papers": 5,
+  "brief": "",
   "threads": [],
   "candidates": [
     {
@@ -2341,6 +2347,7 @@ class PickRequest(Frozen):
     topic: str
     reader_knows: str
     papers: int  # how many to pick
+    brief: str = ""  # the user's own brief, when they wrote one
     threads: tuple[str, ...] = ()  # what the picks must cover between them, each at least once
     candidates: tuple[Candidate, ...]
 

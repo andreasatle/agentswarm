@@ -120,7 +120,10 @@ class SourceStage:
                 shutil.copy2(path.expanduser(), run.sources / path.name)
             return "your own files: " + ", ".join(p.name for p in request.files)
         finder = PaperFinder(
-            MeteredFinder(Names.finder(run)).worker(), request.source.search(), request.source.queries
+            MeteredFinder(Names.finder(run)).worker(),
+            request.source.search(),
+            request.source.queries,
+            brief=request.goal or "",
         )
         found = asyncio.run(finder.find(request.topic, request.reader, policy.papers, run.sources))
         named: list[Found] = []

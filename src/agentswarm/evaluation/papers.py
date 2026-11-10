@@ -500,6 +500,9 @@ class TavilySearch(Fetching):
     def candidate(self, result: TavilyResult) -> Candidate:
         site = (urllib.parse.urlparse(result.url).hostname or result.url).removeprefix("www.")
         dated = re.match(r"\d{4}", result.published_date or "")
+        arxiv = re.search(r"arxiv\.org/(?:abs|pdf|html)/(\d{2})\d{2}\.\d{4,5}", result.url)
+        if arxiv and dated is None:  # an arXiv id starts with its year and month: 2001.08361 is 2020
+            dated = re.match(r"\d{4}", f"20{arxiv.group(1)}")
         return Candidate(
             id=f"web:{result.url}",
             title=" ".join(result.title.split()) or result.url,
@@ -571,11 +574,14 @@ class PaperSource(StrEnum):
 
 
 class QueryRequest(Frozen):
-    """The payload a searcher receives: the topic and the reader."""
+    """The payload a searcher receives: the topic, the reader, and the brief when the user wrote one."""
 
     topic: str
     reader_knows: str
     queries: int  # how many to write
+    # The user's own brief: what the document must cover. 2026-11-10: planned from the topic line alone, a
+    # search for an analysis of LLM scaling found nothing on costs, energy, new architectures or crash risk
+    brief: str = ""
 
 
 class SearchQueries(Frozen):
@@ -599,6 +605,7 @@ class PickRequest(Frozen):
     topic: str
     reader_knows: str
     papers: int  # how many to pick
+    brief: str = ""  # the user's own brief, when they wrote one
     threads: tuple[str, ...] = ()  # what the picks must cover between them, each at least once
     candidates: tuple[Candidate, ...]
 
@@ -731,7 +738,8 @@ class PaperFinder:
 You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
 list the threads the document must cover, as the questions this reader needs answered (for a field: its
 foundations, the main competing ideas or methods, the evidence for them; for a place: getting there, getting
-around, what to see, when to go, what it costs, its history and art). Then write the number of short keyword
+around, what to see, when to go, what it costs, its history and art); when a brief is given, every part of it
+is a thread of its own. Then write the number of short keyword
 queries asked for, so that every thread has at least one. Search ranks by matching words, not importance, so
 also list the exact titles of the well-known papers or articles on the topic that you are sure of: each is
 looked up, and kept only if found."""
@@ -753,7 +761,10 @@ in one sentence what each adds."""
     CANDIDATES = 40  # known titles first; 2026-10-18: about 80 full abstracts cost $0.15 a pick on Sonnet
     ABSTRACT = 600  # characters of each abstract the picker reads
 
-    def __init__(self, worker: Worker, search: PaperSearch, queries: int | None = None) -> None:
+    def __init__(
+        self, worker: Worker, search: PaperSearch, queries: int | None = None, brief: str = ""
+    ) -> None:
+        self._brief = brief  # the user's own brief: the plan and the picks cover all of it
         self._worker = worker
         self._search = search
         self._queries = queries or self.QUERIES
@@ -762,7 +773,9 @@ in one sentence what each adds."""
 
     async def candidates(self, topic: str, know: str) -> list[Candidate]:
         planned = await self._worker.run(
-            self.QUERY, QueryRequest(topic=topic, reader_knows=know, queries=self._queries), SearchQueries
+            self.QUERY,
+            QueryRequest(topic=topic, reader_knows=know, queries=self._queries, brief=self._brief),
+            SearchQueries,
         )
         self._threads = tuple(planned.threads)
         found = self._found
@@ -789,6 +802,7 @@ in one sentence what each adds."""
             topic=topic,
             reader_knows=know,
             papers=papers,
+            brief=self._brief,
             threads=self._threads,
             candidates=self.shown(candidates),
         )

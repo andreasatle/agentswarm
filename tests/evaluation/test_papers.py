@@ -14,6 +14,7 @@ from agentswarm.evaluation.papers import (
     PaperFinder,
     PickedPaper,
     PickRequest,
+    QueryRequest,
     ReadingFolder,
     ReadingList,
     SearchQueries,
@@ -406,6 +407,17 @@ class TestTavilySearch:
                 page, tmp_path / "q.txt"
             )
 
+    def test_an_arxiv_page_is_dated_by_its_id(self) -> None:
+        answer = json.dumps(
+            {
+                "results": [
+                    {"url": "https://arxiv.org/abs/2001.08361", "title": "Scaling Laws", "content": "Loss."}
+                ]
+            }
+        ).encode()
+        (kaplan,) = Answering({"/search": answer}).search("scaling laws", 3)
+        assert kaplan.year == 2020
+
     def test_without_a_key_it_says_which_one_is_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(TavilySearch.KEY, raising=False)
         with pytest.raises(OSError, match="TAVILY_API_KEY"):
@@ -438,8 +450,30 @@ class TestThreads:
             "Venice", "a first-time visitor", 5, tmp_path
         )
         assert asked[0].threads == ("getting around", "what to see")
+        assert asked[0].brief == ""  # no brief of the user's: the plan works from the topic
         (found,) = folder.papers
         assert (found.covers, found.paper.standing) == ("getting around", Standing.OFFICIAL)
         listing = folder.render()
         assert "(official)" in listing and "Covers: getting around" in listing
         assert "**Threads no source covers:** what to see" in listing
+
+
+class TestBrief:
+    async def test_the_users_brief_reaches_the_plan_and_the_picker(self, tmp_path: Path) -> None:
+        planned: list[BaseModel] = []
+
+        def plan(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            planned.append(payload)
+            return SearchQueries(threads=["costs"], queries=["vaporetto"])
+
+        def pick(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            planned.append(payload)
+            return ReadingList(papers=[PickedPaper(id="1", why="costs", covers="costs")])
+
+        worker = ScriptedWorker({SearchQueries: plan, ReadingList: pick})
+        brief = "Cover what scaling costs and who pays."
+        finder = PaperFinder(worker, FakeSearch({"vaporetto": [paper("1")]}), brief=brief)
+        await finder.find("LLM scaling", "ML", 5, tmp_path)
+        query, picking = planned
+        assert isinstance(query, QueryRequest) and query.brief == brief
+        assert isinstance(picking, PickRequest) and picking.brief == brief
