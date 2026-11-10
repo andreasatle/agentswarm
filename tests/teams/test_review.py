@@ -244,6 +244,22 @@ class TestClaims:
         assert (second.round, second.reported) == (2, 0)
         assert len(r.checker.calls) == 2
 
+    async def test_a_sections_confirmed_claims_become_one_revision(self, tmp_path: Path) -> None:
+        r = Review(
+            tmp_path,
+            [],
+            [audited(Support.UNSUPPORTED)] * 2 + [audited(Support.PARTLY)] * 2,
+            perspectives=(Perspective.CLAIMS,),
+            checker=[claim(Support.UNSUPPORTED), claim(Support.PARTLY)],
+        )
+        assert await r.campaign.step() == 1
+        attacked = r.attacked()
+        assert (attacked.reported, attacked.confirmed, len(attacked.tasks)) == (2, 2, 1)
+        assert {f.task for f in attacked.findings} == set(attacked.tasks)
+        task = next(a for a in r.h.board.current().artifacts() if a.id == attacked.tasks[0])
+        assert "2 cited statements" in task.task
+        assert "99% accuracy" in task.task and "one million words" in task.task
+
     def test_the_claims_perspective_needs_a_checker_model(self) -> None:
         with pytest.raises(ValueError, match="needs `claims:`"):
             ReviewConfig(model="rev", referee="ref", perspectives=(Perspective.CLAIMS,))

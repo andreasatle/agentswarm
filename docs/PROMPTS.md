@@ -1963,14 +1963,14 @@ in your reason.
 ```text
 <data>
 {
-  "statement": "I-JEPA predicts target-block representations with an L2 loss [@ijepa-p003, page 4].",
   "sources": [
     {
       "name": "ijepa-p003",
       "page": 4,
       "text": "[page 4]\nThe loss is the average L2 distance ..."
     }
-  ]
+  ],
+  "statement": "I-JEPA predicts target-block representations with an L2 loss [@ijepa-p003, page 4]."
 }
 </data>
 ```
@@ -1978,11 +1978,14 @@ in your reason.
 ### Payload types
 
 ```python
-class CitationRequest(Frozen):
-    """The payload a referee receives: one statement and the source text it cites."""
+class CitationRequest(Frozen, Prefixed):
+    """The payload a referee receives: the source text a statement cites, and the statement. The source comes
+    first: the statements citing the same part share it, so it is cached once (`Prefixed`)."""
 
-    statement: str
+    PREFIX: ClassVar[int] = 1
+
     sources: tuple[CitedSource, ...]
+    statement: str
 
 
 class CitedSource(Frozen):
@@ -2079,14 +2082,14 @@ that settle it exactly as they appear.
 ```text
 <data>
 {
-  "statement": "I-JEPA predicts target-block representations with an L2 loss [@ijepa-p003, page 4].",
   "sources": [
     {
       "name": "ijepa-p003",
       "page": 4,
       "text": "[page 4]\nThe loss is the average L2 distance ..."
     }
-  ]
+  ],
+  "statement": "I-JEPA predicts target-block representations with an L2 loss [@ijepa-p003, page 4]."
 }
 </data>
 ```
@@ -2094,11 +2097,14 @@ that settle it exactly as they appear.
 ### Payload types
 
 ```python
-class CitationRequest(Frozen):
-    """The payload a referee receives: one statement and the source text it cites."""
+class CitationRequest(Frozen, Prefixed):
+    """The payload a referee receives: the source text a statement cites, and the statement. The source comes
+    first: the statements citing the same part share it, so it is cached once (`Prefixed`)."""
 
-    statement: str
+    PREFIX: ClassVar[int] = 1
+
     sources: tuple[CitedSource, ...]
+    statement: str
 
 
 class CitedSource(Frozen):

@@ -147,7 +147,8 @@ that settle it exactly as they appear."""
     async def check(
         self, statements: Sequence[CitedStatement], sources: Mapping[str, str]
     ) -> list[CheckedClaim]:
-        """A verdict for each statement, in order."""
+        """A verdict for each statement, in order. Statements citing the same parts are checked together, the
+        first alone: its call writes the parts to the prompt cache, and the others read them from it."""
         limit = asyncio.Semaphore(self.CONCURRENCY)
 
         async def one(statement: CitedStatement) -> CheckedClaim:
@@ -160,7 +161,16 @@ that settle it exactly as they appear."""
                 self._verdicts[key] = checked
             return checked
 
-        return list(await asyncio.gather(*(one(s) for s in statements)))
+        async def group(members: list[CitedStatement]) -> list[CheckedClaim]:
+            first = await one(members[0])
+            return [first, *await asyncio.gather(*(one(s) for s in members[1:]))]
+
+        groups: dict[tuple[Citation, ...], list[CitedStatement]] = {}
+        for statement in statements:
+            groups.setdefault(statement.citations, []).append(statement)
+        checked = [c for done in await asyncio.gather(*(group(g) for g in groups.values())) for c in done]
+        by_line = {(c.statement.file, c.statement.text): c for c in checked}
+        return [by_line[(s.file, s.text)] for s in statements]
 
     async def _one(self, statement: CitedStatement, sources: Mapping[str, str]) -> CheckedClaim:
         cited = await self._source_text.cited(statement, sources)

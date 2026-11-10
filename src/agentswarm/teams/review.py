@@ -227,7 +227,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 commit=tip,
                 model=self._config.model,
                 reported=reported,
-                confirmed=len(tasks),
+                confirmed=len(findings),
                 tasks=tuple(tasks),
                 dropped=tuple(dropped),
                 findings=tuple(findings),
@@ -243,7 +243,12 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 report = await self._worker.run(self.INSTRUCTIONS, request, ReviewFindings)
         except WorkerError as error:
             return [attacked(0, (), (f"the reviewer failed: {error}",), failed=True)]
-        found = report.findings[: self._config.max_findings]
+        # A claims review takes every flagged line: each is cheap to check and to rule on, and one revision
+        # fixes them all (the claims trial, 2026-11-09: three a round left 15 of 23 problems after a round)
+        found = (
+            report.findings if focus is Perspective.CLAIMS else report.findings[: self._config.max_findings]
+        )
+        upheld: list[ReviewFinding] = []
         tasks: list[ArtifactId] = []
         findings: list[AttackFinding] = []
         rejections: list[RejectedReport] = []
@@ -284,12 +289,16 @@ document is finished as far as its writer knows. Find what is wrong with this se
                     )
                 )
                 continue
-            task = self.fix_task(part.title, focus, finding)
+            upheld.append(finding)
+        if focus is Perspective.CLAIMS and upheld:  # one revision for the section's confirmed claims
+            batches = [(self.fix_claims(part.title, upheld), upheld)]
+        else:
+            batches = [(self.fix_task(part.title, focus, f), [f]) for f in upheld]
+        for task, fixed in batches:
             tasks.append(task)
-            findings.append(
-                AttackFinding(
-                    task=task, claim=finding.problem, quotes=tuple(e.quote for e in finding.evidence)
-                )
+            findings.extend(
+                AttackFinding(task=task, claim=f.problem, quotes=tuple(e.quote for e in f.evidence))
+                for f in fixed
             )
             events.append(
                 Sized(artifact=task, fits=True)
@@ -430,6 +439,23 @@ document is finished as far as its writer knows. Find what is wrong with this se
             f"Evidence: {quoted}. Suggested: {finding.fix} Keep every factual statement cited to its "
             f"source, follow {self._config.brief} (its length cap included), and change only what this "
             "finding needs."
+        )
+        return self._artifacts.create(task, self.NAME).id
+
+    def fix_claims(self, section: str, confirmed: Sequence[ReviewFinding]) -> ArtifactId:
+        """One revision for every confirmed claim of a section: the writer reads the section and its sources
+        once, not once a claim (the claims trial: $0.02 a fix, mostly rereading)."""
+        listed = " ".join(
+            f'({n}) {f.problem} The line: "{f.evidence[0].quote}"'
+            + (f' The source says: "{f.evidence[1].quote}"' if len(f.evidence) > 1 else "")
+            for n, f in enumerate(confirmed, 1)
+        )
+        task = (
+            f"Revise {section}: {len(confirmed)} cited statements its sources don't fully support (checked "
+            f"claim by claim, each confirmed by a referee). {listed} For each, state only what the cited "
+            "source says, or cite the source that says it. Keep every factual statement cited to its "
+            f"source, follow {self._config.brief} (its length cap included), and change only these "
+            "statements."
         )
         return self._artifacts.create(task, self.NAME).id
 

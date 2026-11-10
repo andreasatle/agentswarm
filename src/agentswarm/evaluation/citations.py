@@ -16,7 +16,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.llm.workers import Prefixed, Worker, WorkerError
 
 
 class Frozen(BaseModel):
@@ -35,11 +35,14 @@ class CitedSource(Frozen):
     text: str  # the cited part, or the named page and its neighbours
 
 
-class CitationRequest(Frozen):
-    """The payload a referee receives: one statement and the source text it cites."""
+class CitationRequest(Frozen, Prefixed):
+    """The payload a referee receives: the source text a statement cites, and the statement. The source comes
+    first: the statements citing the same part share it, so it is cached once (`Prefixed`)."""
 
-    statement: str
+    PREFIX: ClassVar[int] = 1
+
     sources: tuple[CitedSource, ...]
+    statement: str
 
 
 class CitationAnswer(Frozen):

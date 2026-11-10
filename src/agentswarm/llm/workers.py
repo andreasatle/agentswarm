@@ -104,6 +104,15 @@ class Toolbox(Protocol):
     def tools(self) -> Sequence[Callable[..., str]]: ...
 
 
+class Prefixed(BaseModel):
+    """A payload whose first fields are shared by many calls (a source cited by many statements): with a
+    model that caches only at marked breakpoints (Anthropic's), the message is split after them and the first
+    part marked, so the calls sharing it read it from the cache (the claims trial, 2026-11-09: the checker
+    wrote twice what it read, since the cache ended after each call's own statement)."""
+
+    PREFIX: ClassVar[int] = 0  # how many leading fields the shared part holds
+
+
 class Prompts:
     """How payloads reach a model. Content from artifacts is data inside a delimited block (proposal §16)."""
 
@@ -119,6 +128,22 @@ class Prompts:
     @staticmethod
     def data(payload: BaseModel) -> str:
         return f"<data>\n{payload.model_dump_json(indent=2)}\n</data>"
+
+    @classmethod
+    def content(cls, payload: BaseModel, breakpoints: bool) -> str | list[str | dict[str, Any]]:
+        """The payload's message: its data, or with `breakpoints`, the same text in two blocks, the shared
+        fields first and marked for caching."""
+        text = cls.data(payload)
+        names = list(type(payload).model_fields)
+        if not breakpoints or not isinstance(payload, Prefixed) or not 0 < payload.PREFIX < len(names):
+            return text
+        at = text.find(f'\n  "{names[payload.PREFIX]}": ')  # the first field after the shared ones
+        if at < 0:
+            return text
+        return [
+            {"type": "text", "text": text[: at + 1], "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": text[at + 1 :]},
+        ]
 
 
 class Worker(Protocol):
@@ -215,7 +240,8 @@ class LangChainWorker:
             ],
         )
         state = await agent.ainvoke(
-            {"messages": [HumanMessage(Prompts.data(payload))]}, config={"callbacks": [tokens]}
+            {"messages": [HumanMessage(Prompts.content(payload, self.breakpoints(self._model)))]},
+            config={"callbacks": [tokens]},
         )
         return dict(state)
 
@@ -257,6 +283,16 @@ class LangChainWorker:
     def _report(self, usage: Usage) -> None:
         if self._meter is not None:
             self._meter(usage)
+
+    @staticmethod
+    def breakpoints(model: BaseChatModel) -> bool:
+        """Whether the model caches a prompt only up to marked blocks (Anthropic's API); others cache any long
+        prefix by themselves, and some refuse an unknown key in a block."""
+        try:
+            from langchain_anthropic import ChatAnthropic
+        except ImportError:
+            return False
+        return isinstance(model, ChatAnthropic)
 
     @staticmethod
     def caching() -> list[AgentMiddleware[Any, Any]]:
