@@ -118,6 +118,16 @@ class TestGuideCheck:
         text = "## Loss\n\nThe energy is $E(x). y$ here [@1909.00001].\n$$\nE = F(x). G(y)\n$$\n"
         assert self.check(tmp_path / "out" / "seed", {"01-loss.md": text}) == []
 
+    def test_the_tail_of_a_line_left_behind_is_reported(self, qasper: Path, tmp_path: Path) -> None:
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=80).write()
+        text = (
+            "## Tagging\n\nThe paper tags words [@1909.00001].\n"
+            "gs words, and is fast [@1909.00001].\n"  # a revision replaced the start of a line
+            "-00001]\n"  # the end of a citation, cut off
+        )
+        problems = self.check(tmp_path / "out" / "seed", {"01-tagging.md": text})
+        assert len([p for p in problems if "a broken line" in p]) == 2
+
     def test_uncited_unknown_long_and_crowded_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
         GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
         problems = self.check(
