@@ -170,6 +170,17 @@ Read for the question "would retrieval (RAG) make the document reviewers cheaper
 
 **Evidence: moderate.** For our reviewers: the material (a section and its sources, 25-55k tokens) is in the range where long context still reads slightly better, so retrieval would be a cost decision with a quality risk, best taken with a fallback (Self-Route) and a cheap verifier; and claim-level checking is the established structure for exactly this job, with decomposition itself the main source of error.
 
+## 15. Research from the open web (2026-11-10)
+
+Read for goal 14: documents from heterogeneous web sources, not only papers and Wikipedia. Numbers from abstracts and secondary write-ups are marked; check the papers before relying on them.
+
+- **Research before writing, driven by questions from several perspectives.** STORM finds perspectives by surveying articles on related topics, has a writer in each perspective ask questions of an expert grounded in search results, and only then outlines and writes; against an outline-driven retrieval baseline its articles were judged better organized (+25% absolute) and broader (+10%), though editors still had to edit them. ([Shao et al., NAACL 2024](https://arxiv.org/abs/2402.14207)) For us: the search queries come from the reader's questions per thread of the request, which addresses the Venice picks that were all history and art.
+- **Checking claims against the web is the claim-by-claim structure we use, with search as the evidence.** SAFE splits a text into facts, writes search queries for each, and judges each against the results; it agreed with crowd annotators 72% of the time and won 76% of 100 disagreements, at 20 times lower cost. ([Wei et al., 2024](https://arxiv.org/abs/2403.18802)) For us: an important claim's second, independent source can be found the same way.
+- **Citations of deep research agents often don't hold up, and factual accuracy is the hardest part.** An audit of 14 models on 130 research queries scored each citation on whether the URL works, fits the topic and supports the claim; support was the hardest and most differentiating; citation hallucination rates of 11-57% are cited (secondary, 2026). Benchmarks score source credibility by hits on trusted domains (DR. BENCH) or a domain-authority scale (DREAM) (secondary, 2026). For us: our citation audit and claims review already measure the hardest part; a source's kind (official, institutional, press, blog) should be recorded and shown, and the picker told to prefer the stronger kinds.
+- **A search API is the legitimate, provider-neutral way to find pages.** Scraping engines' result pages breaks their terms and meets CAPTCHAs; meta-search engines (SearXNG) scrape the same; Common Crawl is unranked and months old; providers' built-in search ties the search to one model family. Tavily: 1,000 free credits a month, a basic search 1 credit, text extraction 1 credit per 5 pages, then $0.008 a credit ([Tavily docs, 2026-11](https://docs.tavily.com/documentation/api-credits)); a document run of 20-30 searches and 40-60 pages is 30-50 credits.
+
+**Evidence: moderate** for the structure (STORM, SAFE), **weak** for credibility scoring (recent benchmarks, read in summaries). The plan in docs/design/web-research.md follows the structure and measures the rest.
+
 ---
 
 ## What this means for AgentSwarm
