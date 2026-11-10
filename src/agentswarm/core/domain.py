@@ -237,6 +237,9 @@ class RejectedReport(Frozen):
 
     claim: str
     reason: str  # the referee's
+    # A review's `claims` finding: the cited statement (its line) the referee ruled against flagging, so the
+    # claim checker doesn't raise it again while the line is unchanged
+    statement: str = ""
 
 
 class Attacked(Frozen):

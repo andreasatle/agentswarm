@@ -32,12 +32,12 @@ from agentswarm.core.domain import (
     Sized,
     TeamName,
 )
-from agentswarm.evaluation.citations import Support
+from agentswarm.evaluation.citations import CitationRequest, Support
 from agentswarm.evaluation.score import Measure
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.analyzer import Quotes
 from agentswarm.teams.campaign import Campaign, Part
-from agentswarm.teams.claims import CheckedClaim, CitedStatement, ClaimChecker
+from agentswarm.teams.claims import CheckedClaim, CitedStatement, ClaimChecker, WholeParts
 from agentswarm.teams.referee import FindingRequest, QuotedPassage, Referee
 from agentswarm.workspace.git import Repository, Worktree
 
@@ -235,9 +235,10 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 failed=failed,
             )
 
+        cited: dict[str, CitationRequest] = {}  # for `claims`: each flagged line with the text it cites
         try:
             if focus is Perspective.CLAIMS:
-                report = await self.claim_findings(worktree, part)
+                report, cited = await self.claim_findings(worktree, part, views)
             else:
                 report = await self._worker.run(self.INSTRUCTIONS, request, ReviewFindings)
         except WorkerError as error:
@@ -254,14 +255,19 @@ document is finished as far as its writer knows. Find what is wrong with this se
             if unbacked is not None:
                 dropped.append(f"{finding.title}: {unbacked}")
                 continue
-            ruling = await self._referee.rule_finding(
-                FindingRequest(
-                    perspective=self.PERSPECTIVE[focus],
-                    brief=request.brief,
-                    document=self.document(worktree),
-                    title=finding.title,
-                    problem=finding.problem,
-                    evidence=tuple(e for e in evidence if e is not None),
+            claimed = cited.get(finding.evidence[0].quote) if finding.evidence else None
+            ruling = await (
+                self._referee.rule_claim(claimed)
+                if claimed is not None
+                else self._referee.rule_finding(
+                    FindingRequest(
+                        perspective=self.PERSPECTIVE[focus],
+                        brief=request.brief,
+                        document=self.document(worktree),
+                        title=finding.title,
+                        problem=finding.problem,
+                        evidence=tuple(e for e in evidence if e is not None),
+                    )
                 )
             )
             if ruling is None:
@@ -270,7 +276,13 @@ document is finished as far as its writer knows. Find what is wrong with this se
             confirmed, reason = ruling
             if not confirmed:
                 dropped.append(f"{finding.title}: not confirmed: {reason}")
-                rejections.append(RejectedReport(claim=f"{finding.title}: {finding.problem}", reason=reason))
+                rejections.append(
+                    RejectedReport(
+                        claim=f"{finding.title}: {finding.problem}",
+                        reason=reason,
+                        statement=finding.evidence[0].quote if focus is Perspective.CLAIMS else "",
+                    )
+                )
                 continue
             task = self.fix_task(part.title, focus, finding)
             tasks.append(task)
@@ -284,8 +296,12 @@ document is finished as far as its writer knows. Find what is wrong with this se
             )  # one section's revision: the writer tries it whole
         return [*events, attacked(len(found), tasks, dropped, findings, rejections)]
 
-    async def claim_findings(self, worktree: Worktree, part: Part) -> ReviewFindings:
-        """Every cited statement of the section checked on its own; the unsupported first, then the partly."""
+    async def claim_findings(
+        self, worktree: Worktree, part: Part, views: BoardViews
+    ) -> tuple[ReviewFindings, dict[str, CitationRequest]]:
+        """Every cited statement of the section checked on its own; the unsupported first, then the partly. A
+        statement the referee ruled against flagging is left out while its line is unchanged: raised again
+        each round, it took one of the round's few findings from a real problem."""
         if self._claims is None:
             raise WorkerError("the `claims` perspective has no claim checker")
         folder = f"{self._config.sources}/"
@@ -296,14 +312,25 @@ document is finished as far as its writer knows. Find what is wrong with this se
                     sources[file.removeprefix(folder).removesuffix(".md")] = worktree.read(file)
                 except (OSError, UnicodeDecodeError, ValueError):
                     continue
-        checked = await self._claims.check(CitedStatement.all_in(part.title, part.text), sources)
+        ruled = {r.statement for attack in views.attacks() for r in attack.rejected if r.statement}
+        statements = [s for s in CitedStatement.all_in(part.title, part.text) if s.text not in ruled]
+        checked = await self._claims.check(statements, sources)
         flagged = [c for c in checked if c.support is Support.UNSUPPORTED] + [
             c for c in checked if c.support is Support.PARTLY
         ]
-        return ReviewFindings(
+        report = ReviewFindings(
             summary=f"{len(checked)} cited statements checked, {len(flagged)} not fully supported",
             findings=tuple(self.claim_finding(c) for c in flagged),
         )
+        # The referee reads each flagged line against its cited part whole, whatever the checker was given
+        whole = WholeParts()
+        cited = {
+            c.statement.text: CitationRequest(
+                statement=c.statement.text, sources=await whole.cited(c.statement, sources)
+            )
+            for c in flagged
+        }
+        return report, cited
 
     def claim_finding(self, checked: CheckedClaim) -> ReviewFinding:
         statement = checked.statement

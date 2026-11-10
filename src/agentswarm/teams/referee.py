@@ -16,6 +16,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.core.domain import ArtifactId, CheckDisputed
+from agentswarm.evaluation.citations import CitationAnswer, CitationAudit, CitationRequest, Support
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.workspace.git import Worktree
 
@@ -327,6 +328,25 @@ there word for word; the text around each is shown). Rule on that finding alone,
         if verdict is None:
             return None
         return verdict, next(a.reason for a in answers if a.withdrawn == verdict)
+
+    async def rule_claim(self, request: CitationRequest) -> tuple[bool, str] | None:
+        """Whether a claim checker's finding is confirmed: the statement read against the source text it
+        cites, as the citation audit reads it, by a model of another family. Confirmed when the source
+        supports it only partly or not at all. The claims trial (2026-11-09): asked whether a finding matters
+        to the reader, given the whole document but not the source, the referee rejected 5 of 6 problems the
+        audit had found, at $0.013 a ruling."""
+        answers: list[CitationAnswer] = []
+        for _ in range(self.VOTES):
+            try:
+                answers.append(await self._worker.run(CitationAudit.INSTRUCTIONS, request, CitationAnswer))
+            except WorkerError:
+                continue
+            if self.majority([a.support is not Support.SUPPORTED for a in answers]) is not None:
+                break
+        verdict = self.majority([a.support is not Support.SUPPORTED for a in answers])
+        if verdict is None:
+            return None
+        return verdict, next(a.reason for a in answers if (a.support is not Support.SUPPORTED) == verdict)
 
     async def rule_finding(self, request: FindingRequest) -> tuple[bool, str] | None:
         """Whether a document reviewer's finding is confirmed, and why; None when no ruling was had. The

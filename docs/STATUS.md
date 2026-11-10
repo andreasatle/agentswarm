@@ -28,7 +28,7 @@ Details live in the docs named.
 
 ## Open, in order
 
-1. **Cheaper runs:** Haiku cached and on Anthropic's API; document reviews check each cited statement with Haiku (the A/B, docs/design/documents.md: 19 of 23 problems caught for $0.16, against 5 of 23 for $0.20 by the facts reviewer; $0.07 a section a round, down from $0.18). Next by spend: the software builders (60% of past spend) when software runs resume.
+1. **Cheaper runs:** Haiku cached and on Anthropic's API; document reviews check each cited statement with Haiku (the A/B, docs/design/documents.md: 19 of 23 problems caught for $0.16, against 5 of 23 for $0.20 by the facts reviewer; $0.07 a section a round, down from $0.18). A trial round end to end (2026-11-09, docs/design/documents.md) found the referee rejecting real problems, ruling without the source; it now reads each claims finding against its cited part. Next by spend: the software builders (60% of past spend) when software runs resume.
 2. **Later:** the rest of A02 (product code in the test process) when there is any sign of tampering; A05; goal 14 (research from the open web); stage 4, when a swarm is competitive (waits until the framework behaves well).
 
 ## Standing rules to remember

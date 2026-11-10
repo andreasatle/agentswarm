@@ -572,8 +572,12 @@ class PromptCatalogue:
                 None,
             ),
             CallFamily(
-                "Citation audit: does the cited source support a document's statement?",
-                (Caller("", CitationAudit, CitationAudit.INSTRUCTIONS),),
+                "Citation audit, and the referee of a claims finding: does the cited source support a "
+                "document's statement?",
+                (
+                    Caller("", CitationAudit, CitationAudit.INSTRUCTIONS),
+                    Caller("", Referee, CitationAudit.INSTRUCTIONS),
+                ),
                 CitationAudit,
                 SampleData.citation(),
                 CitationAnswer,

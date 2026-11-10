@@ -43,7 +43,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
 | [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionText` |
-| [Citation audit: does the cited source support a document's statement?](#citation-audit-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
+| [Citation audit, and the referee of a claims finding: does the cited source support a document's statement?](#citation-audit-and-the-referee-of-a-claims-finding-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
 | [Claim checker (review, `claims` perspective): one cited statement against its source](#claim-checker-review-claims-perspective-one-cited-statement-against-its-source) | (`ClaimChecker`) | `ClaimVerdict` |
 | [Paper finder: search queries (and well-known titles) for a topic, run against arXiv](#paper-finder-search-queries-and-well-known-titles-for-a-topic-run-against-arxiv) | (`PaperFinder`) | `SearchQueries` |
 | [Paper finder: picks the papers a tutorial is written from, among the candidates found](#paper-finder-picks-the-papers-a-tutorial-is-written-from-among-the-candidates-found) | (`PaperFinder`) | `ReadingList` |
@@ -1932,11 +1932,23 @@ class SectionText(Frozen):
 
 `Writer`: 
 
-## Citation audit: does the cited source support a document's statement?
+## Citation audit, and the referee of a claims finding: does the cited source support a document's statement?
 
 ### CitationAudit
 
 `agentswarm.evaluation.citations.CitationAudit`
+
+```text
+You check one statement of a document against the source text it cites. Decide from the source alone
+whether it supports the statement: supported (it says this), partly (it says some of it, or something
+weaker or narrower than the statement claims), or unsupported (it doesn't say this, or says otherwise).
+Where the statement names a page, also say whether that page holds the support. Quote the source briefly
+in your reason.
+```
+
+### Referee
+
+`agentswarm.teams.referee.Referee`
 
 ```text
 You check one statement of a document against the source text it cites. Decide from the source alone

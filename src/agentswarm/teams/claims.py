@@ -140,6 +140,9 @@ that settle it exactly as they appear."""
     def __init__(self, worker: Worker, source_text: SourceText) -> None:
         self._worker = worker
         self._source_text = source_text
+        # Verdicts by statement: a review checks every section each round, and a line no fix touched is
+        # judged the same again (the sources don't change during a run)
+        self._verdicts: dict[tuple[str, str], CheckedClaim] = {}
 
     async def check(
         self, statements: Sequence[CitedStatement], sources: Mapping[str, str]
@@ -148,8 +151,14 @@ that settle it exactly as they appear."""
         limit = asyncio.Semaphore(self.CONCURRENCY)
 
         async def one(statement: CitedStatement) -> CheckedClaim:
+            key = (statement.file, statement.text)
+            if key in self._verdicts:
+                return self._verdicts[key]
             async with limit:
-                return await self._one(statement, sources)
+                checked = await self._one(statement, sources)
+            if checked.support is not None:  # a failed call is tried again next time
+                self._verdicts[key] = checked
+            return checked
 
         return list(await asyncio.gather(*(one(s) for s in statements)))
 

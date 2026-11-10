@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import ClaimsConfig, ReviewConfig
 from agentswarm.core.domain import Attacked, Escalated, Event, Perspective, Scored, Sized, TeamName
-from agentswarm.evaluation.citations import Support
+from agentswarm.evaluation.citations import CitationAnswer, CitationRequest, Support
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.claims import ClaimChecker, ClaimVerdict, WholeParts
 from agentswarm.teams.referee import FindingAnswer, FindingRequest, Referee
@@ -190,6 +190,13 @@ def claim(support: Support, quote: str = "") -> Step[BaseModel]:
     return step
 
 
+def audited(support: Support) -> Step[BaseModel]:
+    def step(toolbox: Toolbox | None) -> BaseModel:
+        return CitationAnswer(reason="the paper reports 97.1%", support=support)
+
+    return step
+
+
 class TestClaims:
     async def test_each_cited_statement_is_checked_and_the_unsupported_go_to_the_referee(
         self, tmp_path: Path
@@ -197,7 +204,7 @@ class TestClaims:
         r = Review(
             tmp_path,
             [],
-            [ruling(True), ruling(True)],
+            [audited(Support.UNSUPPORTED), audited(Support.PARTLY)],
             perspectives=(Perspective.CLAIMS,),
             checker=[
                 claim(Support.UNSUPPORTED, "reaches 97.1% accuracy on the test set"),
@@ -209,14 +216,33 @@ class TestClaims:
         assert (attacked.focus, attacked.reported, attacked.confirmed) == ("claims", 1, 1)
         assert not r.reviewer.calls  # the expensive reviewer is never asked
         assert len(r.checker.calls) == 2  # one call per cited statement
-        ruled = r.referee.calls[0][1]
-        assert isinstance(ruled, FindingRequest)
-        assert [(e.file, e.quote) for e in ruled.evidence] == [
-            ("sections/01-tagging.md", "The tagger reaches 99% accuracy [@p1]."),
-            ("sources/p1.md", "reaches 97.1% accuracy on the test set"),
-        ]
+        ruled = r.referee.calls[0][1]  # the referee reads the line against the source, as the audit does
+        assert isinstance(ruled, CitationRequest)
+        assert ruled.statement == "The tagger reaches 99% accuracy [@p1]."
+        assert [(c.name, c.text) for c in ruled.sources] == [("p1", SOURCE)]
         task = next(a for a in r.h.board.current().artifacts() if a.id == attacked.tasks[0])
         assert "does not support this statement" in task.task
+
+    async def test_a_statement_the_referee_rejected_is_not_raised_again_and_none_is_paid_for_twice(
+        self, tmp_path: Path
+    ) -> None:
+        r = Review(
+            tmp_path,
+            [],
+            [audited(Support.SUPPORTED), audited(Support.SUPPORTED)],
+            perspectives=(Perspective.CLAIMS,),
+            checker=[
+                claim(Support.UNSUPPORTED, "reaches 97.1% accuracy on the test set"),
+                claim(Support.SUPPORTED),
+            ],
+        )
+        assert await r.campaign.step() == 1  # round 1: the referee rejects the finding
+        rejected = r.attacked().rejected[0]
+        assert rejected.statement == "The tagger reaches 99% accuracy [@p1]."
+        assert await r.campaign.step() == 1  # round 2: the rejected line is left out, the other is cached
+        second = [e for e in r.events() if isinstance(e, Attacked)][-1]
+        assert (second.round, second.reported) == (2, 0)
+        assert len(r.checker.calls) == 2
 
     def test_the_claims_perspective_needs_a_checker_model(self) -> None:
         with pytest.raises(ValueError, match="needs `claims:`"):
