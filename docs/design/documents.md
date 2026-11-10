@@ -225,3 +225,7 @@ The fourth trial continued with the cascade fixed (the stuck revision retried): 
 ### Two review rounds (the user, 2026-11-10)
 
 A document run's review is two rounds of the claims review (`ReviewConfig.max_rounds`, set from the policy's `review_rounds`), in one review after the first audit; the second fixes what the first's revisions missed (the fourth trial: 76% to 86% after one round, about 91% expected after two). The policy's threshold rose from 75% to 90% of the audit's sample fully supported: at 75% the sleep tutorial (76%) would not have been reviewed at all. `review_rounds` used to count reviews, each with an audit after; it now counts the rounds inside the one review.
+
+### The sleep tutorial, reviewed in full (2026-11-10)
+
+The real run (backed up first in ~/agentswarm-runs/how-sleep-affects-memory-before-claims-review) got the two-round claims review on all 8 sections: round 1 confirmed 24 problems, round 2 another 16; every revision passed, one after the writer climbed from Haiku to Sol. Review $0.97 (checker $0.16, referee $0.53, writer $0.27); the pipeline's sampled audit (20 statements, seed 2) then found 18 fully supported, 1 partly and 1 not: 90%, against 60% (12 of 20) after the old facts review. A sample of 20 is noisy (90% of 20 is consistent with roughly 70-97%). The audit cost $0.16, twice the policy's estimate, which now says $0.15. The page beside the run (page.html) was rebuilt with a note saying how it was checked; the homepage is untouched.

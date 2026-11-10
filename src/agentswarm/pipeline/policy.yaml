@@ -8,7 +8,7 @@ audit_seed: 1
 estimates:                # expected costs, from the runs of 2026-10-18/19
   find: 0.06
   write_per_1000_words: 0.05
-  audit: 0.08
+  audit: 0.15
   review_per_section: 0.12
 goal: >-
   A tutorial, not a literature review, on {topic}, for {reader}, from the sources given. Organize it around
