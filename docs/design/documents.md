@@ -214,3 +214,10 @@ A fresh copy, sections 1-4, capped at $0.70; round 1 reviewed every section, the
 ### The fourth trial, and the writer's cascade (2026-11-10)
 
 The fourth trial stopped after $0.09: section 1's revision of 3 statements made no changes on Haiku, twice, and was escalated; a parked revision holds the review back (the base level is still building), so the run went idle. The cause was a wiring bug older than the review: the team catalogue built the `writer` without its configured `attempts`, `climb`, `repairs` and `max_model_calls`, so every document run's writer had one attempt (and the nudge), never climbed to Sol and never repaired a failed check, whatever the template said. The same bug stalled the third trial (no repair for the 52 words over the cap, no climb for section 4). Fixed in `TeamCatalog`, with a test.
+
+The fourth trial continued with the cascade fixed (the stuck revision retried): round 1 reviewed all four sections and every revision passed on Haiku; round 2 had fixed section 1 again when the cap stopped it. Review $0.51 (checker $0.08 for 153 calls, referee $0.28 for 33 single rulings, $0.0085 each, writer $0.15), audit of the changed lines $0.12.
+
+- **Sections 1-4: 86% of cited statements fully supported** (84/98), from 76%; 19 of the 20 changed lines are fully supported.
+- **The 13 problems left:** 5 confirmed but not yet fixed (a bundled revision fixed some of its list; round 2 would take them again), 4 the referee rejected, 4 the checker never flagged. Finishing round 2 would put the sections near 91%.
+- **The referee against the reference:** of its 12 rejections, 8 the reference calls supported; of its 19 confirmations, 15 the reference calls problems (74% agreement over 31 rulings; the second trial's 11 of 12 was a small sample). Both are DeepSeek, one judgment each: some disagreement is the noise of a single ruling.
+- **Cost:** a round is about $0.11 a section with the levers (from $0.15), the referee half of it.
