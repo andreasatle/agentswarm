@@ -204,7 +204,7 @@ class TestClaims:
         r = Review(
             tmp_path,
             [],
-            [audited(Support.UNSUPPORTED), audited(Support.PARTLY)],
+            [audited(Support.UNSUPPORTED)],
             perspectives=(Perspective.CLAIMS,),
             checker=[
                 claim(Support.UNSUPPORTED, "reaches 97.1% accuracy on the test set"),
@@ -216,6 +216,7 @@ class TestClaims:
         assert (attacked.focus, attacked.reported, attacked.confirmed) == ("claims", 1, 1)
         assert not r.reviewer.calls  # the expensive reviewer is never asked
         assert len(r.checker.calls) == 2  # one call per cited statement
+        assert len(r.referee.calls) == 1  # one ruling a finding
         ruled = r.referee.calls[0][1]  # the referee reads the line against the source, as the audit does
         assert isinstance(ruled, CitationRequest)
         assert ruled.statement == "The tagger reaches 99% accuracy [@p1]."
@@ -229,7 +230,7 @@ class TestClaims:
         r = Review(
             tmp_path,
             [],
-            [audited(Support.SUPPORTED), audited(Support.SUPPORTED)],
+            [audited(Support.SUPPORTED)],
             perspectives=(Perspective.CLAIMS,),
             checker=[
                 claim(Support.UNSUPPORTED, "reaches 97.1% accuracy on the test set"),
@@ -248,7 +249,7 @@ class TestClaims:
         r = Review(
             tmp_path,
             [],
-            [audited(Support.UNSUPPORTED)] * 2 + [audited(Support.PARTLY)] * 2,
+            [audited(Support.UNSUPPORTED), audited(Support.PARTLY)],
             perspectives=(Perspective.CLAIMS,),
             checker=[claim(Support.UNSUPPORTED), claim(Support.PARTLY)],
         )

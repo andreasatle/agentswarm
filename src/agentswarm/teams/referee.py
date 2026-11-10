@@ -331,22 +331,19 @@ there word for word; the text around each is shown). Rule on that finding alone,
 
     async def rule_claim(self, request: CitationRequest) -> tuple[bool, str] | None:
         """Whether a claim checker's finding is confirmed: the statement read against the source text it
-        cites, as the citation audit reads it, by a model of another family. Confirmed when the source
-        supports it only partly or not at all. The claims trial (2026-11-09): asked whether a finding matters
-        to the reader, given the whole document but not the source, the referee rejected 5 of 6 problems the
-        audit had found, at $0.013 a ruling."""
-        answers: list[CitationAnswer] = []
-        for _ in range(self.VOTES):
-            try:
-                answers.append(await self._worker.run(CitationAudit.INSTRUCTIONS, request, CitationAnswer))
-            except WorkerError:
-                continue
-            if self.majority([a.support is not Support.SUPPORTED for a in answers]) is not None:
-                break
-        verdict = self.majority([a.support is not Support.SUPPORTED for a in answers])
-        if verdict is None:
+        cites, as the citation audit reads it, by a model of another family, once. Confirmed when the source
+        supports it only partly or not at all; None when the call failed.
+
+        The claims trials (2026-11-09/10): asked whether a finding matters to the reader, given the whole
+        document but not the source, the referee rejected 5 of 6 problems the audit had found; reading the
+        source, it agreed with the audit on 11 of 12. One vote, not a majority of three: the votes made the
+        referee three quarters of a review round ($0.017 a finding), and a ruling on a quoted source text is
+        a reading, not a judgment call that sampling evens out."""
+        try:
+            answer = await self._worker.run(CitationAudit.INSTRUCTIONS, request, CitationAnswer)
+        except WorkerError:
             return None
-        return verdict, next(a.reason for a in answers if (a.support is not Support.SUPPORTED) == verdict)
+        return answer.support is not Support.SUPPORTED, answer.reason
 
     async def rule_finding(self, request: FindingRequest) -> tuple[bool, str] | None:
         """Whether a document reviewer's finding is confirmed, and why; None when no ruling was had. The
