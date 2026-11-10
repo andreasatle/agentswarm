@@ -199,3 +199,13 @@ A fresh copy, sections 1-4, capped at $0.65; the cap again stopped it after roun
 
 - **One revision per section:** a claims review takes every flagged line (no cap of three) and the referee's confirmed ones become one writer task for the section (`ReviewCampaign.fix_claims`); `Attacked.confirmed` counts findings, no longer tasks.
 - **A cached source:** `CitationRequest` puts the cited text before the statement and is `Prefixed`: for a model that caches only at marked blocks (Anthropic's API), the message goes as two blocks, the source marked for caching (`Prompts.content`, `LangChainWorker.breakpoints`); other models get the same text in one block and cache the prefix themselves (DeepSeek, OpenAI). The checker runs statements citing the same parts together, the first alone, so its call writes the cache the others read.
+
+### The third trial: both levers (2026-11-10)
+
+A fresh copy, sections 1-4, capped at $0.70; round 1 reviewed every section, then the cap stopped it.
+
+- **The cached checker is cheap:** every cited statement of four sections for $0.06 (123 calls), against $0.20 before; cache reads now outnumber writes about three to one.
+- **The referee is now three quarters of the cost:** 30 findings ruled for $0.50 ($0.017 each, two or three DeepSeek votes over the cited pages); 18 confirmed.
+- **Bundled revisions half worked:** sections 1 and 3 were fixed (6 lines changed, 5 now fully supported by the audit, 1 partly); section 2's revision added hedges and took the guide 52 words over its 5,000-word cap with the writer told to change nothing else, and was dropped (the task now says to cut rather than hedge, and lets the writer shorten the rest of the section when the cap requires it); section 4's revision of 7 statements made no changes on Haiku, and the budget ran out before the writer climbed to a stronger model.
+- **Measured:** sections 1-4 at 80% fully supported (76% before); the audit of the changed lines cost $0.02.
+- **Next:** the referee's cost (one vote, or a cheaper model of another family), and a revision of many statements failing on Haiku.

@@ -450,12 +450,15 @@ document is finished as far as its writer knows. Find what is wrong with this se
             + (f' The source says: "{f.evidence[1].quote}"' if len(f.evidence) > 1 else "")
             for n, f in enumerate(confirmed, 1)
         )
+        # Fixes cut rather than hedge: the claims trial (2026-11-10) stalled when a revision that added hedges
+        # took the guide 52 words over its cap, the writer told to change nothing else
         task = (
             f"Revise {section}: {len(confirmed)} cited statements its sources don't fully support (checked "
-            f"claim by claim, each confirmed by a referee). {listed} For each, state only what the cited "
-            "source says, or cite the source that says it. Keep every factual statement cited to its "
-            f"source, follow {self._config.brief} (its length cap included), and change only these "
-            "statements."
+            f"claim by claim, each confirmed by a referee). {listed} For each, cut what the cited source "
+            "doesn't say, or cite the source that says it; don't add hedges or explanations, since a longer "
+            "document can break its length cap. Keep every factual statement cited to its source, follow "
+            f"{self._config.brief}, and change only these statements, except to shorten others in the "
+            "section when the length cap requires it."
         )
         return self._artifacts.create(task, self.NAME).id
 
