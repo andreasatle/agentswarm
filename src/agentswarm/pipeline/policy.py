@@ -18,7 +18,7 @@ class Estimates(BaseModel):
     find: float = 0.06  # the picker on the planner model, 40 candidates (0.04-0.05 measured)
     write_per_1000_words: float = 0.05  # 0.19-0.29 for 6,000-9,000 words
     audit: float = 0.15  # 20 statements on the referee (2026-11-10: $0.16)
-    review_per_section: float = 0.12  # one claims round, measured (2026-11-10 trial): checks, rulings, fixes
+    review_per_section: float = 0.07  # one claims round: the sleep tutorial, $0.97 for 8 sections x 2 rounds
 
     def write(self, words: int) -> float:
         return self.write_per_1000_words * words / 1000
