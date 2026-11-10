@@ -356,6 +356,7 @@ class ReviewConfig(Strict):
     )
     max_findings: int = Field(default=3, ge=1)  # findings taken from one review
     quiet_rounds: int = Field(default=2, ge=1)
+    max_rounds: int | None = Field(default=None, ge=1)  # whole rounds at most, quiet or not
     max_model_calls: int = Field(default=30, gt=0)  # per review
     claims: ClaimsConfig | None = None  # how the `claims` perspective checks each cited statement
 

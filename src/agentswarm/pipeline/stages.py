@@ -183,6 +183,7 @@ class ProjectStage:
             "perspectives": ["claims"],
             "claims": {"model": "haiku55"},
             "quiet_rounds": 1,
+            "max_rounds": policy.review_rounds,
         }
         path = run.project / self.REVIEW
         path.write_text(yaml.safe_dump(config, sort_keys=False))

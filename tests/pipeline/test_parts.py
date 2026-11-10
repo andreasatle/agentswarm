@@ -4,7 +4,7 @@ from pathlib import Path
 from agentswarm.cli import Cli
 from agentswarm.control.limits import SharedSpend
 from agentswarm.core.clock import SystemClock
-from agentswarm.core.config import SpendLimits
+from agentswarm.core.config import ProjectConfig, SpendLimits
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.page import PageRenderer
 from agentswarm.pipeline.policy import Policy
@@ -37,7 +37,7 @@ class TestPageRenderer:
 class TestPolicy:
     def test_the_default_policy_loads_and_plans_a_run(self) -> None:
         policy = Policy.load()
-        assert policy.review_threshold == 0.75 and "{topic}" in policy.goal
+        assert policy.review_threshold == 0.9 and "{topic}" in policy.goal
         assert "sleep" in policy.brief("sleep", "an adult") and 0.3 < policy.expected(5000) < 3.0
 
 
@@ -56,7 +56,10 @@ class TestProjectStage:
         (folder.sources / "paper.txt").write_text("Sleep and memory\nA. Author, the text.")
         stage = ProjectStage(Ledger())
         stage.validate(stage.config(folder, Policy.load(), 1.0))
-        stage.validate(stage.reviewing(folder, Policy.load(), 1.0))
+        reviewing = stage.reviewing(folder, Policy.load(), 1.0)
+        stage.validate(reviewing)
+        review = ProjectConfig.load(reviewing).review
+        assert review is not None and review.max_rounds == Policy.load().review_rounds == 2
 
 
 class TestSpentBy:
@@ -72,7 +75,7 @@ class TestSpentBy:
 class TestDocumentCommands:
     def test_write_runs_and_approve_from_the_command_line(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[16])
+        project = FakeProject(ledger, shares=[19])
         runs = DocumentPipeline(
             Stages(FakeSources(ledger), project, project, FakePage(), ledger),
             Policy.load(),

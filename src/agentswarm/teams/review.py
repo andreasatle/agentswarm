@@ -163,7 +163,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
         progress: Measure | None = None,
         claims: ClaimChecker | None = None,  # checks each cited statement, for the `claims` perspective
     ) -> None:
-        super().__init__(board, repository, ladder, config.quiet_rounds, budget, progress)
+        super().__init__(board, repository, ladder, config.quiet_rounds, budget, progress, config.max_rounds)
         self._claims = claims
         self._config = config
         self._north_star = north_star

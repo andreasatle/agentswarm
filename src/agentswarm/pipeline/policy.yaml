@@ -1,8 +1,8 @@
 # What a document run decides without asking (agentswarm/pipeline/policy.py). Override per run with --policy.
 papers: 5                 # sources the finder picks
 words: 5000               # the document's length cap, unless the run says otherwise
-review_threshold: 0.75    # below this share of fully supported citations, a review round runs
-review_rounds: 1          # review rounds at most (each about $0.12 a section, measured: every cited statement checked, ruled and fixed)
+review_threshold: 0.9     # below this share of fully supported citations, the review runs (2026-11-10: the sleep tutorial had 76%)
+review_rounds: 2          # the review's rounds (each about $0.12 a section, measured: every cited statement checked, ruled and fixed)
 audit_sample: 20          # cited statements checked against their sources after writing
 audit_seed: 1
 estimates:                # expected costs, from the runs of 2026-10-18/19

@@ -221,3 +221,7 @@ The fourth trial continued with the cascade fixed (the stuck revision retried): 
 - **The 13 problems left:** 5 confirmed but not yet fixed (a bundled revision fixed some of its list; round 2 would take them again), 4 the referee rejected, 4 the checker never flagged. Finishing round 2 would put the sections near 91%.
 - **The referee against the reference:** of its 12 rejections, 8 the reference calls supported; of its 19 confirmations, 15 the reference calls problems (74% agreement over 31 rulings; the second trial's 11 of 12 was a small sample). Both are DeepSeek, one judgment each: some disagreement is the noise of a single ruling.
 - **Cost:** a round is about $0.11 a section with the levers (from $0.15), the referee half of it.
+
+### Two review rounds (the user, 2026-11-10)
+
+A document run's review is two rounds of the claims review (`ReviewConfig.max_rounds`, set from the policy's `review_rounds`), in one review after the first audit; the second fixes what the first's revisions missed (the fourth trial: 76% to 86% after one round, about 91% expected after two). The policy's threshold rose from 75% to 90% of the audit's sample fully supported: at 75% the sleep tutorial (76%) would not have been reviewed at all. `review_rounds` used to count reviews, each with an audit after; it now counts the rounds inside the one review.

@@ -140,7 +140,8 @@ class DocumentPipeline:
         }
 
     def review(self, run: DocumentRun) -> Update:
-        blocked = self.over(run, self._policy.estimates.review(run.sections), "review")
+        need = self._policy.review_rounds * self._policy.estimates.review(run.sections)
+        blocked = self.over(run, need, "review")
         if blocked is not None:
             return blocked
         written = self.apart(self._stages.checking.review, run, self._policy, self.left(run))
@@ -269,7 +270,7 @@ class DocumentPipeline:
         if run.blocked:
             return "budget"
         audit = run.audits[-1]
-        if audit.share < self._policy.review_threshold and run.reviews < self._policy.review_rounds:
+        if audit.share < self._policy.review_threshold and self._policy.review_rounds and not run.reviews:
             return "review"
         return "checked"
 

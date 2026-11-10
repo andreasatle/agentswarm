@@ -300,7 +300,10 @@ class Studio:
         e = self._policy.estimates
         steps = [("Find sources", e.find), ("Write", e.write(words)), ("Audit the citations", e.audit)]
         if self._policy.review_rounds:
-            steps.append(("Fact review, if needed, and a new audit", e.review(10) + e.audit))
+            review = self._policy.review_rounds * e.review(10) + e.audit
+            steps.append(
+                (f"Review ({self._policy.review_rounds} rounds), if needed, and a new audit", review)
+            )
         return steps
 
     def label(self, view: RunView, answer: Answer) -> str:

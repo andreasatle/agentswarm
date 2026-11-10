@@ -47,6 +47,7 @@ class Review:
         referee: list[Step[BaseModel]],
         perspectives: tuple[Perspective, ...] = (Perspective.FACTS,),
         checker: list[Step[BaseModel]] | None = None,  # the claim checker's script, for `claims`
+        max_rounds: int | None = None,
     ) -> None:
         tmp_path.mkdir(parents=True, exist_ok=True)
         self.h = Harness(tmp_path)
@@ -61,7 +62,9 @@ class Review:
         self.referee = FakeWorker(referee)
         self.checker = FakeWorker(checker or [])
         claims = ClaimsConfig(model="cheap") if checker is not None else None
-        config = ReviewConfig(model="rev", referee="ref", perspectives=perspectives, claims=claims)
+        config = ReviewConfig(
+            model="rev", referee="ref", perspectives=perspectives, claims=claims, max_rounds=max_rounds
+        )
         self.campaign = ReviewCampaign(
             config,
             Harness.NORTH_STAR,
@@ -260,6 +263,14 @@ class TestClaims:
         task = next(a for a in r.h.board.current().artifacts() if a.id == attacked.tasks[0])
         assert "2 cited statements" in task.task
         assert "99% accuracy" in task.task and "one million words" in task.task
+
+    def test_a_review_stops_after_its_rounds_quiet_or_not(self, tmp_path: Path) -> None:
+        r = Review(tmp_path, [], [], perspectives=(Perspective.CLAIMS,), checker=[], max_rounds=2)
+        busy = Attacked(
+            round=1, section="s.md", focus=Perspective.CLAIMS, commit="c", model="m", reported=1, confirmed=1
+        )
+        assert not r.campaign.done([busy], pairs=1)
+        assert r.campaign.done([busy, busy.model_copy(update={"round": 2})], pairs=1)
 
     def test_the_claims_perspective_needs_a_checker_model(self) -> None:
         with pytest.raises(ValueError, match="needs `claims:`"):

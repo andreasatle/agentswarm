@@ -54,7 +54,7 @@ class HostileSources(FakeSources):
 class Fixture:
     def __init__(self, tmp_path: Path, sources: FakeSources | None = None, **projects: Watched) -> None:
         self.ledger = Ledger()
-        self.project = FakeProject(self.ledger, shares=[16])
+        self.project = FakeProject(self.ledger, shares=[19])
         self.page = FakePage()
         stages = Stages(
             sources or FakeSources(self.ledger), self.project, self.project, self.page, self.ledger
@@ -85,7 +85,7 @@ class TestStudio:
         assert "Waiting for you" in page and "Approve the sources" in page and "Add papers" in page
         assert "sleep and memory" in f.client.get("/").text
         page = f.answer("yes")
-        assert "Approve publishing" in page and "80%" in page and f.project.writes == 1
+        assert "Approve publishing" in page and "95%" in page and f.project.writes == 1
         (f.runs / "sleep-and-memory" / "document.md").write_text("# Sleep\n\nIt helps.\n")
         assert "It helps." in f.client.get("/runs/sleep-and-memory/document").text
         page = f.answer("yes")

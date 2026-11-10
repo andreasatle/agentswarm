@@ -32,8 +32,10 @@ class Policy(BaseModel):
 
     papers: int = Field(default=5, gt=0)  # sources the finder picks
     words: int = Field(default=5000, gt=0)  # the document's length cap, unless the run says otherwise
-    review_threshold: float = Field(default=0.75, gt=0, le=1)  # fully supported citations wanted
-    review_rounds: int = Field(default=1, ge=0)  # facts rounds at most
+    review_threshold: float = Field(default=0.9, gt=0, le=1)  # fully supported citations wanted
+    # The review's rounds (every cited statement checked, ruled on and fixed), in one review after the first
+    # audit; 0: no review. Two (the user, 2026-11-10): the second fixes what the first's revisions missed
+    review_rounds: int = Field(default=2, ge=0)
     audit_sample: int = Field(default=20, gt=0)
     audit_seed: int = 1
     estimates: Estimates = Estimates()
@@ -51,14 +53,16 @@ class Policy(BaseModel):
     def plan(self, words: int, sections: int = 10) -> str:
         """The run's expected costs, step by step, for the user before it starts."""
         e = self.estimates
-        review = e.review(sections) + e.audit
+        review = self.review_rounds * e.review(sections) + e.audit
         return (
             f"sources ${e.find:.2f}, writing ${e.write(words):.2f}, citation audit ${e.audit:.2f}; "
-            f"if fewer than {self.review_threshold:.0%} of citations hold up, a fact review ${review:.2f}"
+            f"if fewer than {self.review_threshold:.0%} of citations hold up, a review of "
+            f"{self.review_rounds} rounds ${review:.2f}"
         )
 
     def expected(self, words: int, sections: int = 10) -> float:
-        """The whole run's expected cost: sources, writing, an audit, and each allowed review with its
-        audit."""
+        """The whole run's expected cost: sources, writing, an audit, and the review's rounds with the audit
+        after them."""
         e = self.estimates
-        return e.find + e.write(words) + e.audit + self.review_rounds * (e.review(sections) + e.audit)
+        review = self.review_rounds * e.review(sections) + e.audit if self.review_rounds else 0.0
+        return e.find + e.write(words) + e.audit + review

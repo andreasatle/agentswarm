@@ -45,7 +45,9 @@ class Campaign(ABC):
         quiet_rounds: int,
         budget: Budget | None = None,
         progress: Measure | None = None,
+        max_rounds: int | None = None,  # whole rounds at most, quiet or not (a document run's review: two)
     ) -> None:
+        self._max_rounds = max_rounds
         self._board = board
         self._repository = repository
         self._ladder = ladder
@@ -132,9 +134,11 @@ class Campaign(ABC):
         )
 
     def done(self, attacks: Sequence[Attacked], pairs: int) -> bool:
-        """Whether the last `quiet_rounds` whole rounds each confirmed nothing."""
+        """Whether the last `quiet_rounds` whole rounds each confirmed nothing, or `max_rounds` are whole."""
         rounds = sorted({a.round for a in attacks})
         complete = [r for r in rounds if sum(a.round == r for a in attacks) >= pairs]
+        if self._max_rounds is not None and len(complete) >= self._max_rounds:
+            return True
         quiet = complete[-self._quiet_rounds :]
         return len(quiet) == self._quiet_rounds and all(
             sum(a.confirmed for a in attacks if a.round == r) == 0 for r in quiet
