@@ -221,6 +221,15 @@ class TeamCatalog:
                 requires_sizing=resources.plans(),
                 router=resources.router_for(team, CallKind.PRODUCE),
                 sync_from=resources.ladder.base,
+                # The configured cascade (2026-11-10: the writer was built without these, so a document's
+                # `climb`, `attempts` and `repairs` did nothing: a revision Haiku left unchanged was escalated
+                # instead of going to the next tier, and one over the length cap got no repair)
+                attempts=team.attempts,
+                climb=team.climb,
+                split_on_failure=team.split_on_failure,
+                repairs=team.repairs,
+                partial=team.partial,
+                step_budget=team.max_model_calls,
             ),
         )
         catalog.register(

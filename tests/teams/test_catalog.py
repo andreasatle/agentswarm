@@ -22,6 +22,7 @@ from agentswarm.teams.analyzer import (
     TextTester,
 )
 from agentswarm.teams.catalog import TeamCatalog, TeamResources
+from agentswarm.teams.documents import Writer
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor
 from agentswarm.workspace.sandbox import LocalSandbox
 from tests.support.samples import Samples
@@ -56,6 +57,20 @@ class TestTeamCatalog:
         assert isinstance(fake, FakeExecutor)
         assert isinstance(real, ExecutorTeam)
         assert real.watches == Samples.RAW
+
+    def test_the_writer_gets_its_configured_cascade(self) -> None:
+        config = TeamConfig(
+            use="writer",
+            watches=Samples.RAW,
+            model="fake",
+            attempts=3,
+            climb=True,
+            repairs=2,
+            max_model_calls=7,
+        )
+        writer = TeamCatalog.standard().build(config, Resources.make())
+        assert isinstance(writer, Writer)
+        assert (writer._attempts, writer._climb, writer._repairs, writer._step_budget) == (3, True, 2, 7)  # pyright: ignore[reportPrivateUsage]
 
     def test_builds_analyzers_with_their_relevance_filter(self) -> None:
         team = TeamConfig(

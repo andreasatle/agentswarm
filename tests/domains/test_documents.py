@@ -65,7 +65,7 @@ class Handbook:
             assert isinstance(payload, ExecutorRequest) and isinstance(toolbox, WorktreeToolbox)
             (path,) = [p for p in SECTIONS if p in payload.instruction.goal]
             toolbox.write_file(path, SECTIONS[path])
-            assert toolbox.run_checks() == "check_doc: passed"
+            assert toolbox.run_checks().startswith("check_doc: passed")  # with the calls left
             return ExecutorReport(summary=f"write {path}", complete=True)
 
         def review(payload: BaseModel, toolbox: Toolbox | None) -> ReviewReport:

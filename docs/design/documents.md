@@ -210,3 +210,7 @@ A fresh copy, sections 1-4, capped at $0.70; round 1 reviewed every section, the
 - **Measured:** sections 1-4 at 80% fully supported (76% before); the audit of the changed lines cost $0.02.
 - **Next:** the referee's cost (one vote, or a cheaper model of another family), and a revision of many statements failing on Haiku.
 - **Built (2026-11-10, the user's choice):** the referee rules on a claims finding once, not by a majority of three (`Referee.rule_claim`).
+
+### The fourth trial, and the writer's cascade (2026-11-10)
+
+The fourth trial stopped after $0.09: section 1's revision of 3 statements made no changes on Haiku, twice, and was escalated; a parked revision holds the review back (the base level is still building), so the run went idle. The cause was a wiring bug older than the review: the team catalogue built the `writer` without its configured `attempts`, `climb`, `repairs` and `max_model_calls`, so every document run's writer had one attempt (and the nudge), never climbed to Sol and never repaired a failed check, whatever the template said. The same bug stalled the third trial (no repair for the 52 words over the cap, no climb for section 4). Fixed in `TeamCatalog`, with a test.
