@@ -9,7 +9,7 @@ Independent teams of agents (an executor, an integration tester, a red team, a p
 - [docs/REFERENCE.md](docs/REFERENCE.md): every config key, event, team, judge, report and command.
 - [docs/PROMPTS.md](docs/PROMPTS.md): every prompt a model or Jev sees, generated from the code.
 - [docs/RESEARCH.md](docs/RESEARCH.md): what the research says works, with sources; the ground truth for design decisions.
-- [docs/essays/](docs/essays/): longer pieces written for readers outside the project, such as [supervised and self-supervised software development](docs/essays/supervised-and-self-supervised-development.md) and [can many small models compete with one large model?](docs/essays/many-small-models-vs-one-large.md) and [checking work without an answer key](docs/essays/verification-without-ground-truth.md), two literature studies.
+- [docs/essays/](docs/essays/): longer pieces written for readers outside the project, such as [supervised and self-supervised software development](docs/essays/supervised-and-self-supervised-development.md) and [can many small models compete with one large model?](docs/essays/many-small-models-vs-one-large.md) [checking work without an answer key](docs/essays/verification-without-ground-truth.md) and [learning from our own runs](docs/essays/learning-from-our-own-runs.md), three literature studies.
 - [docs/MODELS.md](docs/MODELS.md): how models are configured, called and measured, and how Jev's answers are scaled.
 - [FRAMEWORK_PROPOSAL.md](FRAMEWORK_PROPOSAL.md) and [docs/design/](docs/design/): the design and every decision made while building it; [docs/BACKLOG.md](docs/BACKLOG.md): what was postponed, and why.
 
