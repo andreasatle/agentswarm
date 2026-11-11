@@ -231,3 +231,25 @@ A document run's review is two rounds of the claims review (`ReviewConfig.max_ro
 The real run (backed up first in ~/agentswarm-runs/how-sleep-affects-memory-before-claims-review) got the two-round claims review on all 8 sections: round 1 confirmed 24 problems, round 2 another 16; every revision passed, one after the writer climbed from Haiku to Sol. Review $0.97 (checker $0.16, referee $0.53, writer $0.27); the pipeline's sampled audit (20 statements, seed 2) then found 18 fully supported, 1 partly and 1 not: 90%, against 60% (12 of 20) after the old facts review. A sample of 20 is noisy (90% of 20 is consistent with roughly 70-97%). The audit cost $0.16, twice the policy's estimate, which now says $0.15. The page beside the run (page.html) was rebuilt with a note saying how it was checked; the homepage is untouched.
 
 Before the page went to the homepage (the user's yes, 2026-11-10), reading the whole document found three broken lines left by review revisions (the tail of a line a revision had replaced; one in section 2, two in section 3), which every check had passed: the fragments still cited their source correctly. They were removed by hand on the board (commit "By hand (Claude, 2026-11-10)"), and the page's note says so. The document check now fails a line that starts mid-word or holds a citation broken off (`check_doc.py`, the template in evaluation/qasper.py), so a revision that leaves one fails its checks. The same commit rendered Gais and Born's reference with the current code: it had been recorded before the "Jan Born A" fix and showed as "Gais and A". The homepage copy was made by hand; AgentSwarm writes nothing there.
+
+## Measuring the checkers against careful labels (2026-11-11)
+
+Priority 1 of the list agreed with the user on 2026-11-11, from the verification study (docs/essays/verification-without-ground-truth.md): measure how often our checkers pass wrong statements, since the citation audit stalls at 80-90% after review. Free: no model calls.
+
+**Method.** 50 of the 95 cited statements of the review A/B (review-ab.json, sections 1-4 of the sleep tutorial before review), stratified: all 37 where the reference audit or the whole-part checker found a problem, and 13 of the 58 both passed (weighted by 58/13 in the rates). Claude labelled each against the evidence the checkers saw (the cited part, or the named page and its neighbours), blind to every verdict, with one rule written down first: a gloss that only defines a term is not a claim about the source; a description of the thing studied is. The labels and reasons are beside the run (claim-labels-2026-11-11.jsonl); the user spot-checks 10 of them. They are one careful reader's labels, not a person's.
+
+**Results, weighted to all 95 statements:** 23% are not fully supported by their source.
+
+| checker | problems caught | of what it passes, wrong | of what it flags, fine |
+| --- | --- | --- | --- |
+| claims checker, whole part (Haiku 5.5; the one in use) | 70% | 10% | 55% |
+| claims checker, retrieved passages (Haiku 5.5) | 75% | 9% | 56% |
+| citation audit (DeepSeek V4 Pro; the quality meter, and the referee's model) | 65% | 10% | 39% |
+| facts reviewer (GPT-6.1 Sol) | 33% | 16% | 0% |
+
+- **The checker's ceiling.** It passes about one wrong statement in ten; fixing everything it flags would leave about 8% of statements not fully supported, a ceiling near 92%, consistent with the 80-90% plateau.
+- **The meter is noisy too.** The audit that reports "fully supported" misses a third of the problems and a third of its flags are fine; it agrees with the labels on all three categories for 36 of 50. Audit numbers from 20 sampled statements carry this error on top of sampling error.
+- **Most problems are small:** 16 of 18 are glosses or descriptions the source doesn't give ("the deepest stage", "linked to vivid dreaming") or slight overreach. Three are real errors, a relation reversed (items 1, 38, 42): the checker caught 2 (missed the inverted "cholinergic suppression be switched on"), the audit 1.
+- **Correlated checkers fool label-free estimation.** A Dawid-Skene fit on the four checkers' verdicts without labels rated the whole-part checker 96% sensitive and 96% specific, against 70% and 45% by the labels: its two Haiku arms share errors (both wrong on 18 of 50, independence predicts 8), so the fit took their agreement for truth. Label-free estimation needs checkers of different families, as the literature warns.
+
+**Next:** the user's spot-check of 10 labels; then use the 50 as a calibration set (report the audit with its error, not as a bare percentage), and try a second-family checker on the same 50, chosen for low error correlation with Haiku, before changing any prompt.

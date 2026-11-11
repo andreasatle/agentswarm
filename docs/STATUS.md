@@ -24,6 +24,7 @@ Details live in the docs named.
 ## Measured weak spots
 
 - **Citations:** about 75% of cited statements fully supported after one facts review (65% before); most of the rest overstate.
+- **The checkers (2026-11-11, docs/design/documents.md):** against careful labels of 50 statements, the claims checker catches 70% of problems and passes one wrong statement in ten (a ceiling near 92%); the citation audit we use as the quality meter catches 65% and 39% of its flags are fine, so audit percentages are noisy.
 - **Downloads:** publishers refuse most programs; on sleep and memory none of five picks downloaded, the user fetched them by hand. Repository copies (PubMed Central, arXiv) are reliable; "bronze" open access is not. Goal 14 is the real fix.
 
 ## Open, in order
