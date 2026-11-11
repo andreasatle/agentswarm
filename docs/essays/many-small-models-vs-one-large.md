@@ -105,11 +105,85 @@ The multiscale reading predicts the results above rather than merely describing 
 
 What the analogy does *not* give for free is the decomposition itself. In HMM the scales are known from the physics; in MAKER the decomposition was supplied by hand. Finding a decomposition with good scale separation is the hard, largely open problem, and the evidence suggests it is the job of the strongest model in the system.
 
-## 7. What this means for AgentSwarm (briefly)
+## 7. Building an agent system on the HMM template
+
+*This section is a design proposal, not a report of results. It takes the structure of the heterogeneous multiscale method literally and asks what each part becomes when the solvers are language models.*
+
+### 7.1 The HMM recipe, briefly
+
+E and Engquist's method has five parts, and it is worth stating them precisely because each one maps to a design decision:
+
+1. **A macro model with a gap.** The macro state U (say, a density on a coarse grid) is advanced by a macro scheme, for example a finite-volume step U^{n+1} = U^n − Δt ∇·F. The scheme is complete except for some data, here the flux F, which no closed-form constitutive law gives.
+2. **A reconstruction (constraint) operator.** For each macro point that needs data, build a micro problem consistent with the local macro state: initial and boundary conditions that make the micro system "look like" U there.
+3. **A micro solver on a small domain.** Run the fine-scale model (molecular dynamics, a fine PDE) on a domain and time span of the order of the micro scale ε, not the macro scale. Its cost does not depend on the size of the whole problem.
+4. **A compression (data estimation) operator.** Average the micro solution, with a kernel in space and time, to estimate the missing datum F, and hand it back to the macro scheme.
+5. **An error analysis by levels.** The total error is bounded by the macro scheme's own error plus the error in the estimated data, and the latter splits into the micro solver's error, the boundary error of the small domain, and the sampling or averaging error. Because micro problems are solved only where and when the macro scheme needs data, the cost is independent of ε.
+
+The method works when the scales separate: the micro problem relaxes on a domain much smaller than the macro scale, so a small domain with the right boundary conditions gives the right local answer.
+
+### 7.2 The same recipe with agents
+
+| HMM part | Agent counterpart | What it means in practice |
+|---|---|---|
+| Macro state U | The global description of the product: requirements, interfaces and contracts, the plan, the status of every check | Kept as typed data, not as a long conversation; the strong model reads and updates it, it never "remembers" it |
+| Macro scheme | A strong model, or plain code, that advances U: chooses the next piece of work, integrates results, replans | Called rarely; its output is a decision or a contract, not an implementation |
+| Missing data F | What the macro level cannot produce cheaply: an implementation of one function, the answer to one sub-question, whether a component meets its contract | Each request is typed: what is asked, in what form it comes back |
+| Reconstruction operator | Building a self-contained task from U: the local spec excerpt, the interface it must satisfy, the tests it must pass, and nothing else | The tests and interfaces are the boundary conditions; the context budget is the domain size |
+| Micro solver on a small domain | A small model with a fresh context, run several times independently | Fresh context avoids self-conditioning on earlier mistakes; repeated runs are the samples |
+| Compression operator | Verification and aggregation: run the tests, vote or pick by agreement, return a typed result (pass or fail, the artefact, measured numbers) | Plays the role of the averaging kernel: it reduces variance and discards outliers (MAKER's red flags) |
+| Error by levels | Plan error + step error + transfer error | Each measured separately (section 7.4) |
+| Cost independent of ε | Cost proportional to the number of pieces, not to the length of any context | The single-model alternative pays for an ever longer context and compounding error p^s |
+
+Three consequences follow directly from the template:
+
+- **The macro level never does micro work.** In HMM the macro scheme never resolves ε; it only asks for data. A strong model that writes code itself, reads whole logs, or reviews every line is doing micro work at macro prices. Its job is the contract, the decomposition and the integration decision.
+- **The micro level never sees the macro state.** A micro problem is defined only by its boundary conditions. A small agent given the whole project is not a cheap agent; it is a weak copy of the large one, and the evidence (self-conditioning, context dilution, Kim et al.'s coordination overhead) says it will do worse.
+- **The interface between them is typed data.** HMM passes numbers through well-defined operators; agents should pass typed requests and typed results, never free-form conversation. This is where the "transfer error" lives, and typing it makes it checkable.
+
+### 7.3 A worked example: implementing a specification
+
+Take the task of implementing a parser from a written specification, with a held-out test suite as the definition of done.
+
+- **Macro state:** the list of specification rules, the module structure and its interfaces, and for every rule the status of its visible tests. A strong model writes the first decomposition: modules, their contracts, and which rules belong to which module.
+- **Macro step:** pick the rule or module whose checks fail and that has the fewest unresolved dependencies (the analogue of choosing where the macro scheme needs data).
+- **Reconstruction:** a micro task containing the text of that rule, the interface of the module it lives in, the stubs of its neighbours, and the tests for that rule. Nothing about other rules.
+- **Micro solve:** k independent attempts by a small model, each in a fresh context.
+- **Compression:** run the rule's tests on each attempt; among those that pass, vote by agreement on extra generated inputs (differential testing); if none passes, return the failures as data. The macro level receives "rule R: implemented, passes 12/12, agreed by 3 of 4" or "rule R: no attempt passed; failures attached".
+- **Macro update:** merge the accepted artefact, run the whole visible suite, and update the state.
+- **Adaptivity:** if a rule passes locally but the whole suite then fails (the boundary was wrong), the domain was too small: enlarge it by merging the rule with the neighbour it interacts with into one micro task, or escalate that merged task to a larger model. If a rule fails locally after k attempts, refine instead: split it into sub-rules, as ADaPT does. Both decisions belong to the macro level.
+
+A document, such as a literature review, follows the same pattern: the macro state is the outline, the reader's questions and a ledger of claims; the micro task is one section with only its sources; the compression operator checks each cited claim against its source and returns the verdicts as data.
+
+### 7.4 The error estimate, made measurable
+
+HMM's error bound becomes a measurement plan. For each run, attribute every failure to one level:
+
+- **Macro (plan) error:** failures caused by the decomposition or the contracts: interfaces changed after work began, work redone because the plan was wrong, rules assigned to the wrong module.
+- **Micro (step) error:** the fraction of micro tasks whose accepted result is wrong, before and after voting. This is the per-step error p of Sinha et al. and Meyerson et al., and with tests and votes it should fall roughly geometrically in k until correlated errors set a floor.
+- **Transfer (boundary) error:** micro results that pass their local checks but fail on integration. This is the direct measure of scale separation: if it is small, the decomposition separates scales and small models are safe; if it is large, the task is too coupled for this level of decomposition.
+
+These three numbers say where to spend. A large plan error means a better macro model or a better decomposition is needed. A large step error means more attempts, a better verifier or a larger micro model. A large transfer error means larger micro domains, or keeping that part of the work at the macro level with a single strong model. Each corresponds to one finding in the literature: Kim et al.'s sequential-task losses are transfer error; MAKER's voting attacks step error; ADaPT's as-needed decomposition adapts the domain to step error.
+
+### 7.5 A cost model, and when it beats a single large model
+
+Let the task have s micro steps, a small model cost c per attempt, k attempts per step, m calls to the large model at the macro level at cost C each, and a fraction q of steps that need refinement or escalation. Roughly:
+
+- **HMM-style system:** cost ≈ s·k·c + m·C + q·s·(cost of a refined or escalated step). With MAKER's analysis, k grows like ln s for a fixed target error, so the first term grows like s ln s.
+- **Single large model:** cost ≈ (number of attempts) × s × (cost per step at large-model prices, rising with context length), with success probability about p_large^s, which forces retries or checkpoints as s grows.
+
+The HMM-style system wins when (a) c·k is well below the large model's cost per step (often by a factor of 10–50 at current prices, as Brown et al. and ToolOrchestra show), (b) m is small compared with s (the macro level is called rarely), and (c) q is small (scales separate). It loses when the transfer error forces most steps up to the macro level, which is the sequential case. The prediction for an experiment is concrete: plotted against problem size, the HMM-style system's cost should grow like s ln s while the single model's grows faster, and the crossover point should move with the measured transfer error.
+
+### 7.6 What the analogy does not supply
+
+- **No small parameter.** In physics, ε is known and scale separation can be checked before solving. For a task it must be estimated, from the transfer error of a first pass or from task properties (Kim et al.'s predictor is a first step).
+- **No convergence proof.** HMM's estimates rest on stable macro schemes and smooth micro data. Agent outputs are discrete, and their errors are correlated; the error budget above is an accounting tool, not a theorem.
+- **The decomposition is the hard part.** HMM gets its macro variables from the physics. An agent system gets them from the strongest model's understanding of the task, and how well models find decompositions with good scale separation is the main open question (section 10).
+
+## 8. What this means for AgentSwarm (briefly)
 
 AgentSwarm's design already follows several of these lessons without having measured them: work decomposed into small steps on a shared board, independent acceptance checks the producer cannot change, held-out tests to measure generalisation, cheap builders with escalation to strong models, and a referee of another model family. Its results so far (for example CommonMark at 100% visible and held out, jq hardened from 87% to 94% held out) show the framework finishing real problems; they do not yet show competitiveness, because no matched comparison against a single large model has been run. This report is not based on those runs.
 
-## 8. How to test the claim properly
+## 9. How to test the claim properly
 
 The literature points to a design for the competitiveness study (goal 2 in COLLABORATION.md), and to the measurements that would make it worth reading:
 
@@ -120,7 +194,7 @@ The literature points to a design for the competitiveness study (goal 2 in COLLA
 5. **Grow the problem.** The ROADMAP's plan of the same problems at increasing size is the right one; the literature's most interesting effects (compounding errors, logarithmic voting cost, the 45% ceiling) appear only as tasks get longer.
 6. **Watch the known traps.** Correlated errors among same-provider models; imperfect verifiers that cap accuracy; self-conditioning on earlier mistakes (use fresh context per step); and coordination overhead on tool-heavy tasks.
 
-## 9. Open questions
+## 10. Open questions
 
 - **Who decomposes?** All the clear wins used a decomposition given by people (MAKER) or learned on a narrow distribution (ToolOrchestra). Whether a model can find decompositions with good scale separation for new problems is not established.
 - **How independent can checks be made?** Most of the cost-effectiveness rests on verifiers that are cheaper and more reliable than generators; outside code and maths, such verifiers are rare. Weak-verifier ensembles (Weaver) are the best lead.
