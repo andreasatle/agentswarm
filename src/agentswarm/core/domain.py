@@ -381,6 +381,15 @@ class OverBudget(Exception):
     waits until the budget allows it (raised, or the next day)."""
 
 
+class PromptId(Frozen):
+    """Which prompt a model call used: the answer it asks for, and a version that changes with any change to
+    what the model is given besides the task data (the instructions, the answer's schema, the tools), so an
+    outcome can be tied to the wording that produced it (docs/design/run-record.md)."""
+
+    name: str  # the answer's type, e.g. ClaimVerdict; with the version it finds the wording in git
+    version: str  # the first 12 hex digits of a SHA-256 over the instructions, answer schema and tools
+
+
 class Usage(Frozen):
     """Tokens one model call (or a run of them) used.
 
@@ -396,6 +405,7 @@ class Usage(Frozen):
     largest_input: int = 0  # the input of the largest single call: how far a conversation grew
     billed_usd: float = 0.0  # what the provider says it charged, for the calls where it says (OpenRouter)
     billed_calls: int = 0
+    prompt: PromptId | None = None  # the prompt these calls used, when the worker knows it
 
     @property
     def fully_billed(self) -> bool:
@@ -412,6 +422,7 @@ class Usage(Frozen):
             largest_input=max(self.largest_input, other.largest_input),
             billed_usd=self.billed_usd + other.billed_usd,
             billed_calls=self.billed_calls + other.billed_calls,
+            prompt=self.prompt or other.prompt,
         )
 
 
@@ -432,10 +443,41 @@ class Spent(Frozen):
     billed: bool = False  # usd is what the provider reported charging, not a price-list estimate
     artifact: ArtifactId | None = None  # what it was spent on, when a team spent it acting on one artifact
     attempt: str | None = None  # the executor attempt it was spent in: its AttemptFailed or CommitPushed
+    model_id: str | None = (
+        None  # "<provider>:<model>": `model` is the project's name for it, which can change
+    )
+    prompt: PromptId | None = None  # None on boards from before it was recorded, and for Jev's questions
 
     @property
     def subject(self) -> ArtifactId | None:
         return self.artifact  # in the artifact's history, so an attempt's cost can be read there
+
+
+class Support(StrEnum):
+    """How far a source supports a statement that cites it."""
+
+    SUPPORTED = "supported"
+    PARTLY = "partly"  # some of the statement is in the source, some isn't, or it overstates
+    UNSUPPORTED = "unsupported"
+
+
+class Checked(Frozen):
+    """One cited statement of a document, judged against its source by a model check: every verdict, the
+    passes too, so how often a check is wrong, and on what, can be measured against labels later (the checker
+    calibration, 2026-11-11, needed verdicts that only survived as tallies). Which model and prompt made the
+    check is read from the `Spent` events of `by`."""
+
+    kind: Literal["checked"] = "checked"
+    by: str  # the check, as its spend is recorded: "claim-checker", "citation-audit"
+    file: str  # the section file holding the statement
+    statement: str
+    commit: str | None  # the version of the document checked, when known
+    support: Support | None  # None: no ruling (the call failed)
+    reason: str
+
+    @property
+    def subject(self) -> None:
+        return None
 
 
 class Repaired(Frozen):
@@ -772,6 +814,7 @@ type Event = Annotated[
     | Paused
     | Resumed
     | Spent
+    | Checked
     | Scored
     | Unbuildable
     | Repaired

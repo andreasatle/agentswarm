@@ -759,7 +759,11 @@ reviewer's failure is a notice that doesn't park the artifact). A run stops afte
             own = self._doc(caller.owner)
             where = f"`{caller.owner.__module__}.{caller.owner.__qualname__}`"
             about = f"{where}: {own}" if own else where
-            sections.append(f"{heading}\n\n{about}\n\n```text\n{caller.instructions}\n```")
+            tools = [getattr(family.toolbox, n) for n in family.toolbox.TOOLS] if family.toolbox else []
+            version = Prompts.identify(caller.instructions, family.output, tools).version
+            sections.append(
+                f"{heading}\n\n{about} Version `{version}`.\n\n```text\n{caller.instructions}\n```"
+            )
         sections += [
             "### User message (sample)\n\n```text\n" + Prompts.data(family.payload) + "\n```",
             "### Payload types\n\n" + self._sources(type(family.payload)),

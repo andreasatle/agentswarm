@@ -11,8 +11,8 @@ from agentswarm.board.eventlog import InMemoryEventLog
 from agentswarm.board.spend import SpendLedger, SpendScope
 from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import Price
-from agentswarm.core.domain import OverBudget, Spent, Usage
-from agentswarm.llm.workers import LangChainWorker, Tokens, WorkerError
+from agentswarm.core.domain import OverBudget, PromptId, Spent, Usage
+from agentswarm.llm.workers import LangChainWorker, Prompts, Tokens, WorkerError
 from tests.support.fakes import FakeToolModel
 from tests.support.samples import Samples
 
@@ -94,7 +94,10 @@ class TestTokens:
         await LangChainWorker(FakeToolModel(messages=iter([reply])), meter=heard.append).run(
             "Do it.", Request(task="t"), Summary
         )
-        assert heard == [Usage(input_tokens=120, output_tokens=30, model_calls=1, largest_input=120)]
+        prompt = Prompts.identify("Do it.", Summary)
+        assert heard == [
+            Usage(input_tokens=120, output_tokens=30, model_calls=1, largest_input=120, prompt=prompt)
+        ]
 
     async def test_calls_that_completed_are_metered_when_a_later_call_fails(self) -> None:
         first = AIMessage(
@@ -106,7 +109,10 @@ class TestTokens:
         worker = LangChainWorker(FakeToolModel(messages=iter([first])), meter=heard.append)  # no second reply
         with pytest.raises(WorkerError):
             await worker.run("Do it.", Request(task="t"), Summary)
-        assert heard == [Usage(input_tokens=120, output_tokens=30, model_calls=1, largest_input=120)]
+        prompt = Prompts.identify("Do it.", Summary)
+        assert heard == [
+            Usage(input_tokens=120, output_tokens=30, model_calls=1, largest_input=120, prompt=prompt)
+        ]
 
 
 class Summary(BaseModel):
@@ -138,6 +144,16 @@ class TestBilledCost:
         )
         (spent,) = ledger.spent()
         assert not spent.billed and spent.usd == 1.0
+
+    def test_records_the_model_itself_and_the_prompt(self) -> None:
+        board = Ledger().board
+        prompt = PromptId(name="ClaimVerdict", version="0123456789ab")
+        ledger = SpendLedger(board, model_ids={"cheap": "anthropic:claude-haiku-5-5"})
+        ledger.record("claim-checker", "cheap", Usage(input_tokens=10, prompt=prompt), None)
+        ledger.record("writer", "unknown", Usage(input_tokens=10), None)
+        first, second = [e.event for e in board.log.read() if isinstance(e.event, Spent)]
+        assert (first.model, first.model_id, first.prompt) == ("cheap", "anthropic:claude-haiku-5-5", prompt)
+        assert (second.model_id, second.prompt) == (None, None)
 
 
 class Gatekeeper:

@@ -195,7 +195,8 @@ class Project:
         routes = any(t.routing for t in config.teams)
         needs_judges = judged_gates or relevance_filters or decomposes or routes
         workers = services.workers or LangChainWorkers(ChatModels(config.models))
-        ledger = SpendLedger(board, shared, config.project, accounts, budget)  # admits every model call
+        model_ids = {name: model.model for name, model in config.models.items()}
+        ledger = SpendLedger(board, shared, config.project, accounts, budget, model_ids)  # admits every call
         if decider is None and needs_judges:
             jev = JevClient.from_env(config.jev.model, config.jev.timeout_s)
             owned.append(jev)
@@ -402,7 +403,9 @@ class Project:
             index = PassageIndex(embedder, root / "retrieval.sqlite")
             owned.append(index)
             source_text = Retrieved(index, config.retrieval.k)
-        return ClaimChecker(worker(config.model, 3, metered("claim-checker", config.model)), source_text)
+        return ClaimChecker(
+            worker(config.model, 3, metered(ReviewCampaign.CLAIM_CHECKER, config.model)), source_text
+        )
 
     def worker(self, model: str, role: str) -> Worker:
         """One of the project's models as a worker whose spend is recorded under `role` (a tool beside the

@@ -98,7 +98,9 @@ class SpendLedger:
         project: str = "",
         accounts: Mapping[str, str] | None = None,  # model name -> who bills it, e.g. "openrouter.ai"
         budget: Budget | None = None,  # admits every model call against the project's and machine's limits
+        model_ids: Mapping[str, str] | None = None,  # model name -> "<provider>:<model>", for the record
     ) -> None:
+        self._model_ids = dict(model_ids or {})
         self._board = board
         self._shared = shared
         self._project = project
@@ -137,6 +139,8 @@ class SpendLedger:
                     largest_input=usage.largest_input,
                     artifact=SpendScope.current(),
                     attempt=SpendScope.current_attempt(),
+                    model_id=self._model_ids.get(model),
+                    prompt=usage.prompt,
                 )
             ]
         )

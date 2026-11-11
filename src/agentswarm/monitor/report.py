@@ -13,6 +13,7 @@ from agentswarm.core.domain import (
     AttemptFailed,
     Briefed,
     CheckDisputed,
+    Checked,
     Claimed,
     CommitPushed,
     Envelope,
@@ -68,6 +69,8 @@ class Report:
                 return f"finding {event.finding} resolved{by}: {event.reason}"
             case SignedOff():
                 return f"signed off by {event.team}"
+            case Checked():
+                return f"{event.by}: {event.support or 'no ruling'}: {event.statement[:80]}"
             case Spent():
                 cost = f"${event.usd:.4f}" if event.priced else "unpriced"
                 tokens = f"{event.input_tokens}+{event.output_tokens} tokens"

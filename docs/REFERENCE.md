@@ -224,7 +224,8 @@ Every state change is one of these, appended to the log. "Change" marks events t
 | `SignedOff` | artifact, team, version | Sign-off for that version. | |
 | `Sized` | artifact, fits, children, decision | `fits=false` makes an umbrella. | yes |
 | `Paused` / `Resumed` | reason | Project-wide pause of teams that start work. | |
-| `Spent` | by, model, input_tokens, output_tokens, usd, priced, billed, cache_read_tokens, cache_write_tokens, model_calls, largest_input, artifact | Project-wide spend (budgets, reports); with an artifact, also in its history, so each attempt's cost can be read. | |
+| `Spent` | by, model, input_tokens, output_tokens, usd, priced, billed, cache_read_tokens, cache_write_tokens, model_calls, largest_input, artifact, model_id, prompt (`PromptId`: answer type and version, a hash of the wording, schema and tools) | Project-wide spend (budgets, reports); with an artifact, also in its history, so each attempt's cost can be read. | |
+| `Checked` | by, file, statement, commit, support, reason | None: one model check's verdict on a cited statement (claim checker, citation audit), the passes too, read by the run record. | |
 | `Scored` | level, commit, seen, held_out, spent_usd | The definition of done as numbers, at the start and end of a run. | |
 | `Profiled`, `Routed` | artifact, difficulty, attributes / team, call_kind, model | What Jev said about a task, and the model a team's calls start on. | |
 | `AttemptFailed` | artifact, team, model, reason, changed_nothing, kept | A discarded attempt (a model's failure, for routing); `kept`: passing but unfinished work kept on the branch. | |
@@ -360,6 +361,7 @@ Mutation operators (on changed lines of changed non-test files, at most 12 per f
 | `agentswarm probe EXPERIMENT --workdir DIR` | The atomic benchmark: one prompt and one answer per probe, no tools, scored by plain code (`produce`: hidden tests pass; `critique`: a test that fails on a planted bug and passes on the reference). Every model answers the same probes; resumable. See `examples/goldilocks/probe.yaml`. |
 | `agentswarm score CONFIG --root DIR` | Score the first shared level against the config's `score` (seen and held-out tests) and record it on the board. |
 | `agentswarm spend` | Today's spend of every run on this machine, per account, against the limits. |
+| `agentswarm record ROOT... [--config C]` | Every verdict on the boards as JSON Lines, with the models and prompt versions that made what was judged and that judged it (docs/design/run-record.md). Read only. |
 | `agentswarm openrouter-models ID...` | Model entries for OpenRouter models, with today's prices. |
 | `agentswarm import-commonmark SPEC --out DIR [--text SPEC_TXT]` | The CommonMark spec's examples as a seed (one protected test file per section) and a held-out fifth. |
 | `agentswarm import-toml SUITE --out DIR [--hide-all]` | The toml-test suite's TOML 1.0.0 files as a seed and a held-out fifth per group; with `--hide-all`, every test is held out (a project without labels). |

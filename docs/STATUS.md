@@ -9,6 +9,7 @@ Details live in the docs named.
 - **Documents** (docs/design/documents.md): briefer, one-call section writers, author-year citations with pages, perspective reviewers (facts, coverage, reader, consistency) and a citation audit. Measured on Qasper: perspectives suggestive, not proven (19 against 15-18 of 36).
 - **One command from topic to document (goal 13, docs/design/pipeline.md):** `agentswarm write / runs / approve`, a LangGraph graph over plain stages that pauses for the user's approval of the sources and the publishing; settings in pipeline/policy.yaml. First real run 2026-11-01: how sleep affects memory, $1.57 of a $1.60 budget, finished and approved; not on the homepage (only `agentswarm publish NAME` puts it there, when the user says so). What that run needed is listed in the design doc.
 - **The studio** (`agentswarm studio`): document runs started, followed and answered in a browser on localhost, with the board view.
+- **The run record (2026-11-11, docs/design/run-record.md):** every model call records its model and prompt version, every check verdict lands on the board, and `agentswarm record` joins them; boards from before have no prompt versions.
 - **Real use:** `import-docs` (the Challenger report), `learn` (tutorials from papers: JEPA, test-time compute, mechanistic interpretability), `find-papers`, the Venice guide from Wikipedia; the tutorials are on the homepage.
 
 ## Cost (the user's top priority, 2026-11-09)

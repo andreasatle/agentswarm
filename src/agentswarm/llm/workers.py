@@ -8,6 +8,9 @@ provider's native structured output or falls back to tool calling, so any provid
 works. `FakeWorker` follows a script and needs no model.
 """
 
+import hashlib
+import inspect
+import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
@@ -26,7 +29,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ValidationError
 
 from agentswarm.core.config import Price
-from agentswarm.core.domain import OverBudget, Usage
+from agentswarm.core.domain import OverBudget, PromptId, Usage
 from agentswarm.llm.models import ChatModels
 
 type Meter = Callable[[Usage], None]  # told the token usage of a run (see board/spend.py)
@@ -125,6 +128,27 @@ class Prompts:
     def system(cls, instructions: str) -> str:
         return f"{instructions}\n\n{cls.DATA_RULE}"
 
+    @classmethod
+    def identify(
+        cls, instructions: str, output: type[BaseModel], tools: Sequence[Callable[..., str]] = ()
+    ) -> PromptId:
+        """The prompt's identity: its answer type, and a hash of everything the model is given but the data
+        (the system prompt, the answer's schema, and each tool's name, signature and description)."""
+        given = json.dumps(
+            [cls.system(instructions), output.model_json_schema(), sorted(cls.tool(t) for t in tools)],
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        return PromptId(name=output.__name__, version=hashlib.sha256(given.encode()).hexdigest()[:12])
+
+    @staticmethod
+    def tool(method: Callable[..., str]) -> str:
+        """A tool as the model sees it, the same for a bound method and its class's function."""
+        signature = inspect.signature(method)
+        parameters = [p for name, p in signature.parameters.items() if name != "self"]
+        name = getattr(method, "__name__", repr(method))
+        return f"{name}{signature.replace(parameters=parameters)}: {inspect.getdoc(method) or ''}"
+
     @staticmethod
     def data(payload: BaseModel) -> str:
         return f"<data>\n{payload.model_dump_json(indent=2)}\n</data>"
@@ -176,6 +200,7 @@ class LangChainWorker:
         self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
     ) -> T:
         tokens = Tokens()
+        prompt = Prompts.identify(instructions, output, toolbox.tools() if toolbox is not None else ())
         try:
             try:
                 state = await self._invoke(instructions, payload, output, toolbox, tokens)
@@ -198,7 +223,7 @@ class LangChainWorker:
                 raise ProviderUnavailable(f"{type(error).__name__}: {error}") from error
             raise WorkerError(f"{type(error).__name__}: {error}") from error
         finally:
-            self._report(tokens.usage)  # the calls that completed, even when a later one failed
+            self._report(tokens.usage, prompt)  # the calls that completed, even when a later one failed
         result = state.get("structured_response")
         if isinstance(result, output):
             return result
@@ -209,7 +234,7 @@ class LangChainWorker:
         if Stops.at_limit(Transcript(messages).last_reply()):
             raise CutOff(f"{account}; the last reply stopped at the output limit")  # asking again repeats it
         try:
-            return await self._final_answer(instructions, messages, output)
+            return await self._final_answer(instructions, messages, output, prompt)
         except WorkerError as error:  # InvalidAnswer or CutOff: kept, so callers can tell them apart
             raise type(error)(f"{account}; final answer: {error}") from error
         except Exception as error:
@@ -252,19 +277,19 @@ class LangChainWorker:
     FINAL_ANSWER_TRIES = 2  # small models sometimes reply without the structured answer; once more is cheap
 
     async def _final_answer[T: BaseModel](
-        self, instructions: str, messages: Sequence[BaseMessage], output: type[T]
+        self, instructions: str, messages: Sequence[BaseMessage], output: type[T], prompt: PromptId
     ) -> T:
         structured = self._model.with_structured_output(output, include_raw=True)
-        prompt = [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)]
+        asked = [SystemMessage(Prompts.system(instructions)), *messages, HumanMessage(self.FINAL_ANSWER)]
         error: Exception | None = None
         cut = False
         for _ in range(self.FINAL_ANSWER_TRIES):
             tokens = Tokens()
-            self.admission().check(prompt, Usage())
+            self.admission().check(asked, Usage())
             try:
-                reply = await structured.ainvoke(prompt, config={"callbacks": [tokens]})
+                reply = await structured.ainvoke(asked, config={"callbacks": [tokens]})
             finally:
-                self._report(tokens.usage)
+                self._report(tokens.usage, prompt)
             answer = reply.get("parsed") if isinstance(reply, dict) else reply
             cut = isinstance(reply, dict) and Stops.at_limit(reply.get("raw"))
             try:
@@ -280,9 +305,9 @@ class LangChainWorker:
     def admission(self) -> "Admission":
         return Admission(self._meter, self._price, self._model)
 
-    def _report(self, usage: Usage) -> None:
+    def _report(self, usage: Usage, prompt: PromptId) -> None:
         if self._meter is not None:
-            self._meter(usage)
+            self._meter(usage.model_copy(update={"prompt": prompt}))
 
     @staticmethod
     def breakpoints(model: BaseChatModel) -> bool:

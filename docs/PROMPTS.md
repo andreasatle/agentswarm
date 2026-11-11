@@ -66,7 +66,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 
 `agentswarm.teams.executor.ExecutorTeam`: An executor backed by a model that edits the worktree with tools and runs the checks itself.
 
-After the model finishes, the executor runs the checks once more, deterministically. Work that passes is committed and announced for the gate. Work that still fails, or that the model calls incomplete, is committed but escalated, so it is kept for a human and the gate doesn't judge it.
+After the model finishes, the executor runs the checks once more, deterministically. Work that passes is committed and announced for the gate. Work that still fails, or that the model calls incomplete, is committed but escalated, so it is kept for a human and the gate doesn't judge it. Version `4b285d98454f`.
 
 ```text
 You are the executor in a software team. Implement the task in `instruction.goal` in the project.
@@ -86,7 +86,7 @@ You are the executor in a software team. Implement the task in `instruction.goal
 
 ### `writer`
 
-`agentswarm.teams.documents.Writer`
+`agentswarm.teams.documents.Writer` Version `ed6e73ae821a`.
 
 ```text
 You are the writer of a document. Write or revise what `instruction.goal` asks for.
@@ -279,7 +279,7 @@ After the model finishes, the executor runs the checks once more, deterministica
 
 ### `stateless_builder`
 
-`agentswarm.teams.stateless.StatelessBuilder`: An executor whose loop is plain code: one typed model answer per round, at most `rounds` rounds.
+`agentswarm.teams.stateless.StatelessBuilder`: An executor whose loop is plain code: one typed model answer per round, at most `rounds` rounds. Version `daeb351af97b`.
 
 ```text
 You build one task in a project, in rounds. Each round you see the current state: the task, the findings to
@@ -562,7 +562,7 @@ class FileRead(Frozen):
 
 ### `decomposer`
 
-`agentswarm.teams.decomposer.Decomposer`
+`agentswarm.teams.decomposer.Decomposer` Version `8af9033feaa6`.
 
 ```text
 You are the planner. The task in the data is too large for one change by one team. Split it into 2 to
@@ -580,7 +580,7 @@ You are the planner. The task in the data is too large for one change by one tea
 
 ### `outliner`
 
-`agentswarm.teams.documents.Outliner`
+`agentswarm.teams.documents.Outliner` Version `8a36b122f5b7`.
 
 ```text
 You are the editor planning a document. The task in the data is too large for one section. Split it into
@@ -676,7 +676,7 @@ class ChildTask(Frozen):
 
 ### `integration_tester`
 
-`agentswarm.teams.analyzer.IntegrationTester`: Tests how the change works together with the rest of the code (§10.3).
+`agentswarm.teams.analyzer.IntegrationTester`: Tests how the change works together with the rest of the code (§10.3). Version `ac8dd713027c`.
 
 ```text
 You are the integration tester. The change in the data has been merged into the shared code. Find out
@@ -692,7 +692,7 @@ whether it works together with the rest of the project.
 
 ### `red_team`
 
-`agentswarm.teams.analyzer.RedTeam`: Tries to break the change: edge cases, misuse, unusual input (§10.3).
+`agentswarm.teams.analyzer.RedTeam`: Tries to break the change: edge cases, misuse, unusual input (§10.3). Version `2d7c5af07eb5`.
 
 ```text
 You are the red team. The change in the data has been merged into the shared code. Try to break it.
@@ -707,7 +707,7 @@ You are the red team. The change in the data has been merged into the shared cod
 
 ### `edge_value_tester`
 
-`agentswarm.teams.analyzer.EdgeValueTester`
+`agentswarm.teams.analyzer.EdgeValueTester` Version `96365f2ebe42`.
 
 ```text
 You are a red team with one focus. The change in the data has been merged. Try only edge values: empty strings and lists, zero, negative numbers, very large numbers, and the exact boundaries the task names (just inside and just outside them).
@@ -722,7 +722,7 @@ You are a red team with one focus. The change in the data has been merged. Try o
 
 ### `text_tester`
 
-`agentswarm.teams.analyzer.TextTester`
+`agentswarm.teams.analyzer.TextTester` Version `1a874b7578c0`.
 
 ```text
 You are a red team with one focus. The change in the data has been merged. Try only unusual text: non-ASCII letters, emoji, leading and trailing whitespace, quotes, commas and other separators, newlines, and very long strings.
@@ -737,7 +737,7 @@ You are a red team with one focus. The change in the data has been merged. Try o
 
 ### `error_tester`
 
-`agentswarm.teams.analyzer.ErrorTester`
+`agentswarm.teams.analyzer.ErrorTester` Version `57886957d0e2`.
 
 ```text
 You are a red team with one focus. The change in the data has been merged. Try only misuse: wrong argument types, missing or extra arguments, and every case where the task says an error must be raised. Check that exactly that error is raised, and nothing else.
@@ -752,7 +752,7 @@ You are a red team with one focus. The change in the data has been merged. Try o
 
 ### `contract_tester`
 
-`agentswarm.teams.analyzer.ContractTester`
+`agentswarm.teams.analyzer.ContractTester` Version `243660fb32eb`.
 
 ```text
 You are a red team with one focus. The change in the data has been merged. Check only the contract: every example and rule the task states, word for word. Write one test per stated example and per rule, with the exact expected output.
@@ -884,7 +884,7 @@ class ReportedProblem(Frozen):
 
 ### `consistency_checker`
 
-`agentswarm.teams.documents.ConsistencyChecker`
+`agentswarm.teams.documents.ConsistencyChecker` Version `21438c331871`.
 
 ```text
 You check a document for consistency. The change in the data has been merged into the shared document.
@@ -897,7 +897,7 @@ You check a document for consistency. The change in the data has been merged int
 
 ### `fact_checker`
 
-`agentswarm.teams.documents.FactChecker`
+`agentswarm.teams.documents.FactChecker` Version `5933097270d2`.
 
 ```text
 You check a document's claims. The change in the data has been merged into the shared document.
@@ -910,7 +910,7 @@ You check a document's claims. The change in the data has been merged into the s
 
 ### `audience_reviewer`
 
-`agentswarm.teams.documents.AudienceReviewer`
+`agentswarm.teams.documents.AudienceReviewer` Version `880eb73ed3ac`.
 
 ```text
 You read a document as its intended reader, someone new to the subject. The change in the data has been
@@ -1043,7 +1043,7 @@ class QuotedProblem(Frozen):
 
 ### LLMDecider
 
-`agentswarm.judging.deciders.LLMDecider`: A language model answering Noul questions as yes / no / unsure (proposal §12.4, the fallback).
+`agentswarm.judging.deciders.LLMDecider`: A language model answering Noul questions as yes / no / unsure (proposal §12.4, the fallback). Version `ec0fa66e0622`.
 
 ```text
 Answer each question in `questions` about `state` with yes, no or unsure. Answer unsure unless the state
@@ -1157,7 +1157,7 @@ class QuestionAnswer(BaseModel):
 
 ### Producing
 
-`agentswarm.evaluation.probe.Producing`: Produce probes: implement the task in one answer, without tools.
+`agentswarm.evaluation.probe.Producing`: Produce probes: implement the task in one answer, without tools. Version `18d9ee17a46b`.
 
 ```text
 You implement one task in a small Python project, in a single answer. The data holds the task, the
@@ -1294,7 +1294,7 @@ class SourceFile(Frozen):
 
 `agentswarm.teams.acceptance.AcceptanceTester`: Writes the acceptance tests of each new leaf artifact at the lowest level, before the executor starts.
 
-Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting.
+Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting. Version `232ab4966ec1`.
 
 ```text
 You write the acceptance tests for one task in a small Python project, before anyone implements it, in a
@@ -1312,7 +1312,7 @@ single answer. The data holds the task and every file of the project as it is no
 
 `agentswarm.teams.acceptance.AcceptanceTester`: Writes the acceptance tests of each new leaf artifact at the lowest level, before the executor starts.
 
-Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting.
+Not for umbrellas (their children get their own) or fix artifacts (the tests they must satisfy are merged already). In a project that sizes tasks first, it waits until the artifact is sized as fitting. Version `fd2a56919a8d`.
 
 ```text
 You write the checks for one step of a project that has a specification but no tests with known answers,
@@ -1431,7 +1431,7 @@ Not for umbrellas (their children get their own) or fix artifacts (the tests the
 
 ### Hardener
 
-`agentswarm.teams.hardening.Hardener`: The hardening campaign: red teams attack the product by spec section and focus; plain code checks their reports and makes fix tasks.
+`agentswarm.teams.hardening.Hardener`: The hardening campaign: red teams attack the product by spec section and focus; plain code checks their reports and makes fix tasks. Version `bfd5b14a02f3`.
 
 ```text
 You are a red team. The product in the project is finished as far as its builders know; its specification is
@@ -1594,7 +1594,7 @@ class AttackProblem(Frozen):
 
 ### Referee
 
-`agentswarm.teams.referee.Referee`
+`agentswarm.teams.referee.Referee` Version `b4da9f055e6a`.
 
 ```text
 You are the referee for a red team that attacks a finished product against its specification. The red team
@@ -1684,7 +1684,7 @@ class ReportAnswer(Frozen):
 
 ### Specifier
 
-`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit. Version `896490ba344a`.
 
 ```text
 You write the specification for a software project from its goal, before anything is built. Builders will
@@ -1834,7 +1834,7 @@ class OpenQuestion(Frozen):
 
 ### Writer
 
-`agentswarm.teams.documents.Writer`
+`agentswarm.teams.documents.Writer` Version `28898dbb0a6c`.
 
 ```text
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
@@ -1936,7 +1936,7 @@ class SectionText(Frozen):
 
 ### CitationAudit
 
-`agentswarm.evaluation.citations.CitationAudit`
+`agentswarm.evaluation.citations.CitationAudit` Version `003dfdc16ad3`.
 
 ```text
 You check one statement of a document against the source text it cites. Decide from the source alone
@@ -1948,7 +1948,7 @@ in your reason.
 
 ### Referee
 
-`agentswarm.teams.referee.Referee`
+`agentswarm.teams.referee.Referee` Version `003dfdc16ad3`.
 
 ```text
 You check one statement of a document against the source text it cites. Decide from the source alone
@@ -2013,6 +2013,7 @@ class CitationAnswer(Frozen):
 {
   "$defs": {
     "Support": {
+      "description": "How far a source supports a statement that cites it.",
       "enum": [
         "supported",
         "partly",
@@ -2067,7 +2068,7 @@ class CitationAnswer(Frozen):
 
 ### ClaimChecker
 
-`agentswarm.teams.claims.ClaimChecker`
+`agentswarm.teams.claims.ClaimChecker` Version `05f38410a3fb`.
 
 ```text
 You check one statement of a document against the source text it cites. Decide from that text alone whether
@@ -2134,6 +2135,7 @@ class ClaimVerdict(Frozen):
 {
   "$defs": {
     "Support": {
+      "description": "How far a source supports a statement that cites it.",
       "enum": [
         "supported",
         "partly",
@@ -2181,7 +2183,7 @@ class ClaimVerdict(Frozen):
 
 ### PaperFinder
 
-`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded. Version `02af68c5403c`.
 
 ```text
 You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
@@ -2289,7 +2291,7 @@ class SearchQueries(Frozen):
 
 ### PaperFinder
 
-`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded. Version `b56b19927524`.
 
 ```text
 You choose the papers a tutorial on the topic will be written from, for the reader described, from the
@@ -2550,7 +2552,7 @@ class PickedPaper(Frozen):
 
 ### Briefer
 
-`agentswarm.teams.specifier.Briefer`: A document's specifier: drafts its brief and outline from the user's goal and the sources, commits the brief, pauses for the user to read and edit it (if `approve`), then starts one writing task per section of the outline. Sections of a known size, each from named sources, rather than one task for the whole document: one writer reading ten papers ran out of steps twice (2026-10-17).
+`agentswarm.teams.specifier.Briefer`: A document's specifier: drafts its brief and outline from the user's goal and the sources, commits the brief, pauses for the user to read and edit it (if `approve`), then starts one writing task per section of the outline. Sections of a known size, each from named sources, rather than one task for the whole document: one writer reading ten papers ran out of steps twice (2026-10-17). Version `b7b4e380f21b`.
 
 ```text
 You plan a document from the user's goal and the sources listed in the data, before anything is written.
@@ -2799,7 +2801,7 @@ class SourceReference(Frozen):
 
 ### Specifier
 
-`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit. Version `675d1f166e33`.
 
 ```text
 You revise a software project's specification with the answers to the questions it left open. Change what the
@@ -2952,7 +2954,7 @@ class OpenQuestion(Frozen):
 
 ### Specifier
 
-`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit.
+`agentswarm.teams.specifier.Specifier`: Plain code around the specifier's calls: draft, questions, answers, revision, commit. Version `df7f2b112569`.
 
 ```text
 You are the user who set a software project's goal, and you have read the reference in the data. Answer the
@@ -3029,7 +3031,7 @@ class UserAnswer(Frozen):
 
 ### ReviewCampaign
 
-`agentswarm.teams.review.ReviewCampaign`
+`agentswarm.teams.review.ReviewCampaign` Version `4972b359f2d2`.
 
 ```text
 You review one section of a document from one perspective, given in the data with the document's brief. The
@@ -3222,7 +3224,7 @@ class Evidence(Frozen):
 
 ### Referee
 
-`agentswarm.teams.referee.Referee`
+`agentswarm.teams.referee.Referee` Version `67edaa2c71e8`.
 
 ```text
 You are the referee for the reviewers of a document. A reviewer looks at one section from one perspective
@@ -3361,7 +3363,7 @@ class FindingAnswer(Frozen):
 
 ### QuestionScore
 
-`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16). Version `435695f874e0`.
 
 ```text
 You answer a question about one research paper, named in the data, using only the document in the data (which
@@ -3438,7 +3440,7 @@ class ReaderAnswer(Frozen):
 
 ### QuestionScore
 
-`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16). Version `77d0ba6c3852`.
 
 ```text
 You answer a question about a research paper from what you know, without the paper. If you don't know the
@@ -3512,7 +3514,7 @@ class ReaderAnswer(Frozen):
 
 ### QuestionScore
 
-`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16).
+`agentswarm.evaluation.questions.QuestionScore`: Puts questions to a reader and grades its answers. Each question is read and graded up to `votes` times and decided by the majority, stopping once one side has it: one reading each varied by about two questions in 22 on the same text, as large as any revision's effect (2026-10-16). Version `7239527dd1c0`.
 
 ```text
 You grade an answer to a question about a research paper against reference answers written by people who
@@ -3596,7 +3598,7 @@ class GradeAnswer(Frozen):
 
 ### Referee
 
-`agentswarm.teams.referee.Referee`
+`agentswarm.teams.referee.Referee` Version `11b740f860c1`.
 
 ```text
 You are the referee for a red team that attacks a finished product against its specification. You confirmed
@@ -3707,7 +3709,7 @@ class ReconsiderAnswer(Frozen):
 
 ### Referee
 
-`agentswarm.teams.referee.Referee`
+`agentswarm.teams.referee.Referee` Version `6081e43d1adf`.
 
 ```text
 You are the referee between a builder and the checks someone else wrote for its work, in a project that has a
@@ -3799,7 +3801,7 @@ class RulingAnswer(Frozen):
 
 ### Critiquing
 
-`agentswarm.evaluation.probe.Critiquing`: Critique probes: find the bug in a change, if there is one, and prove it with a failing test.
+`agentswarm.evaluation.probe.Critiquing`: Critique probes: find the bug in a change, if there is one, and prove it with a failing test. Version `2f84d2152a7d`.
 
 ```text
 You review one change to a small Python project, in a single answer. The data holds the task the change
