@@ -10,11 +10,24 @@ import markdown
 
 
 class PageRenderer:
-    # Mathematics is taken out before Markdown sees it (an underscore or asterisk inside it would turn into
-    # emphasis) and put back after, for KaTeX's auto-render to find in the browser
-    DISPLAY: ClassVar[re.Pattern[str]] = re.compile(r"\$\$.+?\$\$", re.S)
-    INLINE: ClassVar[re.Pattern[str]] = re.compile(r"(?<![\\$])\$(?!\s)[^$\n]+?(?<!\s)\$")
+    # Text a writer means literally but Markdown, KaTeX or a browser would read as markup. Code spans and
+    # mathematics are taken out before Markdown sees the text and put back after (an underscore or asterisk
+    # inside them would turn into emphasis). Inline math is found here, by Pandoc's rule (no space inside
+    # either dollar, no digit after the closing one, so "$45 billion and a $100 billion" is money), or in
+    # \(...\), and handed to KaTeX as \(...\): the browser never pairs single dollars itself (2026-11-10: it
+    # set the text between two amounts in the LLM-scaling analysis as one italic formula). Raw HTML is shown
+    # as text, never run (a page or a source could hold a script); an asterisk inside a word or number is a
+    # times sign (2*3*4, not 2<em>3</em>4); \$ is a dollar; a paragraph starting with a year is not a list.
+    CODE: ClassVar[re.Pattern[str]] = re.compile(r"```.*?```|`[^`\n]+`", re.S)
+    DISPLAY: ClassVar[re.Pattern[str]] = re.compile(r"\$\$.+?\$\$|\\\[.+?\\\]", re.S)
+    INLINE: ClassVar[re.Pattern[str]] = re.compile(
+        r"(?<![\\$\w])\$(?![\s$])[^$\n]+?(?<![\s\\])\$(?!\d)|\\\(.+?\\\)"
+    )
+    TIMES: ClassVar[re.Pattern[str]] = re.compile(r"(?<=[\w)])\*(?=[\w(])")
+    YEAR: ClassVar[re.Pattern[str]] = re.compile(r"^(\d{4})\. ", re.M)
     KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist"
+    # A table scrolls sideways on a phone, and holds KaTeX's hidden copy of its math for screen readers
+    # (position:relative), which otherwise widened the whole page (the mech-interp tutorial, 2026-11-10).
     STYLE = "\n".join(
         (
             ":root{--bg:#fbfbf9;--fg:#1d1d1b;--muted:#5d5d58;--accent:#2f6f5e;--rule:#e2e2dc}",
@@ -30,7 +43,8 @@ class PageRenderer:
             "p{margin:.55rem 0}code{font-size:.85em;color:var(--muted)}a{color:var(--accent)}",
             ".note{color:var(--muted);font-size:.95rem;border-left:3px solid var(--accent);"
             "padding-left:.8rem;margin:1rem 0 2rem}",
-            "table{border-collapse:collapse;font-size:.9rem;margin:1rem 0;display:block;overflow-x:auto}"
+            "table{border-collapse:collapse;font-size:.9rem;margin:1rem 0;display:block;overflow-x:auto;"
+            "position:relative}"
             "th,td{border:1px solid var(--rule);padding:.35rem .5rem;vertical-align:top}",
             "h3{font-size:1.05rem;margin:1.6rem 0 .4rem}li{margin:.3rem 0}"
             ".katex-display{overflow-x:auto;overflow-y:hidden}",
@@ -39,21 +53,32 @@ class PageRenderer:
 
     def render(self, text: str, note: str) -> str:
         """The page for a document's Markdown; `note` is HTML, written by the framework, not the document."""
-        math: list[str] = []
+        kept: list[str] = []
 
-        def kept(match: re.Match[str]) -> str:
-            math.append(match.group(0))
-            return f"@@MATH{len(math) - 1}@@"
+        def keep(found: str) -> str:
+            kept.append(found)
+            return f"@@KEPT{len(kept) - 1}@@"
 
-        text = self.INLINE.sub(kept, self.DISPLAY.sub(kept, text))
+        def math(match: re.Match[str]) -> str:
+            found = match.group(0)
+            if found.startswith("$$") or found.startswith("\\"):
+                return keep(found)
+            return keep(f"\\({found[1:-1]}\\)")
+
+        text = self.CODE.sub(lambda m: keep(m.group(0)), text)
+        text = self.INLINE.sub(math, self.DISPLAY.sub(math, text))
+        text = self.YEAR.sub(r"\1\\. ", self.TIMES.sub(r"\\*", text.replace("\\$", "&#36;")))
         first, _, body = text.partition("\n")
         title = first.lstrip("# ").strip() or "Untitled"
-        content = markdown.markdown(body, extensions=["tables", "sane_lists"])
-        content = re.sub(r"@@MATH(\d+)@@", lambda m: html.escape(math[int(m.group(1))], quote=False), content)
-        title = re.sub(r"@@MATH(\d+)@@", lambda m: math[int(m.group(1))], title)
+        converter = markdown.Markdown(extensions=["tables", "sane_lists", "fenced_code"])
+        converter.preprocessors.deregister("html_block")
+        converter.inlinePatterns.deregister("html")
+        content = self.restore(converter.convert(self.restore(body, kept, code_only=True)), kept)
+        title = self.restore(title, kept, escape=False).replace("&#36;", "$")
         render = (
             "renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},"
-            "{left:'$',right:'$',display:false}],throwOnError:false})"
+            "{left:'\\\\[',right:'\\\\]',display:true},"
+            "{left:'\\\\(',right:'\\\\)',display:false}],throwOnError:false})"
         )
         return (
             '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -65,6 +90,21 @@ class PageRenderer:
             f"<style>{self.STYLE}</style></head><body><h1>{html.escape(title)}</h1>\n"
             f'<p class="note">{note}</p>\n{content}\n</body></html>\n'
         )
+
+    @staticmethod
+    def restore(text: str, kept: list[str], code_only: bool = False, escape: bool = True) -> str:
+        """Code spans go back before Markdown (it renders them, escaping what they hold); mathematics after,
+        escaped for HTML, for KaTeX to find in the browser."""
+
+        def back(match: re.Match[str]) -> str:
+            found = kept[int(match.group(1))]
+            if found.startswith("`"):
+                return found
+            if code_only:
+                return match.group(0)
+            return html.escape(found, quote=False) if escape else found
+
+        return re.sub(r"@@KEPT(\d+)@@", back, text)
 
     def write(self, document: Path, out: Path, note: str) -> Path:
         out.parent.mkdir(parents=True, exist_ok=True)
