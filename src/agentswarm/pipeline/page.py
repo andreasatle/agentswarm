@@ -26,6 +26,7 @@ class PageRenderer:
     TIMES: ClassVar[re.Pattern[str]] = re.compile(r"(?<=[\w)])\*(?=[\w(])")
     YEAR: ClassVar[re.Pattern[str]] = re.compile(r"^(\d{4})\. ", re.M)
     KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist"
+    # A long word (a bare link in the references) wraps rather than widening the page on a phone.
     # A table scrolls sideways on a phone, and holds KaTeX's hidden copy of its math for screen readers
     # (position:relative), which otherwise widened the whole page (the mech-interp tutorial, 2026-11-10).
     STYLE = "\n".join(
@@ -40,7 +41,8 @@ class PageRenderer:
             "h1{font-size:1.9rem;line-height:1.25;margin:0 0 .4rem}"
             "h2{font-size:1.25rem;margin:2.2rem 0 .6rem;"
             "border-top:1px solid var(--rule);padding-top:1.2rem}",
-            "p{margin:.55rem 0}code{font-size:.85em;color:var(--muted)}a{color:var(--accent)}",
+            "p{margin:.55rem 0}code{font-size:.85em;color:var(--muted)}a{color:var(--accent)}"
+            "p,li{overflow-wrap:break-word}",
             ".note{color:var(--muted);font-size:.95rem;border-left:3px solid var(--accent);"
             "padding-left:.8rem;margin:1rem 0 2rem}",
             "table{border-collapse:collapse;font-size:.9rem;margin:1rem 0;display:block;overflow-x:auto;"
