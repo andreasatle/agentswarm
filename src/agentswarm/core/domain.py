@@ -453,33 +453,6 @@ class Spent(Frozen):
         return self.artifact  # in the artifact's history, so an attempt's cost can be read there
 
 
-class Support(StrEnum):
-    """How far a source supports a statement that cites it."""
-
-    SUPPORTED = "supported"
-    PARTLY = "partly"  # some of the statement is in the source, some isn't, or it overstates
-    UNSUPPORTED = "unsupported"
-
-
-class Checked(Frozen):
-    """One cited statement of a document, judged against its source by a model check: every verdict, the
-    passes too, so how often a check is wrong, and on what, can be measured against labels later (the checker
-    calibration, 2026-11-11, needed verdicts that only survived as tallies). Which model and prompt made the
-    check is read from the `Spent` events of `by`."""
-
-    kind: Literal["checked"] = "checked"
-    by: str  # the check, as its spend is recorded: "claim-checker", "citation-audit"
-    file: str  # the section file holding the statement
-    statement: str
-    commit: str | None  # the version of the document checked, when known
-    support: Support | None  # None: no ruling (the call failed)
-    reason: str
-
-    @property
-    def subject(self) -> None:
-        return None
-
-
 class Repaired(Frozen):
     """One repair round: the builder kept its work, was told what failed, and tried to fix it. Whether the
     checks passed afterwards settles it as a `repair` outcome, so repairing can be weighed against a fresh
@@ -814,7 +787,6 @@ type Event = Annotated[
     | Paused
     | Resumed
     | Spent
-    | Checked
     | Scored
     | Unbuildable
     | Repaired

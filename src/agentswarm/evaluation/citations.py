@@ -10,17 +10,25 @@ result is a count anyone can check: supported, partly, not supported, and whethe
 import random
 import re
 from collections.abc import Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agentswarm.core.domain import Support
 from agentswarm.llm.workers import Prefixed, Worker, WorkerError
 
 
 class Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class Support(StrEnum):
+    """How far a source supports a statement that cites it."""
+
+    SUPPORTED = "supported"
+    PARTLY = "partly"  # some of the statement is in the source, some isn't, or it overstates
+    UNSUPPORTED = "unsupported"
 
 
 class CitedSource(Frozen):

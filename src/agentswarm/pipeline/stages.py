@@ -15,7 +15,7 @@ from agentswarm.control.escalations import Escalations
 from agentswarm.control.limits import SharedSpend
 from agentswarm.core.clock import SystemClock
 from agentswarm.core.config import ProjectConfig, SpendLimits
-from agentswarm.core.domain import ArtifactId, Checked, Resolution, Usage
+from agentswarm.core.domain import ArtifactId, Resolution, Usage
 from agentswarm.evaluation.citations import CitationAudit, Support
 from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport
 from agentswarm.evaluation.papers import Found, PaperFinder, WebPage
@@ -253,7 +253,7 @@ class ProjectStage:
         finally:
             project.close()
 
-    AUDIT = "citation-audit"  # as the audit's spend and verdicts are recorded
+    AUDIT = "citation-audit"  # as the audit's spend is recorded
 
     def audit(self, run: DocumentRun, policy: Policy) -> AuditResult:
         config = ProjectConfig.load(run.project / "project.yaml")
@@ -263,20 +263,6 @@ class ProjectStage:
             audit = CitationAudit(self.level(run, config), project.worker(referee, self.AUDIT))
             results = asyncio.run(
                 audit.audit(audit.sample(policy.audit_sample, policy.audit_seed + run.reviews))
-            )
-            commit = project.repository.tip(config.levels.base)
-            project.board.append(
-                [
-                    Checked(
-                        by=self.AUDIT,
-                        file=r.file,
-                        statement=r.statement,
-                        commit=commit,
-                        support=r.support,
-                        reason=r.reason,
-                    )
-                    for r in results
-                ]
             )
         finally:
             project.close()

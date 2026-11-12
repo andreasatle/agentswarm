@@ -24,7 +24,6 @@ from agentswarm.core.domain import (
     ArtifactId,
     Attacked,
     AttackFinding,
-    Checked,
     Event,
     Focus,
     Perspective,
@@ -237,22 +236,9 @@ document is finished as far as its writer knows. Find what is wrong with this se
             )
 
         cited: dict[str, CitationRequest] = {}  # for `claims`: each flagged line with the text it cites
-        events: list[Event] = []
         try:
             if focus is Perspective.CLAIMS:
-                report, cited, checked = await self.claim_findings(worktree, part, views)
-                events.extend(
-                    Checked(
-                        by=self.CLAIM_CHECKER,
-                        file=c.statement.file,
-                        statement=c.statement.text,
-                        commit=tip,
-                        support=c.support,
-                        reason=c.reason,
-                    )
-                    for c in checked
-                    if not c.repeated  # recorded when it was judged
-                )
+                report, cited = await self.claim_findings(worktree, part, views)
             else:
                 report = await self._worker.run(self.INSTRUCTIONS, request, ReviewFindings)
         except WorkerError as error:
@@ -267,6 +253,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
         findings: list[AttackFinding] = []
         rejections: list[RejectedReport] = []
         dropped: list[str] = []
+        events: list[Event] = []
         for finding in found:
             evidence = self.evidence(worktree, finding)
             unbacked = self.unbacked(evidence, focus)
@@ -322,7 +309,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
 
     async def claim_findings(
         self, worktree: Worktree, part: Part, views: BoardViews
-    ) -> tuple[ReviewFindings, dict[str, CitationRequest], list[CheckedClaim]]:
+    ) -> tuple[ReviewFindings, dict[str, CitationRequest]]:
         """Every cited statement of the section checked on its own; the unsupported first, then the partly. A
         statement the referee ruled against flagging is left out while its line is unchanged: raised again
         each round, it took one of the round's few findings from a real problem."""
@@ -354,7 +341,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
             )
             for c in flagged
         }
-        return report, cited, checked
+        return report, cited
 
     def claim_finding(self, checked: CheckedClaim) -> ReviewFinding:
         statement = checked.statement

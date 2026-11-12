@@ -71,7 +71,6 @@ from agentswarm.llm.embeddings import LangChainEmbedder
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, WorkerProvider
 from agentswarm.monitor.boards import Watched
-from agentswarm.monitor.record import RunRecord
 from agentswarm.monitor.report import HardeningSummary, Report, RunVerdict
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
@@ -231,8 +230,6 @@ class Cli:
                 return self.openrouter_models(args)
             case "spend":
                 return self.spend()
-            case "record":
-                return self.record(args)
             case "rate":
                 return self.rate(args)
             case "prompts":
@@ -308,14 +305,6 @@ class Cli:
     def levels(config: ProjectConfig, root: Path) -> str:
         """Plain folders of each level's files, for a person to look at (`levels/<level>/` under the root)."""
         return LevelFolders.render(LevelFolders(root / "repo", root, config.levels).write())
-
-    def record(self, args: argparse.Namespace) -> int:
-        """Reads only the boards: one JSON line per verdict (monitor/record.py)."""
-        config = ProjectConfig.load(Path(args.config)) if args.config else None
-        for root in args.roots:
-            for row in RunRecord.of(Path(root).expanduser(), config).rows():
-                self._show(row.model_dump_json())
-        return 0
 
     def status(self, args: argparse.Namespace) -> int:
         """Reads only the board: works while the project runs, and needs no models or keys."""
@@ -1132,11 +1121,6 @@ class Cli:
         openrouter.add_argument("ids", nargs="+", help="OpenRouter model ids, e.g. qwen/qwen3-coder")
 
         commands.add_parser("spend", help="today's spend of every run, per account, against the limits")
-        record = commands.add_parser(
-            "record", help="every verdict on boards, with the models and prompts behind it (JSON Lines)"
-        )
-        record.add_argument("roots", nargs="+", help="project roots, or a document run's board folder")
-        record.add_argument("--config", help="the project config naming the models of older boards")
 
         rate = commands.add_parser("rate", help="Jev rates every task's difficulty (resumable)")
         rate.add_argument("suites", nargs="+", help="suite files")

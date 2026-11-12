@@ -125,7 +125,6 @@ class CheckedClaim(Frozen):
     reason: str
     source: str | None = None  # the cited part holding `source_quote` word for word
     source_quote: str = ""
-    repeated: bool = False  # an earlier verdict on the same line, not judged again
 
 
 class ClaimChecker:
@@ -155,7 +154,7 @@ that settle it exactly as they appear."""
         async def one(statement: CitedStatement) -> CheckedClaim:
             key = (statement.file, statement.text)
             if key in self._verdicts:
-                return self._verdicts[key].model_copy(update={"repeated": True})
+                return self._verdicts[key]
             async with limit:
                 checked = await self._one(statement, sources)
             if checked.support is not None:  # a failed call is tried again next time

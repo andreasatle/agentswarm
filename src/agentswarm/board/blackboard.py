@@ -16,7 +16,6 @@ from agentswarm.core.domain import (
     AttemptFailed,
     Briefed,
     CheckDisputed,
-    Checked,
     Claim,
     Claimed,
     CommitPushed,
@@ -136,8 +135,6 @@ class BoardViews:
                 self._scored_at = len(self._attacks)
             case Attacked():
                 self._attacks.append(event)
-            case Checked():
-                pass  # read by the run record (monitor/record.py), not kept in the views
             case Spent():
                 self._spent.append((envelope.at, event.usd))
                 self._billed += event.usd if event.billed else 0.0

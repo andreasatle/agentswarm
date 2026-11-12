@@ -28,3 +28,7 @@ Found by reading the board of the LLM-scaling run (879 events):
 ## First use
 
 `agentswarm record ~/agentswarm-runs/llm-scaling-2/board` gives 85 rows: 49 referee rulings (23 confirmed, 26 rejected) and 36 outcomes of routed calls, each with its writer's and checker's models. Claim-checker and audit verdicts start with the next document run.
+
+## Removed (2026-11-12)
+
+Under goal 15 (lean code, the user): the record's planned use was measuring the claim checker's GEPA prompt on a real run, and that prompt was not accepted (docs/design/prompt-improvement.md). Removed: `RunRecord`, `agentswarm record`, the `Checked` events (no real board held one) and their tests, about 450 lines; it served one measurement (error correlation, docs/design/error-correlation.md). Kept: `PromptId` and `Spent`'s `model_id` and `prompt`, a few lines that make every board's spend say which model and prompt version it paid for. The code is in git at a9841f4 if the competitiveness study needs the join.

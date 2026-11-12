@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import ClaimsConfig, ReviewConfig
-from agentswarm.core.domain import Attacked, Checked, Escalated, Event, Perspective, Scored, Sized, TeamName
+from agentswarm.core.domain import Attacked, Escalated, Event, Perspective, Scored, Sized, TeamName
 from agentswarm.evaluation.citations import CitationAnswer, CitationRequest, Support
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.claims import ClaimChecker, ClaimVerdict, WholeParts
@@ -247,24 +247,6 @@ class TestClaims:
         second = [e for e in r.events() if isinstance(e, Attacked)][-1]
         assert (second.round, second.reported) == (2, 0)
         assert len(r.checker.calls) == 2
-        checked = [e for e in r.events() if isinstance(e, Checked)]  # a verdict recorded once, when judged
-        assert len(checked) == 2
-
-    async def test_every_verdict_is_recorded_the_passes_too(self, tmp_path: Path) -> None:
-        r = Review(
-            tmp_path,
-            [],
-            [audited(Support.UNSUPPORTED)],
-            perspectives=(Perspective.CLAIMS,),
-            checker=[claim(Support.UNSUPPORTED), claim(Support.SUPPORTED)],
-        )
-        await r.campaign.step()
-        checked = [e for e in r.events() if isinstance(e, Checked)]
-        assert [(c.by, c.file, c.support) for c in checked] == [
-            ("claim-checker", "sections/01-tagging.md", Support.UNSUPPORTED),
-            ("claim-checker", "sections/01-tagging.md", Support.SUPPORTED),
-        ]
-        assert {c.commit for c in checked} == {r.attacked().commit}
 
     async def test_a_sections_confirmed_claims_become_one_revision(self, tmp_path: Path) -> None:
         r = Review(
