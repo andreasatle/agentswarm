@@ -22,3 +22,17 @@ The writer's prompt would cut errors at the source, but it can only be scored th
 ## Cost
 
 Labelling is free (Claude's time). The run: GEPA with a budget of about 600 checker calls (a dozen passes over the 50), about 20 reflection calls, then three held-out passes each for the old and the new prompt; about $3, capped at $5.
+
+## Result (2026-11-12): not accepted
+
+GEPA ran until the day's spending limit ($1.45, 2026-11-11): six candidates, the best 0.90 on the 50 sleep statements against 0.76 for the current prompt (the training set was also GEPA's validation set, so 0.90 is optimistic). On the 78 held-out LLM-scaling statements, three runs each ($0.61):
+
+| prompt | accuracy | missed (of 22 problems) | false alarms (of 56 fine) |
+| --- | --- | --- | --- |
+| current | 0.79-0.82 | 1-2 | 12-15 |
+| GEPA's best | 0.82-0.85 | 1-4 | 9-11 |
+
+- **Rejected by the rule set in advance:** the accuracy gain (+0.03) is about the spread of three runs, and misses rose (1.3 to 2.7 on average). It traded misses for fewer false alarms; a miss is a wrong statement in the published document, a false alarm costs a referee ruling, so the trade is the wrong way.
+- **The prompt grew from 470 to 13,600 characters,** about 3,400 more input tokens per check: a cost on every call even if it had won.
+- **What the held-out set says about the current checker:** on another document it misses few problems (about 1 in 15) but a quarter of its flags are false alarms; the false alarms, not the misses, are where it costs.
+- The current prompt stays. The GEPA scripts stay in the scratch folder, not the repo.
