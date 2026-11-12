@@ -6,6 +6,7 @@ from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import BriefConfig, SpecifyConfig
 from agentswarm.core.domain import Reference, Resumed, Specified
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
+from agentswarm.teams.documents import Writer
 from agentswarm.teams.specifier import (
     AnswerRequest,
     BriefDraft,
@@ -157,7 +158,15 @@ class TestBriefer:
         assert await briefer.step() == 1 and briefer.done()
         tasks = [a.task for a in h.board.current().artifacts()]
         assert tasks[0].startswith('Write sections/01-revenue.md, the section "Revenue"')
-        assert "sources/plan.md" in tasks[1] and "At most 200 words" in tasks[1]
+        assert "sources/plan.md" in tasks[1] and "At most 173 words" in tasks[1]  # shares fitted to the cap
+
+    def test_the_shares_fit_the_cap_even_when_every_section_runs_long(self) -> None:
+        draft = brief(None)
+        assert isinstance(draft, BriefDraft)
+        fitted = Briefer.fitted(draft, 500)
+        assert [p.words for p in fitted.sections] == [260, 173]
+        assert sum(p.words for p in fitted.sections) * Writer.OVER <= 500
+        assert Briefer.fitted(draft, 1000) == draft  # room enough: unchanged
 
     def test_a_given_reference_replaces_the_drafted_one_for_its_document(self) -> None:
         def ref(document: str, year: str) -> Reference:

@@ -31,6 +31,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.llm.workers import Worker, WorkerError
+from agentswarm.teams.documents import Writer
 from agentswarm.teams.referee import Referee
 from agentswarm.workspace.git import Repository
 
@@ -358,6 +359,7 @@ without its extension. The sources are the only source of facts.
                 draft = await self._worker.run(self.INSTRUCTIONS, request, BriefDraft)
             except WorkerError as error:
                 raise SpecifierError(f"the briefer failed: {error}") from error
+            draft = self.fitted(draft, self._config.words)
             drafted = tuple(
                 Reference(
                     document=r.document,
@@ -426,6 +428,20 @@ without its extension. The sources are the only source of facts.
             words=len(text.split()),
             opening=" ".join(body.split()[: cls.TITLE_PAGE if first else cls.OPENING]),
         )
+
+    @staticmethod
+    def fitted(draft: BriefDraft, cap: int) -> BriefDraft:
+        """The outline with its shares scaled down, if needed, so that every section at its writer's tolerance
+        (`Writer.OVER` past its share) still fits the cap together: the LLM-scaling run's shares added up to
+        4,800 of 5,000 words, the sections came to 5,211, and the gate rejected the last one written; the
+        writer's team escalated to GPT-Sol, which spent $1.17 of the run's $3.24 trimming it."""
+        room = cap / Writer.OVER
+        total = sum(p.words for p in draft.sections)
+        if total <= room:
+            return draft
+        scale = room / total
+        parts = tuple(p.model_copy(update={"words": max(1, int(p.words * scale))}) for p in draft.sections)
+        return draft.model_copy(update={"sections": parts})
 
     @staticmethod
     def path(number: int, part: OutlineEntry) -> str:
