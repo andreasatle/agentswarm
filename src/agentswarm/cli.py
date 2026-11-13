@@ -31,6 +31,7 @@ from agentswarm.core.domain import (
     Spent,
     Usage,
 )
+from agentswarm.evaluation.benchmark import Benchmark, BenchmarkCases, BenchmarkRound, ReaderJudge
 from agentswarm.evaluation.citations import Audited, CitationAudit
 from agentswarm.evaluation.commonmark import CommonMarkImport
 from agentswarm.evaluation.compare import (
@@ -75,7 +76,7 @@ from agentswarm.monitor.report import HardeningSummary, Report, RunVerdict
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, Choice, RunRequest
-from agentswarm.pipeline.stages import Stages
+from agentswarm.pipeline.stages import MeteredFinder, Stages
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.retrieval.passages import PassageIndex
@@ -216,6 +217,8 @@ class Cli:
                 return self.document_runs(args)
             case "approve":
                 return self.approve_run(args)
+            case "benchmark":
+                return self.benchmark(args)
             case "studio":
                 return self.open_studio(args)
             case "audit-citations":
@@ -577,6 +580,29 @@ class Cli:
             self._show(runs.report(args.name))
         finally:
             runs.close()
+        return 0
+
+    BENCHMARK_RESULTS = Path("~/agentswarm-data/benchmark.jsonl")
+
+    def benchmark(self, args: argparse.Namespace) -> int:
+        """Every benchmark case written once, its pauses answered, measured and appended to the results."""
+        judge = MeteredFinder("benchmark-judge").worker()  # a strong model, outside every run
+        runs = self.documents()
+        try:
+            measured = BenchmarkRound(
+                runs,
+                Benchmark(ReaderJudge(judge)),
+                self.RUNS.expanduser(),
+                self.BENCHMARK_RESULTS.expanduser(),
+            ).run(args.label, BenchmarkCases.load())
+        finally:
+            runs.close()
+        for m in measured:
+            counts = ", ".join(f"{k}: {n}" for k, n in m.flaw_counts().items())
+            share = f"{m.audit_share:.0%}" if m.audit_share is not None else "none"
+            self._show(
+                f"{m.case}: ${m.usd:.2f}, {m.minutes:.0f} min, audit {share}, flaws {len(m.flaws)} ({counts})"
+            )
         return 0
 
     def find_papers(self, args: argparse.Namespace) -> int:
@@ -1053,6 +1079,10 @@ class Cli:
         approve.add_argument("name")
         approve.add_argument("--choice", choices=[c.value for c in Choice], default=Choice.YES.value)
         approve.add_argument("--budget", type=float, help="with --choice budget: the new total")
+        bench = commands.add_parser(
+            "benchmark", help="run the held-out document cases with the current code, measure and record them"
+        )
+        bench.add_argument("label", help="the round's name, e.g. r0-baseline")
         find = commands.add_parser("find-papers", help="papers for a topic (OpenAlex or arXiv), for `learn`")
         find.add_argument("topic", help="e.g. 'test-time compute for language model reasoning'")
         find.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")

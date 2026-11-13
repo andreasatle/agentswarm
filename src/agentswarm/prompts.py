@@ -28,6 +28,7 @@ from agentswarm.core.domain import (
     Severity,
     TeamName,
 )
+from agentswarm.evaluation.benchmark import JudgeReport, JudgeRequest, ReaderJudge
 from agentswarm.evaluation.citations import CitationAnswer, CitationAudit, CitationRequest, CitedSource
 from agentswarm.evaluation.papers import (
     Candidate,
@@ -289,6 +290,13 @@ class SampleData:
             sources=(SourcePart(name="rogers-07", text="# Rogers Commission Report, part 7 of 26\n\n..."),),
             current="",
             must_fix=(),
+        )
+
+    @classmethod
+    def judged(cls) -> JudgeRequest:
+        return JudgeRequest(
+            reader="an engineer new to the topic",
+            document="# Title\n\n## Section\n\nThe tool cut review time by 14% (Smith, 2024).\n...",
         )
 
     @classmethod
@@ -571,6 +579,14 @@ class PromptCatalogue:
                 Writer,
                 SampleData.section(),
                 SectionText,
+                None,
+            ),
+            CallFamily(
+                "Benchmark judge (not part of any run): reader-facing flaws in a finished document",
+                (Caller("", ReaderJudge, ReaderJudge.INSTRUCTIONS),),
+                ReaderJudge,
+                SampleData.judged(),
+                JudgeReport,
                 None,
             ),
             CallFamily(

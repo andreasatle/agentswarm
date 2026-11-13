@@ -1,0 +1,29 @@
+# The document benchmark's held-out cases (evaluation/benchmark.py, docs/design/self-correction.md).
+# Never used to find fixes, only to measure them. Their sources are on disk and never changed.
+cases:
+  - name: scaling
+    topic: the future of large language models and their scaling problem
+    reader: a technically literate reader who knows how neural networks are trained, but not an economist
+    goal: >-
+      An evidence-based analysis of the future of large language models and their scaling problem, for a
+      technically literate reader who knows how neural networks are trained, but not an economist, from the
+      sources given. Cover: what scaling laws say and how well they have held (training compute, data,
+      test-time compute); what further scaling costs in compute, money, energy and data, and who pays
+      (spending versus revenue); whether returns are diminishing, and where the evidence is mixed; whether new
+      theory or architectures (such as JEPA or world models) are needed, and what evidence exists for them;
+      financial risk: what would have to happen for a sharp correction within a year, and which indicators to
+      watch. Keep apart measured facts, forecasts (naming the forecaster and their assumptions) and opinion.
+      Give ranges rather than single numbers, date every figure, and go no further than the sources. End with
+      what is known, what is uncertain, and what to watch.
+    sources: ~/agentswarm-runs/llm-scaling-2/sources
+    words: 2000
+  - name: sleep
+    topic: how sleep affects memory
+    reader: a curious reader with a science degree but no background in neuroscience
+    sources: ~/agentswarm-data/sleep-and-memory
+    words: 2000
+  - name: reasoning
+    topic: test-time compute for reasoning in large language models
+    reader: a machine-learning engineer who knows transformers but not the reasoning literature
+    sources: ~/agentswarm-data/test-time-compute-found
+    words: 2000

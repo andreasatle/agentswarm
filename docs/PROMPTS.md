@@ -43,6 +43,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
 | [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionText` |
+| [Benchmark judge (not part of any run): reader-facing flaws in a finished document](#benchmark-judge-not-part-of-any-run-reader-facing-flaws-in-a-finished-document) | (`ReaderJudge`) | `JudgeReport` |
 | [Citation audit, and the referee of a claims finding: does the cited source support a document's statement?](#citation-audit-and-the-referee-of-a-claims-finding-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
 | [Claim checker (review, `claims` perspective): one cited statement against its source](#claim-checker-review-claims-perspective-one-cited-statement-against-its-source) | (`ClaimChecker`) | `ClaimVerdict` |
 | [Paper finder: search queries (and well-known titles) for a topic, run against arXiv](#paper-finder-search-queries-and-well-known-titles-for-a-topic-run-against-arxiv) | (`PaperFinder`) | `SearchQueries` |
@@ -1931,6 +1932,133 @@ class SectionText(Frozen):
 ### What happens to the answer
 
 `Writer`: 
+
+## Benchmark judge (not part of any run): reader-facing flaws in a finished document
+
+### ReaderJudge
+
+`agentswarm.evaluation.benchmark.ReaderJudge`: The benchmark's judge: reader-facing flaws in a finished document, each backed by a verbatim quote.
+
+Flaws whose quote isn't in the document are dropped. It judges form and clarity only; whether claims are true is the citation audit's job. Version `eefd95f54537`.
+
+```text
+You read a finished document as the reader it was written for, and list every flaw that reader would meet in
+its form and clarity. Do not judge whether its claims are true or well sourced; judge only how it reads.
+
+- broken_text: a sentence split or cut off, a stray fragment, a line starting mid-sentence, punctuation out of
+  place.
+- citation_form: a citation in the wrong place, garbled, or so frequent or long that it gets in the way.
+- unclear: a passage this reader couldn't follow: a term used before it is explained, a jump in the argument,
+  an ambiguous sentence.
+- repetition: the same point made again without adding anything.
+
+For each flaw, copy the exact text it is in, word for word, at least a few words, and say in one sentence what
+is wrong for the reader. List each flaw once. Report nothing that isn't a flaw.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "reader": "an engineer new to the topic",
+  "document": "# Title\n\n## Section\n\nThe tool cut review time by 14% (Smith, 2024).\n..."
+}
+</data>
+```
+
+### Payload types
+
+```python
+class JudgeRequest(Frozen):
+    """The finished document and who it is for."""
+
+    reader: str
+    document: str
+```
+
+### Answer
+
+```python
+class JudgeReport(Frozen):
+    """Every reader-facing flaw you found, each with its quote; none if there are none."""
+
+    flaws: list[Flaw]
+
+
+class Flaw(Frozen):
+    kind: FlawKind
+    quote: str = Field(description="the exact text the flaw is in, copied verbatim, at least a few words")
+    why: str = Field(description="one sentence: what is wrong for the reader")
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "Flaw": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/FlawKind"
+        },
+        "quote": {
+          "description": "the exact text the flaw is in, copied verbatim, at least a few words",
+          "title": "Quote",
+          "type": "string"
+        },
+        "why": {
+          "description": "one sentence: what is wrong for the reader",
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "quote",
+        "why"
+      ],
+      "title": "Flaw",
+      "type": "object"
+    },
+    "FlawKind": {
+      "enum": [
+        "broken_text",
+        "citation_form",
+        "unclear",
+        "repetition"
+      ],
+      "title": "FlawKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Every reader-facing flaw you found, each with its quote; none if there are none.",
+  "properties": {
+    "flaws": {
+      "items": {
+        "$ref": "#/$defs/Flaw"
+      },
+      "title": "Flaws",
+      "type": "array"
+    }
+  },
+  "required": [
+    "flaws"
+  ],
+  "title": "JudgeReport",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`ReaderJudge`: The benchmark's judge: reader-facing flaws in a finished document, each backed by a verbatim quote.
+
+Flaws whose quote isn't in the document are dropped. It judges form and clarity only; whether claims are true is the citation audit's job.
 
 ## Citation audit, and the referee of a claims finding: does the cited source support a document's statement?
 
