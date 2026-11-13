@@ -237,6 +237,9 @@ class TeamConfig(Strict):
     ] = ()  # instead of `model`: cheap first, moving up a tier per rejection (§13.3)
     checks: tuple[str, ...] = ()  # checks the team may run while working, by name
     max_model_calls: int = Field(default=40, gt=0)  # per act; the agent stops when it is reached
+    # artifacts this team works on at the same time; its model calls overlap, nothing else does (the user,
+    # 2026-11-13: speed that comes free by design should be had). The budget counts calls in flight.
+    parallel: int = Field(default=4, ge=1)
     # False: old tool results stay in the model's context. A writer needs every source it read in view at
     # once: trimmed, it read the same parts again until its calls ran out, and wrote nothing (2026-10-18)
     trim: bool = True

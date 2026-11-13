@@ -28,6 +28,9 @@ class Budget:
         self._accounts = accounts
         self._reserve = reserve_usd  # what one action may cost: none starts with less than this left
         self._refused: tuple[datetime, str] | None = None  # a model call refused today, and why
+        # Model runs admitted but not yet recorded on the board, by run: their worst case so far. Concurrent
+        # runs (parallel team actions) each count the others', so together they stay within the budget.
+        self._in_flight: dict[str, float] = {}
 
     def day_start(self) -> datetime:
         now = self._clock.now().astimezone(UTC)
@@ -39,19 +42,26 @@ class Budget:
     def exhausted(self, views: BoardViews) -> bool:
         return self.reason(views) is not None
 
-    def admit(self, views: BoardViews, usd: float) -> None:
-        """Admit a model call whose worst case costs `usd`, or refuse it (OverBudget) when that would pass
-        this project's budget or a machine-wide limit (audit A03: checked before every call, not only between
-        actions, so an approved budget is a cap). A refusal stands for the rest of the day: no new action
-        starts."""
-        spent = self.spent_today(views)
+    def admit(self, views: BoardViews, usd: float, run: str = "") -> None:
+        """Admit a model call whose worst case costs `usd` (the run's unrecorded use so far included), or
+        refuse it (OverBudget) when that would pass this project's budget or a machine-wide limit (audit A03:
+        checked before every call, not only between actions, so an approved budget is a cap). Other runs in
+        flight count with their worst case until they are recorded (`release`). A refusal stands for the rest
+        of the day: no new action starts."""
+        others = sum(v for k, v in self._in_flight.items() if k != run)
+        spent = self.spent_today(views) + others
         if self._usd_per_day is not None and spent + usd > self._usd_per_day:
             self.refuse(
                 f"budget: a model call needing up to ${usd:.2f} won't fit "
-                f"(${spent:.2f} of ${self._usd_per_day:.2f} spent today)"
+                f"(${spent:.2f} of ${self._usd_per_day:.2f} spent or in flight today)"
             )
-        if self._shared is not None and (over := self._shared.over(self._accounts, usd)) is not None:
+        if self._shared is not None and (over := self._shared.over(self._accounts, usd + others)) is not None:
             self.refuse(f"a model call needing up to ${usd:.2f} won't fit the {over}")
+        self._in_flight[run] = usd
+
+    def release(self, run: str) -> None:
+        """The run's spend is recorded on the board (or it made no call): it no longer counts as in flight."""
+        self._in_flight.pop(run, None)
 
     def refuse(self, reason: str) -> None:
         self._refused = (self.day_start(), reason)

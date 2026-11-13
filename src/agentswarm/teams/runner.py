@@ -1,5 +1,6 @@
 """Teams and the loop every team runs (proposal §10)."""
 
+import asyncio
 import logging
 from datetime import timedelta
 from enum import StrEnum
@@ -76,7 +77,9 @@ class TeamRunner:
         budget: Budget | None = None,  # over budget, the team waits like a paused one
         scheduler: Scheduler | None = None,  # shared across projects: a slot is held while the team acts
         project: ProjectId = ProjectId("project"),
+        parallel: int = 1,  # artifacts acted on at the same time
     ) -> None:
+        self._parallel = parallel
         self._budget = budget
         self._scheduler = scheduler
         self._project = project
@@ -94,19 +97,33 @@ class TeamRunner:
         return self._team
 
     async def step(self) -> int:
-        """Act on every artifact that needs this team. Returns how many it acted on."""
-        acted = 0
-        for artifact in self._candidates():
-            # Checked before every action, not once per step (audit A06): an action that paused the project
-            # or spent the budget stops the rest of this step's batch too. Nothing is marked handled, so
-            # the work is picked up after Resumed, or when the budget allows it.
-            if self._team.pausable and self._board.current().paused:
-                break
-            if self._budget is not None and self._budget.exhausted(self._board.current()):
-                break
-            if await self._handle(artifact):
-                acted += 1
-        return acted
+        """Act on every artifact that needs this team, `parallel` at a time; returns how many it acted on.
+
+        Concurrent actions overlap only where they wait (model calls): git and the checks are synchronous, so
+        they never interleave. Each action has its own claim, worktree and spend scope (a context variable,
+        per task), and the budget counts what calls in flight may still spend (`Budget.admit`).
+        """
+        slots = asyncio.Semaphore(self._parallel)
+        acted: list[bool] = []
+
+        async def one(artifact: Artifact) -> None:
+            async with slots:
+                # Checked when the action starts, not once per step (audit A06): an action that paused the
+                # project or spent the budget stops the rest of this step's batch too. Nothing is marked
+                # handled, so the work is picked up after Resumed, or when the budget allows it.
+                if self._team.pausable and self._board.current().paused:
+                    return
+                if self._budget is not None and self._budget.exhausted(self._board.current()):
+                    return
+                acted.append(await self._handle(artifact))
+
+        try:
+            async with asyncio.TaskGroup() as group:  # in order: with one slot, exactly the sequential loop
+                for artifact in self._candidates():
+                    group.create_task(one(artifact))
+        except BaseExceptionGroup as failed:  # a crashed action ends the step, as before; the others stop
+            raise failed.exceptions[0] from None
+        return sum(acted)
 
     def _allowed(self) -> bool:
         """Whether the budget allows another attempt within an action (checked between attempts, since one

@@ -239,6 +239,7 @@ class Project:
                 budget,
                 services.scheduler,
                 ProjectId(config.project),
+                team.parallel,
             )
             for team in config.teams
         ]

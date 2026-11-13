@@ -162,15 +162,19 @@ class Gatekeeper:
     def __init__(self, refuse_from: int | None = None) -> None:
         self.heard: list[Usage] = []
         self.asked: list[float] = []
+        self.released: list[str] = []
         self._refuse_from = refuse_from
 
     def __call__(self, usage: Usage) -> None:
         self.heard.append(usage)
 
-    def admit(self, usd: float) -> None:
+    def admit(self, usd: float, run: str = "") -> None:
         self.asked.append(usd)
         if self._refuse_from is not None and len(self.asked) >= self._refuse_from:
             raise OverBudget("budget: a model call won't fit")
+
+    def release(self, run: str) -> None:
+        self.released.append(run)
 
 
 class Looking:

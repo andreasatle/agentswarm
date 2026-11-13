@@ -86,8 +86,11 @@ class LedgerMeter:
     def __call__(self, usage: Usage) -> None:
         self._ledger.record(self._by, self._model, usage, self._price)
 
-    def admit(self, usd: float) -> None:
-        self._ledger.admit(usd)
+    def admit(self, usd: float, run: str = "") -> None:
+        self._ledger.admit(usd, run)
+
+    def release(self, run: str) -> None:
+        self._ledger.release(run)
 
 
 class SpendLedger:
@@ -111,10 +114,15 @@ class SpendLedger:
         """The meter for one team's worker (or one decision point): records each usage it is given."""
         return LedgerMeter(self, by, model, price)
 
-    def admit(self, usd: float) -> None:
-        """Refuse (OverBudget) a model call whose worst case `usd` wouldn't fit the budget."""
+    def admit(self, usd: float, run: str = "") -> None:
+        """Refuse (OverBudget) a model call whose worst case `usd` wouldn't fit the budget, counting the other
+        runs in flight; `run` names the worker run the call belongs to."""
         if self._budget is not None and usd > 0:
-            self._budget.admit(self._board.current(), usd)
+            self._budget.admit(self._board.current(), usd, run)
+
+    def release(self, run: str) -> None:
+        if self._budget is not None:
+            self._budget.release(run)
 
     def record(self, by: str, model: str, usage: Usage, price: Price | None) -> None:
         if usage.input_tokens == 0 and usage.output_tokens == 0:

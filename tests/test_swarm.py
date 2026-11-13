@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from agentswarm.core.clock import FakeClock
 from agentswarm.core.config import ProjectConfig
 from agentswarm.core.domain import Escalated, Usage
 from agentswarm.judging.decisions import InMemoryDecisions
-from agentswarm.llm.workers import Toolbox, Worker
+from agentswarm.llm.workers import AdmittingMeter, Toolbox, Worker
 from agentswarm.project import ProjectServices
 from agentswarm.swarm import Swarm, SwarmConfig
 from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, WorktreeToolbox
@@ -40,6 +41,9 @@ class CostlyWorker:
         self, instructions: str, payload: BaseModel, output: type[T], toolbox: Toolbox | None = None
     ) -> T:
         assert isinstance(payload, ExecutorRequest) and isinstance(toolbox, WorktreeToolbox)
+        run = uuid.uuid4().hex
+        if isinstance(self._meter, AdmittingMeter):  # as a real worker does before its call: $1 at most
+            self._meter.admit(1.0, run)
         self._flight.now += 1
         self._flight.peak = max(self._flight.peak, self._flight.now)
         await asyncio.sleep(0.05)
@@ -48,6 +52,8 @@ class CostlyWorker:
         toolbox.write_file(f"{name}.md", f"{payload.instruction.goal}\n")  # one file per note: no conflicts
         if self._meter is not None:
             self._meter(Usage(input_tokens=1_000_000))
+        if isinstance(self._meter, AdmittingMeter):
+            self._meter.release(run)
         report = ExecutorReport(summary=payload.instruction.goal, complete=True)
         assert isinstance(report, output)
         return report
@@ -131,12 +137,13 @@ class TestSwarm:
             for e in swarm.projects["tight"].board.log.read()
             if isinstance(e.event, Escalated) and e.event.artifact is None
         ]
-        assert len(budget_reports) == 1 and "budget exhausted" in budget_reports[0].reason
+        # parallel actions: the third call is refused before it starts, counting the two in flight
+        assert len(budget_reports) == 1 and "won't fit" in budget_reports[0].reason
         report = Report.render(tight)
         assert (
             report.startswith("spent: $2.00")
             and "ESCALATED (project), " in report
-            and " UTC: supervisor: budget exhausted" in report
+            and " UTC: supervisor: budget: a model call" in report
         )
         assert flight.peak >= 2  # model runs of the two projects overlapped
         assert set(swarm.scheduler.granted) == {"roomy", "tight"}

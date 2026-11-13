@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import pytest
 
 from agentswarm.core.domain import (
     ArtifactContext,
+    ArtifactId,
     Escalated,
     EscalationResolved,
     Event,
@@ -13,7 +15,7 @@ from agentswarm.core.domain import (
     Resolution,
     TeamName,
 )
-from agentswarm.teams.runner import Relevance
+from agentswarm.teams.runner import Relevance, TeamRunner
 from agentswarm.workspace.git import Worktree
 from tests.support.harness import Harness
 from tests.support.samples import Samples
@@ -60,6 +62,29 @@ class TestTeamRunner:
         h.push(artifact, {"a.txt": "a"})  # something new happened to the artifact
         assert await runner.step() == 1
         assert len(team.acted) == 2
+
+    async def test_parallel_actions_overlap_and_one_slot_keeps_them_in_turn(self, tmp_path: Path) -> None:
+        class Slow(RecordingTeam):
+            def __init__(self) -> None:
+                super().__init__()
+                self.now = self.peak = 0
+
+            async def act(self, ctx: ArtifactContext, worktree: Worktree) -> list[Event]:
+                self.now += 1
+                self.peak = max(self.peak, self.now)
+                await asyncio.sleep(0.01)  # a model call
+                self.now -= 1
+                return await super().act(ctx, worktree)
+
+        for parallel in (1, 3):
+            (tmp_path / str(parallel)).mkdir()
+            h = Harness(tmp_path / str(parallel))
+            for artifact in (Samples.A, Samples.B, ArtifactId("a-0003")):
+                h.create(artifact)
+            team = Slow()
+            runner = TeamRunner(team, h.board, h.claims, h.repository, h.contexts, h.clock, parallel=parallel)
+            assert await runner.step() == 3
+            assert team.peak == parallel
 
     async def test_an_action_that_pauses_the_project_stops_the_rest_of_the_step(self, tmp_path: Path) -> None:
         h = Harness(tmp_path)

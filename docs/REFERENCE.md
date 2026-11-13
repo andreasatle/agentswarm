@@ -157,6 +157,7 @@ Validation rules: teams watch known levels; gates connect adjacent levels and na
 | `model` / `model_tiers` | none | One model, or a set of models; with `routing` the router ranks them by measured cost per success, and their order counts only before there is data. |
 | `checks` | `[]` | Checks the team may run while working; analyzers run test files with the first. |
 | `max_model_calls` | 40 | Per action; the agent stops there. Each tool result says about how many calls are left. |
+| `parallel` | 4 | Artifacts the team works on at the same time. Their model calls overlap; git and checks don't. The budget counts each call in flight at its worst case until its spend is recorded. |
 | `constraints` | `[]` | Extra rules sent with every task. |
 | `relevance` | none | A relevance judge asked before working (analyzers). |
 | `max_depth` | 3 | Decomposer: how deep tasks may be split. |

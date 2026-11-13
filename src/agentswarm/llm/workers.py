@@ -11,6 +11,7 @@ works. `FakeWorker` follows a script and needs no model.
 import hashlib
 import inspect
 import json
+import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, ClassVar, Protocol, runtime_checkable
 
@@ -41,8 +42,12 @@ class AdmittingMeter(Protocol):
 
     def __call__(self, usage: Usage) -> None: ...
 
-    def admit(self, usd: float) -> None:
-        """Raise OverBudget when a call that could cost `usd` at most wouldn't fit."""
+    def admit(self, usd: float, run: str = "") -> None:
+        """Raise OverBudget when a call of `run` that could cost `usd` at most wouldn't fit."""
+        ...
+
+    def release(self, run: str) -> None:
+        """The run's usage has been recorded: it no longer counts as in flight."""
         ...
 
 
@@ -201,16 +206,17 @@ class LangChainWorker:
     ) -> T:
         tokens = Tokens()
         prompt = Prompts.identify(instructions, output, toolbox.tools() if toolbox is not None else ())
+        admission = self.admission()
         try:
             try:
-                state = await self._invoke(instructions, payload, output, toolbox, tokens)
+                state = await self._invoke(instructions, payload, output, toolbox, tokens, admission)
             except Exception as error:
                 if self._native or not ToolChoice.refused(error):
                     raise
                 self._native = (
                     True  # this model takes no forced tool call: its native typed answer, from now on
                 )
-                state = await self._invoke(instructions, payload, output, toolbox, tokens)
+                state = await self._invoke(instructions, payload, output, toolbox, tokens, admission)
         except StructuredOutputError as error:  # an answer that doesn't fit the schema, after retries
             # A native typed answer that stopped at the output limit is cut off, not malformed: callers react
             # differently (the check writer's files ran past 32k tokens of thinking and code, 2026-10-14).
@@ -224,6 +230,7 @@ class LangChainWorker:
             raise WorkerError(f"{type(error).__name__}: {error}") from error
         finally:
             self._report(tokens.usage, prompt)  # the calls that completed, even when a later one failed
+            admission.release()  # recorded now: no longer in flight
         result = state.get("structured_response")
         if isinstance(result, output):
             return result
@@ -247,6 +254,7 @@ class LangChainWorker:
         output: type[T],
         toolbox: Toolbox | None,
         tokens: "Tokens",
+        admission: "Admission",
     ) -> dict[str, Any]:
         agent = create_agent(
             self._model,
@@ -258,7 +266,7 @@ class LangChainWorker:
             # but some refuse to be made to call one (Sonnet 5.5): those keep their native typed answer.
             response_format=output if self._native else ToolStrategy(output),
             middleware=[
-                Admitting(self.admission(), tokens, Prompts.system(instructions)),
+                Admitting(admission, tokens, Prompts.system(instructions)),
                 ModelCallLimitMiddleware(run_limit=self._max_model_calls, exit_behavior="end"),
                 *([Trimming(self._price, self._context_window, self._max_model_calls)] if self._trim else []),
                 *self.caching(),
@@ -285,11 +293,13 @@ class LangChainWorker:
         cut = False
         for _ in range(self.FINAL_ANSWER_TRIES):
             tokens = Tokens()
-            self.admission().check(asked, Usage())
+            admission = self.admission()
             try:
+                admission.check(asked, Usage())
                 reply = await structured.ainvoke(asked, config={"callbacks": [tokens]})
             finally:
                 self._report(tokens.usage, prompt)
+                admission.release()
             answer = reply.get("parsed") if isinstance(reply, dict) else reply
             cut = isinstance(reply, dict) and Stops.at_limit(reply.get("raw"))
             try:
@@ -426,6 +436,7 @@ class Admission:
 
     def __init__(self, meter: Meter | None, price: Price | None, model: BaseChatModel) -> None:
         self._meter = meter if isinstance(meter, AdmittingMeter) else None
+        self._run = uuid.uuid4().hex  # this run's calls, as the budget counts them while in flight
         self._price = price
         limit = getattr(model, "max_tokens", None)
         self._output = limit if isinstance(limit, int) and limit > 0 else self.OUTPUT_IF_UNKNOWN
@@ -434,7 +445,12 @@ class Admission:
         if self._meter is None or self._price is None:
             return
         worst = Usage(input_tokens=count_tokens_approximately(messages), output_tokens=self._output)
-        self._meter.admit(self._price.usd_of(used) + self._price.usd_of(worst))
+        self._meter.admit(self._price.usd_of(used) + self._price.usd_of(worst), self._run)
+
+    def release(self) -> None:
+        """Called once the run's usage is reported."""
+        if self._meter is not None:
+            self._meter.release(self._run)
 
 
 class Admitting(AgentMiddleware[Any, Any]):
