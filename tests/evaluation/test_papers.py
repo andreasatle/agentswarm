@@ -474,6 +474,12 @@ class TestThreads:
         listing = folder.render()
         assert "(official)" in listing and "Covers: getting around" in listing
         assert "**Threads no source covers:** what to see" in listing
+        undated = folder.model_copy(
+            update={
+                "papers": (found.model_copy(update={"paper": found.paper.model_copy(update={"year": 0})}),)
+            }
+        )
+        assert "(A. Author, n.d.)" in undated.render()
 
 
 class TestBrief:

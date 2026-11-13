@@ -733,7 +733,8 @@ class ReadingFolder(Frozen):
             where = f.paper.venue or f.paper.id
             state = f"`{f.file}`" if f.file is not None else "**not here yet**"
             standing = f" ({f.paper.standing})" if f.paper.standing else ""
-            lines.append(f"{n}. **{f.paper.title}** ({authors}, {f.paper.year}), {where}{standing}: {state}.")
+            year = f.paper.year or "n.d."  # a page with no date
+            lines.append(f"{n}. **{f.paper.title}** ({authors}, {year}), {where}{standing}: {state}.")
             lines.append(f"   {f.why}" + (f" Covers: {f.covers}" if f.covers else ""))
         uncovered = [t for t in self.threads if all(f.covers != t for f in self.papers)]
         if uncovered:
