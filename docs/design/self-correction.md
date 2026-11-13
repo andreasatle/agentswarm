@@ -28,4 +28,13 @@ The judge stays outside every run: used in production it would stop being a held
 
 ## Results
 
-(to come, one line per round)
+**Round 0, baseline (2026-11-13, `r0-baseline`), $4.27 in all:**
+
+| case | cost | minutes | strong model | audit | judge's flaws: broken text / citation form / unclear / repetition |
+|---|---|---|---|---|---|
+| scaling | $1.80 | 18 | $0.41 | 100% | 0 / 5 / 7 / 3 = 15 |
+| sleep | $1.22 | 10 | $0.13 | 74% | 0 / 2 / 5 / 2 = 9 |
+| reasoning | $1.25 | 10 | $0.21 | 63% | 1 / 3 / 7 / 0 = 11 (review cut short: the day's $10 limit) |
+
+What it says before any change: broken text is nearly gone already (1 flaw in 35); the flaws are mostly content-level, unclear passages (19) and repetition (5), with citation form (10) a distant second, mostly the same source cited twice in a row. So structured output addresses about a third of the judged flaws, and a reader review the rest. The reasoning case's review was cut short by the machine-wide limit, so its audit and flaws are not a clean baseline; it is rerun in the next round. Variance is still unknown.
+
