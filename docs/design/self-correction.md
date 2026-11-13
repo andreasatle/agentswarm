@@ -18,9 +18,13 @@ A round costs about $2.50-4. Variance between rounds is unknown until a round is
 
 ## The steps, each measured against the benchmark
 
+Revised 2026-11-13 after a review by Codex, which the user brought in: it counted five prose heuristics in the document checker (several sentences on a line, a lowercase start, a start with punctuation or a citation, unbalanced brackets) and six repairs that guess what the writer meant (citations split, mapped to parts and moved, prose split into sentence lines). Moving a citation from the start of a line onto the previous sentence decides which sentence it supports: a semantic guess, to be removed. It also found that the review runs only when the citation audit falls below 90%, so a document with well-supported citations is never reviewed for anything else.
+
 1. **Round 0, baseline:** the code as of 2026-11-13.
-2. **Typed sentences:** the writer returns its section as a list of sentences, each with its citations, instead of free text; plain code lays them out. If it holds, the sentence splitter and the citation-moving patches are removed (goal 15). Accepted if flaws don't rise and cost doesn't rise beyond the noise.
-3. **A reader critic:** the review's existing `reader` perspective (quote-backed findings, a referee of another model family, the writer fixing confirmed ones) runs beside `claims`, on a cheap model. Accepted if the judge's flaws fall by more than the noise for at most about $0.20 a document.
+2. **Structured output:** the writer returns its section as typed parts (paragraphs as lists of sentences, each with the sources it cites; lists; equations), and plain code lays them out as Markdown. Its consumers change with it: the claim checker reads sentences and their citations from the structure instead of from line breaks, and the document check keeps only its structural rules (Markdown files, headings, text under them, citations naming real sources, a citation per section, the word cap). The sentence splitter, the abbreviation lists and the citation repairs are deleted with the prose rules, in the same change: until then they are the only guard against broken text. Accepted if the judge's flaws don't rise and cost doesn't rise beyond the noise.
+3. **A mandatory quality review:** before publishing is put to the user, the assembled document is reviewed against its brief whatever its citation score: a reader and coherence perspective over the whole document (problems across sections included), beside claims. Findings carry a location, evidence and severity: a quote from the document, or for something missing, the part of the brief or outline that asks for it. The existing reviewer, referee and writer loop fixes confirmed findings; rounds are bounded, the repaired version is reviewed again, and what remains unresolved is shown to the user at the approval. Accepted if the judge's flaws fall by more than the noise for at most about $0.20 a document.
+
+The judge stays outside every run: used in production it would stop being a held-out measure.
 
 ## Results
 
