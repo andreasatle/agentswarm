@@ -128,6 +128,19 @@ class TestGuideCheck:
         problems = self.check(tmp_path / "out" / "seed", {"01-tagging.md": text})
         assert len([p for p in problems if "a broken line" in p]) == 2
 
+    def test_a_line_starting_with_punctuation_or_a_citation_is_reported(
+        self, qasper: Path, tmp_path: Path
+    ) -> None:
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=500).write()
+        section = (
+            "## Tagging\n\nThe paper tags words [@1909.00001].\n"
+            ", and it has not been peer-reviewed [@1909.00001].\n"
+            "[@1909.00001] It uses little data.\n"
+            "In Moffatt v. Air Canada the tribunal ruled [@1909.00001].\n"
+        )
+        problems = self.check(tmp_path / "out" / "seed", {"01-tagging.md": section})
+        assert len([p for p in problems if "a broken line" in p]) == 2 and len(problems) == 2
+
     def test_uncited_unknown_long_and_crowded_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
         GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
         problems = self.check(

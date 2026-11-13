@@ -136,11 +136,18 @@ class Sentences:
 
     END: ClassVar[re.Pattern[str]] = re.compile(r"([.!?]) +(?=[A-Z])")
     ABBREVIATION: ClassVar[re.Pattern[str]] = re.compile(
-        r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|cf|al|Inc|Co|Corp|Ltd|Eq|Sec)\.)$"
+        r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd|Eq|Sec)\.)$"
+    )
+
+    LEADING_CITATION: ClassVar[re.Pattern[str]] = re.compile(
+        r"(?<=[.!?\"\u201d)])\n[ \t]*((?:\[@[^\]\n]+\][ \t]*)+)"
     )
 
     @classmethod
     def lines(cls, text: str) -> str:
+        # A citation a writer put at the start of the next line belongs to the sentence before it (2026-11-13:
+        # "lower cost.\n[@klarna] Its AI assistant ..." put Klarna's claim on the wrong sentence)
+        text = cls.LEADING_CITATION.sub(lambda m: " " + m.group(1).strip() + "\n", text)
         out: list[str] = []
         display = False  # inside a $$ ... $$ block: mathematics, left as it is
         for line in text.splitlines():

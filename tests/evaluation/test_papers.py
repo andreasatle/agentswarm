@@ -303,6 +303,17 @@ ARTICLES = b"""{"query": {"pages": [
 ]}}"""
 
 
+class TestWebShort:
+    def test_a_web_citation_is_the_site_and_the_start_of_its_title(self) -> None:
+        assert Candidate.web_short(
+            "klarna.com", "Klarna AI assistant handles two-thirds of chats | Klarna"
+        ) == ("klarna.com: Klarna AI assistant handles\u2026")
+        assert Candidate.web_short("intercom.com", "Fin AI Agent Automation Rate | Intercom Help") == (
+            "intercom.com: Fin AI Agent Automation\u2026"
+        )
+        assert Candidate.web_short("Wikipedia", "Murano") == "Wikipedia: Murano"
+
+
 class TestWikipediaSearch:
     def test_articles_in_search_order_cited_by_title_and_link(self) -> None:
         class Answering(WikipediaSearch):

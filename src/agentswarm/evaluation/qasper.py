@@ -164,8 +164,9 @@ The papers are in `sources/`, one file each. Use them, and nothing else, for eve
     CHECK = '''"""The guide's rules, checked deterministically; from the root: python tools/check_doc.py
 
 - every file in sections/ is Markdown, starts with a '## ' heading and has text under it;
-- one sentence per line, each line a whole sentence: none starts mid-word and no citation is broken off (a
-  revision that replaced part of a line once left its tail behind, 2026-11-10);
+- one sentence per line, each line a whole sentence: none starts mid-word, with punctuation or with a
+  citation, and no citation is broken off (a revision that replaced part of a line once left its tail
+  behind, 2026-11-10; again as ", and it has not been peer-reviewed", 2026-11-13);
 - every citation [@name] names a file in sources/, and every section cites at least one;
 - at most {words} words in all sections together.
 
@@ -182,7 +183,7 @@ TWO_SENTENCES = re.compile(r"[.!?] +[A-Z]")
 LISTED = re.compile(r"\\s*(?:[-*|]|\\d+[.)]\\s)")  # list items and table rows: left as written
 MATH = re.compile(r"\\$[^$]*\\$")  # inline mathematics: its dots end no sentence
 # Abbreviations end in a dot without ending the sentence: a.m., p.m., U.S., Dr., e.g.
-TITLES = "Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|cf|al|Inc|Co|Corp|Ltd"
+TITLES = "Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd"
 ABBREVIATIONS = re.compile(r"\\b(?:[A-Za-z]\\.){{2,}}|\\b(?:" + TITLES + r")\\.")
 
 
@@ -228,7 +229,8 @@ class GuideCheck:
             plain = ABBREVIATIONS.sub("", CITATION.sub("", MATH.sub("", line)))
             if TWO_SENTENCES.search(plain) and not LISTED.match(line):
                 self.problems.append(f"{{name}}: one sentence per line: {{line[:60]!r}}")
-            if line[:1].islower() or line.count("]") > line.count("["):
+            broken = line[:1].islower() or line[:1] in ",;:.)" or line.startswith("[@")
+            if broken or line.count("]") > line.count("["):
                 self.problems.append(f"{{name}}: a broken line, not a whole sentence: {{line[:60]!r}}")
         cited = CITATION.findall("\\n".join(text))
         for source in cited:

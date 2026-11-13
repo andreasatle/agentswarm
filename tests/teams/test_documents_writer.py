@@ -113,6 +113,14 @@ class TestSentences:
             "See Fig. 2 at 5 p.m. Today.\n- A. B."
         )
 
+    def test_a_case_name_is_one_sentence_and_a_leading_citation_joins_its_sentence(self) -> None:
+        text = (
+            "In Moffatt v. Air Canada the airline lost.\nIt cut costs.\n[@klarna] Its bot ran.\n\n[@b] New."
+        )
+        assert Sentences.lines(text) == (
+            "In Moffatt v. Air Canada the airline lost.\nIt cut costs. [@klarna]\nIts bot ran.\n\n[@b] New."
+        )
+
     def test_mathematics_is_left_as_it_is(self) -> None:
         text = (
             "## Loss\n\nThe loss is $L = \\|s_y - \\hat{s}_y\\|_2^2$ over blocks. It is averaged.\n"

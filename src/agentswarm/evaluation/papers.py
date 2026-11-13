@@ -92,7 +92,7 @@ class Candidate(Frozen):
                 title=self.title,
                 year=str(self.year),
                 venue=f"{self.site} ({self.standing})" if self.standing else self.site,
-                short=f"{self.site}: {self.title}",
+                short=self.web_short(self.site, self.title),
                 url=self.page,
             )
         surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
@@ -113,6 +113,19 @@ class Candidate(Frozen):
             short=short,
             url=self.page if not self.venue.startswith("arXiv") else "",
         )
+
+    SHORT_WORDS: ClassVar[int] = 4  # words of a web page's title in its in-text citation
+
+    @classmethod
+    def web_short(cls, site: str, title: str) -> str:
+        """A web page's in-text citation: its site and the start of its title, "(klarna.com: Klarna AI
+        assistant handles two-thirds…)". The whole title after every sentence buried a blog post in citations
+        (2026-11-13); the site alone can't tell two pages of one site apart. A trailing " | Site" or " - Site"
+        is the page's own label for its site, and is left out."""
+        own = re.split(r"\s+[|\u2013\u2014-]\s+", title)[0].strip() or title
+        words = own.split()
+        start = " ".join(words[: cls.SHORT_WORDS]) + ("\u2026" if len(words) > cls.SHORT_WORDS else "")
+        return f"{site}: {start}"
 
     @staticmethod
     def names(author: str) -> list[str]:
