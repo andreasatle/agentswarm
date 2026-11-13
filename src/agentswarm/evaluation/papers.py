@@ -19,7 +19,6 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ElementTree
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import ClassVar, Protocol
@@ -90,7 +89,7 @@ class Candidate(Frozen):
                 document=document,
                 authors=self.site,
                 title=self.title,
-                year=str(self.year),
+                year=str(self.year) if self.year else "n.d.",  # a page with no date says so
                 venue=f"{self.site} ({self.standing})" if self.standing else self.site,
                 short=self.web_short(self.site, self.title),
                 url=self.page,
@@ -482,9 +481,8 @@ class TavilySearch(Fetching):
     KEY = "TAVILY_API_KEY"
     PAUSE_S = 0.2
 
-    def __init__(self, key: str | None = None, year: int | None = None) -> None:
+    def __init__(self, key: str | None = None) -> None:
         self._key = key
-        self._year = year or datetime.now(UTC).year  # when a page has no date: the year it was read
 
     def post(self, path: str, body: BaseModel) -> bytes:
         key = self._key or os.environ.get(self.KEY)
@@ -520,7 +518,7 @@ class TavilySearch(Fetching):
             id=f"web:{result.url}",
             title=" ".join(result.title.split()) or result.url,
             authors=(site,),
-            year=int(dated.group(0)) if dated else self._year,
+            year=int(dated.group(0)) if dated else 0,  # no date: not the year it was read (2026-11-13)
             abstract=" ".join(result.content.split()),
             site=site,
             # An arXiv page is the paper's abstract: the paper itself is its PDF, which arXiv lets programs

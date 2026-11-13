@@ -118,7 +118,7 @@ class TestSentences:
             "In Moffatt v. Air Canada the airline lost.\nIt cut costs.\n[@klarna] Its bot ran.\n\n[@b] New."
         )
         assert Sentences.lines(text) == (
-            "In Moffatt v. Air Canada the airline lost.\nIt cut costs. [@klarna]\nIts bot ran.\n\n[@b] New."
+            "In Moffatt v. Air Canada the airline lost.\nIt cut costs [@klarna].\nIts bot ran.\n\n[@b] New."
         )
 
     def test_mathematics_is_left_as_it_is(self) -> None:

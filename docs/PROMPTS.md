@@ -2408,7 +2408,7 @@ class Candidate(Frozen):
                 document=document,
                 authors=self.site,
                 title=self.title,
-                year=str(self.year),
+                year=str(self.year) if self.year else "n.d.",  # a page with no date says so
                 venue=f"{self.site} ({self.standing})" if self.standing else self.site,
                 short=self.web_short(self.site, self.title),
                 url=self.page,

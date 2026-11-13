@@ -356,7 +356,7 @@ class Answering(TavilySearch):
     """Tavily with canned answers: what it was asked, and no network."""
 
     def __init__(self, answers: dict[str, bytes]) -> None:
-        super().__init__(key="test-key", year=2026)
+        super().__init__(key="test-key")
         self.asked: list[tuple[str, BaseModel]] = []
         self._answers = answers
 
@@ -397,12 +397,13 @@ class TestTavilySearch:
             "web:https://actv.avmspa.it/en/tickets",
             "ACTV Tickets",
             "actv.avmspa.it",
-            2026,
+            0,  # no date given: none made up
         )
         assert actv.abstract == "Fares and passes." and actv.kind == "txt" and blog.year == 2025
         assert blog.site == "example-blog.com" and search.titled("ACTV Tickets") is None
         reference = actv.model_copy(update={"standing": Standing.OFFICIAL}).reference("actv")
         assert reference.venue == "actv.avmspa.it (official)" and reference.url == actv.page
+        assert reference.year == "n.d."
 
     def test_a_page_downloads_as_its_title_link_and_text(self, tmp_path: Path) -> None:
         text = (

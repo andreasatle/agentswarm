@@ -139,6 +139,8 @@ class Sentences:
         r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd|Eq|Sec)\.)$"
     )
 
+    # "... 24/7. [@klarna]": a citation after the full stop goes before it, inside its sentence
+    TRAILING_CITATION: ClassVar[re.Pattern[str]] = re.compile(r"([.!?])((?:[ \t]*\[@[^\]\n]+\])+)[ \t]*$")
     LEADING_CITATION: ClassVar[re.Pattern[str]] = re.compile(
         r"(?<=[.!?\"\u201d)])\n[ \t]*((?:\[@[^\]\n]+\][ \t]*)+)"
     )
@@ -161,7 +163,7 @@ class Sentences:
             if display or listed or not line.strip():
                 out.append(line)
                 continue
-            out += cls.split(line)
+            out += [cls.TRAILING_CITATION.sub(r"\2\1", part) for part in cls.split(line)]
         return "\n".join(out)
 
     @classmethod
