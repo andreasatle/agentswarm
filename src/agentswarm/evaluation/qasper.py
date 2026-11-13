@@ -184,7 +184,7 @@ LISTED = re.compile(r"\\s*(?:[-*|]|\\d+[.)]\\s)")  # list items and table rows: 
 MATH = re.compile(r"\\$[^$]*\\$")  # inline mathematics: its dots end no sentence
 # Abbreviations end in a dot without ending the sentence: a.m., p.m., U.S., Dr., e.g.
 TITLES = "Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd"
-ABBREVIATIONS = re.compile(r"\\b(?:[A-Za-z]\\.){{2,}}|\\b(?:" + TITLES + r")\\.")
+ABBREVIATIONS = re.compile(r"\\b(?:[A-Za-z]\\.){{2,}}|\\b[A-Z]\\.|\\b(?:" + TITLES + r")\\.")  # J. SERVO
 
 
 class GuideCheck:

@@ -137,6 +137,7 @@ class TestGuideCheck:
             ", and it has not been peer-reviewed [@1909.00001].\n"
             "[@1909.00001] It uses little data.\n"
             "In Moffatt v. Air Canada the tribunal ruled [@1909.00001].\n"
+            "J. SERVO could not verify it [@1909.00001].\n"
         )
         problems = self.check(tmp_path / "out" / "seed", {"01-tagging.md": section})
         assert len([p for p in problems if "a broken line" in p]) == 2 and len(problems) == 2

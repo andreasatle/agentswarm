@@ -312,6 +312,14 @@ class TestWebShort:
             "intercom.com: Fin AI Agent Automation\u2026"
         )
         assert Candidate.web_short("Wikipedia", "Murano") == "Wikipedia: Murano"
+        assert Candidate.web_short(
+            "deloitte.com", "Hands Off the Task, Eyes on the Outcome | Deloitte US"
+        ) == (
+            "deloitte.com: Hands Off the Task\u2026"  # no comma before the ellipsis
+        )
+        assert Candidate.web_short("rework.com", '"AI Bank Reconciliation: How Matching Works"') == (
+            "rework.com: AI Bank Reconciliation: How\u2026"
+        )
 
 
 class TestWikipediaSearch:

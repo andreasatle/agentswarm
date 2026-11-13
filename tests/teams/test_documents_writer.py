@@ -49,13 +49,13 @@ class TestSectionWriter:
         assert len(worker.calls) == 1  # one answer, no tool loop
         worktree.remove()
 
-    async def test_a_section_far_over_its_budget_is_rewritten_once(self, tmp_path: Path) -> None:
+    async def test_a_section_far_over_its_budget_is_rewritten_until_it_fits(self, tmp_path: Path) -> None:
         h = Harness(tmp_path)
         artifact = h.create(task="Write sections/03-cause.md")
         worktree = h.repository.checkout_artifact(artifact)
         long = SectionText(text="## Cause\n\n" + "word " * 20 + "[@rogers-07].")
         short = SectionText(text="## Cause\n\nThe joint failed [@rogers-07].")
-        worker = FakeWorker([lambda _: long, lambda _: short])
+        worker = FakeWorker([lambda _: long, lambda _: long, lambda _: short])  # the first rewrite ignores it
         entry = OutlineEntry(title="Cause", covers="the joint", sources=("rogers-07",), words=10)
         request = SectionWriting(
             north_star="a report",
@@ -69,6 +69,7 @@ class TestSectionWriter:
         assert (
             isinstance(again, SectionRequest) and "has 21 words; it may have at most 10" in again.must_fix[-1]
         )
+        assert "Cut about 11 words" in again.must_fix[-1] and len(worker.calls) == 3
         assert worktree.read("sections/03-cause.md") == "## Cause\n\nThe joint failed [@rogers-07].\n"
         worktree.remove()
 
@@ -115,10 +116,12 @@ class TestSentences:
 
     def test_a_case_name_is_one_sentence_and_a_leading_citation_joins_its_sentence(self) -> None:
         text = (
-            "In Moffatt v. Air Canada the airline lost.\nIt cut costs.\n[@klarna] Its bot ran.\n\n[@b] New."
+            "J. SERVO said so. In Moffatt v. Air Canada the airline lost.\n"
+            "It cut costs.\n[@klarna] Its bot ran.\n\n[@b] New."
         )
         assert Sentences.lines(text) == (
-            "In Moffatt v. Air Canada the airline lost.\nIt cut costs [@klarna].\nIts bot ran.\n\n[@b] New."
+            "J. SERVO said so.\nIn Moffatt v. Air Canada the airline lost.\n"
+            "It cut costs [@klarna].\nIts bot ran.\n\n[@b] New."
         )
 
     def test_mathematics_is_left_as_it_is(self) -> None:

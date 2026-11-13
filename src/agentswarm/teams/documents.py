@@ -136,7 +136,7 @@ class Sentences:
 
     END: ClassVar[re.Pattern[str]] = re.compile(r"([.!?]) +(?=[A-Z])")
     ABBREVIATION: ClassVar[re.Pattern[str]] = re.compile(
-        r"(?:\b(?:[A-Za-z]\.){2,}|\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd|Eq|Sec)\.)$"
+        r"(?:\b(?:[A-Za-z]\.){2,}|\b[A-Z]\.|\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd|Eq|Sec)\.)$"
     )
 
     # "... 24/7. [@klarna]": a citation after the full stop goes before it, inside its sentence
@@ -242,7 +242,10 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
 - When you are done, give your final answer in the required structured format: a one-line summary of the
   change, and whether the task is complete. Do not finish with a plain-text reply."""
 
-    OVER: ClassVar[float] = 1.15  # a section this far over its word budget is rewritten once
+    OVER: ClassVar[float] = 1.15  # a section this far over its word budget is rewritten
+    # Rewrites to shorten, at most: one wasn't enough, Haiku's sections stayed 23-49% over after it and the
+    # whole document over its cap, which a strong model was then paid to fix (2026-11-13, $0.40 of $1.31)
+    SHORTEN: ClassVar[int] = 3
     CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@[^\],\s]+(?:,[^\]]*)?\]")
 
     @classmethod
@@ -311,14 +314,19 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
         )
         answer = await worker.run(self.SECTION, section, SectionText)
         words = self.words(answer.text)
-        if words > assigned.section.words * self.OVER:  # one rewrite told the numbers: writers ran 40% long
+        for _ in range(self.SHORTEN):  # rewrites told the numbers: writers ran 40% long
+            if words <= assigned.section.words * self.OVER:
+                break
             too_long = (
-                f"The section has {words} words; it may have at most {assigned.section.words}. Shorten it."
+                f"The section has {words} words; it may have at most {assigned.section.words}. "
+                f"Cut about {words - assigned.section.words} words: "
+                "drop the least important sentences, shorten the rest."
             )
             again = section.model_copy(
                 update={"current": answer.text, "must_fix": (*section.must_fix, too_long)}
             )
             answer = await worker.run(self.SECTION, again, SectionText)
+            words = self.words(answer.text)
         headings = {
             (toolbox.text(f"sources/{n}.md") or "").split("\n", 1)[0].lstrip("# ").strip(): n for n in names
         }
