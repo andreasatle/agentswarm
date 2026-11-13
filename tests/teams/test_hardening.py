@@ -167,6 +167,12 @@ class TestRounds:
         assert Hardener.next_attack([self.attacked(1, "A")], pairs) == (1, pairs[1])
         assert Hardener.next_attack([self.attacked(1, "A"), self.attacked(1, "B")], pairs) == (2, pairs[0])
 
+    def test_a_batch_takes_one_pair_per_part_and_stays_in_its_round(self) -> None:
+        a1, a2, b1 = ("A", AttackFocus.SECTION), ("A", AttackFocus.BOUNDARIES), ("B", AttackFocus.SECTION)
+        pairs = [a1, a2, b1]
+        assert Hardener.next_attacks([], pairs, 4) == (1, [a1, b1])  # two at once on A could conflict
+        assert Hardener.next_attacks([self.attacked(1, "A"), self.attacked(1, "B")], pairs, 4) == (1, [a2])
+
     def test_done_only_after_two_whole_quiet_rounds(self, tmp_path: Path) -> None:
         hardener = Campaign(tmp_path, [], []).hardener
         one = [self.attacked(1, "A", confirmed=1), self.attacked(1, "B")]

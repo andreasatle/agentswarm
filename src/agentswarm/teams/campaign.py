@@ -8,6 +8,7 @@ user, 2026-10-15: a quiet critic can still find a rare failure). What differs is
 document's sections), the focuses, and how an attack gathers evidence and turns it into tasks.
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import ClassVar
@@ -46,7 +47,9 @@ class Campaign(ABC):
         budget: Budget | None = None,
         progress: Measure | None = None,
         max_rounds: int | None = None,  # whole rounds at most, quiet or not (a document run's review: two)
+        parallel: int = 4,  # attacks of one round made at the same time, each on its own checkout
     ) -> None:
+        self._parallel = parallel
         self._max_rounds = max_rounds
         self._board = board
         self._repository = repository
@@ -75,7 +78,12 @@ class Campaign(ABC):
         return 0
 
     async def step(self) -> int:
-        """One attack, when the builders are idle and the campaign isn't done. Returns the actions taken."""
+        """Up to `parallel` attacks of the current round at once, when the builders are idle and the campaign
+        isn't done. Returns the actions taken.
+
+        A batch never reaches into the next round: that round attacks the product after this round's fixes.
+        Each attack has its own checkout of the same tip; the tasks it creates go through the artifact
+        factory, which is safe against races, and its events are appended when the batch is through."""
         views = self._board.current()
         if views.paused or (self._budget is not None and self._budget.exhausted(views)):
             return 0
@@ -88,22 +96,38 @@ class Campaign(ABC):
             return self.halt(views)
         attacks = self.mine(views)
         tip = self._repository.tip(self._ladder.base)
-        worktree = self._repository.checkout_detached(tip, f"_attack-{len(views.attacks()) + 1}")
+        number = len(views.attacks()) + 1
+        worktrees = [self._repository.checkout_detached(tip, f"_attack-{number}")]
         try:
-            parts = self.parts(worktree)
+            parts = self.parts(worktrees[0])
             pairs = [(p.title, f) for p in parts for f in self.focuses]
             if not pairs or self.done(attacks, len(pairs)):
                 return 0
-            round, (title, focus) = self.next_attack(attacks, pairs)
-            part = next(p for p in parts if p.title == title)
-            events = await self.attack(worktree, tip, round, part, focus, views)
+            round, batch = self.next_attacks(attacks, pairs, self._parallel)
+            worktrees += [
+                self._repository.checkout_detached(tip, f"_attack-{number + i}") for i in range(1, len(batch))
+            ]
+            outcomes = await asyncio.gather(
+                *(
+                    self.attack(
+                        worktree, tip, round, next(p for p in parts if p.title == title), focus, views
+                    )
+                    for worktree, (title, focus) in zip(worktrees, batch, strict=False)
+                ),
+                return_exceptions=True,
+            )
         finally:
-            worktree.remove()
-        self._board.append(events)
+            for worktree in worktrees:
+                worktree.remove()
+        events = [e for outcome in outcomes if not isinstance(outcome, BaseException) for e in outcome]
+        self._board.append(events)  # what the finished attacks found stays, even when another one raised
+        failed = next((o for o in outcomes if isinstance(o, BaseException)), None)
+        if failed is not None:
+            raise failed  # e.g. OverBudget: the project's step reports it
         attacked = [e for e in [*attacks, *events] if isinstance(e, Attacked) and e.round == round]
         if len(attacked) == len(pairs) and self._progress is not None:  # a round is complete: measure it
             self._board.append([await self._progress.measure(self._board.current())])
-        return 1
+        return len(batch)
 
     def mine(self, views: BoardViews) -> list[Attacked]:
         """This campaign's attacks: those on its focuses (a campaign whose focuses changed starts its rounds
@@ -144,13 +168,26 @@ class Campaign(ABC):
             sum(a.confirmed for a in attacks if a.round == r) == 0 for r in quiet
         )
 
-    @staticmethod
+    @classmethod
     def next_attack(
-        attacks: Sequence[Attacked], pairs: Sequence[tuple[str, Focus]]
+        cls, attacks: Sequence[Attacked], pairs: Sequence[tuple[str, Focus]]
     ) -> tuple[int, tuple[str, Focus]]:
         """The current round and its first pair not yet attacked in it."""
+        round, batch = cls.next_attacks(attacks, pairs, 1)
+        return round, batch[0]
+
+    @staticmethod
+    def next_attacks(
+        attacks: Sequence[Attacked], pairs: Sequence[tuple[str, Focus]], most: int
+    ) -> tuple[int, list[tuple[str, Focus]]]:
+        """The current round and up to `most` of its pairs not yet attacked in it, in order, at most one per
+        part: two attacks on one part at once could each make a fix task for it, and the fixes conflict."""
         round = max((a.round for a in attacks), default=1)
         done: set[tuple[str, Focus]] = {(a.section, a.focus) for a in attacks if a.round == round}
         if len(done) >= len(pairs):
             round, done = round + 1, set[tuple[str, Focus]]()
-        return round, next(p for p in pairs if p not in done)
+        batch: list[tuple[str, Focus]] = []
+        for pair in pairs:
+            if pair not in done and all(pair[0] != title for title, _ in batch) and len(batch) < most:
+                batch.append(pair)
+        return round, batch
