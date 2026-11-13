@@ -293,8 +293,10 @@ class DocumentPipeline:
     def after_audit(self, run: DocumentRun) -> str:
         if run.blocked:
             return "budget"
-        audit = run.audits[-1]
-        if audit.share < self._policy.review_threshold and self._policy.review_rounds and not run.reviews:
+        # Every document is reviewed once, whatever its citations score: the reader review finds what no
+        # citation check can, and a document with well-supported citations skipped all review before
+        # (2026-11-13, docs/design/self-correction.md). Claims are checked too when the audit falls short.
+        if self._policy.review_rounds and not run.reviews:
             return "review"
         return "checked"
 

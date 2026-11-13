@@ -183,10 +183,13 @@ class ProjectStage:
         against its cited part (the review A/B, 2026-11-09: 19 of 23 problems caught for $0.16, against 5 of
         23 for $0.20 by the facts reviewer on GPT-6.1 Sol; docs/design/documents.md)."""
         config: dict[str, Any] = yaml.safe_load(self.config(run, policy, budget_left).read_text())
+        short = bool(run.audits) and run.audits[-1].share < policy.review_threshold
         config["review"] = {
-            "model": "gpt-sol",  # unused by the claims perspective; a review names its reviewers' model
+            # The reader perspective, always: what the intended reader couldn't follow, across the whole
+            # document (round 0 of the benchmark: 24 of 35 judged flaws were unclear passages or repetition)
+            "model": "haiku55",
             "referee": "referee",
-            "perspectives": ["claims"],
+            "perspectives": ["reader", *(["claims"] if short else [])],
             "claims": {"model": "haiku55"},
             "quiet_rounds": 1,
             "max_rounds": policy.review_rounds,

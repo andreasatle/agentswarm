@@ -114,7 +114,7 @@ class TestSpentBy:
 class TestDocumentCommands:
     def test_write_runs_and_approve_from_the_command_line(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19])
+        project = FakeProject(ledger, shares=[19, 19])
         runs = DocumentPipeline(
             Stages(FakeSources(ledger), project, project, FakePage(), ledger),
             Policy.load(),
@@ -125,7 +125,7 @@ class TestDocumentCommands:
         cli = Cli(show=shown.append, documents=runs)
         cli.RUNS = tmp_path
         assert (
-            cli.dispatch(["write", "sleep and memory", "--reader", "a curious adult", "--budget", "2"]) == 0
+            cli.dispatch(["write", "sleep and memory", "--reader", "a curious adult", "--budget", "4"]) == 0
         )
         assert (
             "WAITING: Approve the sources" in shown[-1]

@@ -150,17 +150,19 @@ class TestDocumentPipeline:
         assert run.stage is Stage.PUBLISHED and run.page == tmp_path / "page.html"
         assert runs.waiting("sleep") is None and runs.runs() == ["sleep"]
 
-    def test_no_review_when_the_audit_meets_the_threshold(self, tmp_path: Path) -> None:
+    def test_a_document_whose_citations_hold_up_is_still_reviewed_once_for_its_reader(
+        self, tmp_path: Path
+    ) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19])  # 95%
+        project = FakeProject(ledger, shares=[19, 19])  # 95%: before 2026-11-13 it skipped all review
         runs = pipeline(project, ledger)
         runs.start(request(), tmp_path)
         run = runs.answer("sleep", Answer(choice=Choice.YES))
-        assert run.stage is Stage.PUBLISHING and project.reviews == 0
+        assert run.stage is Stage.PUBLISHING and project.reviews == 1 and run.reviews == 1
 
     def test_failed_sections_wait_for_the_users_choice(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19], failures=1)
+        project = FakeProject(ledger, shares=[19, 19], failures=1)
         runs = pipeline(project, ledger)
         runs.start(request(), tmp_path)
         runs.answer("sleep", Answer(choice=Choice.YES))
@@ -191,7 +193,7 @@ class TestDocumentPipeline:
 
     def test_stop_ends_the_run_where_it_is(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19])
+        project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger)
         runs.start(request(), tmp_path)
         run = runs.answer("sleep", Answer(choice=Choice.STOP))
@@ -199,7 +201,7 @@ class TestDocumentPipeline:
 
     def test_a_run_name_is_used_once_and_only_a_waiting_run_takes_an_answer(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        runs = pipeline(FakeProject(ledger, shares=[19]), ledger)
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger)
         runs.start(request(), tmp_path)
         with pytest.raises(ValueError, match="exists already"):
             runs.start(request(), tmp_path)
@@ -209,14 +211,14 @@ class TestDocumentPipeline:
 
     def test_a_stage_may_run_langgraph_itself(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19])
+        project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger, NestedSources(ledger))
         run = runs.start(request(), tmp_path)
         assert run.stage is Stage.SOURCES
 
     def test_a_run_stopped_by_an_error_says_so_and_retries_from_that_step(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19])
+        project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger, FlakySources(ledger))
         with pytest.raises(RuntimeError):
             runs.start(request(), tmp_path)
@@ -230,7 +232,7 @@ class TestDocumentPipeline:
 
     def test_sources_cannot_be_approved_while_the_folder_is_empty(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19])
+        project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger)
         runs.start(request(), tmp_path)
         (tmp_path / "sources" / "a-paper.txt").unlink()  # nothing downloaded, nothing added
@@ -242,7 +244,7 @@ class TestDocumentPipeline:
 
     def test_the_sources_question_shows_the_folder_as_it_is_now(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        runs = pipeline(FakeProject(ledger, shares=[19]), ledger, ListingSources(ledger))
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger, ListingSources(ledger))
         runs.start(request(), tmp_path)
         assert "**not here yet**" in runs.report("sleep")
         (tmp_path / "sources" / "fetched.txt").write_text("Gone\nA. Author, the text.")
@@ -250,7 +252,7 @@ class TestDocumentPipeline:
 
     def test_a_waiting_run_survives_a_restart(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19])
+        project = FakeProject(ledger, shares=[19, 19])
         path = tmp_path / "runs.sqlite"
         first = DocumentPipeline.open(
             Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(), path
@@ -266,7 +268,7 @@ class TestDocumentPipeline:
 
     def test_a_writing_that_leaves_no_document_stops_the_run_before_any_check(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19], empty=True)
+        project = FakeProject(ledger, shares=[19, 19], empty=True)
         runs = pipeline(project, ledger)
         runs.start(request(), tmp_path)
         with pytest.raises(RuntimeError, match="no sections"):
@@ -289,7 +291,7 @@ class TestDocumentPipeline:
 class TestCutShort:
     def test_a_step_a_limit_cuts_short_waits_to_be_retried_not_carried_on(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        project = FakeProject(ledger, shares=[19], held=1)
+        project = FakeProject(ledger, shares=[19, 19], held=1)
         runs = pipeline(project, ledger)
         runs.start(request(), tmp_path)
         run = runs.answer("sleep", Answer(choice=Choice.YES))
@@ -304,7 +306,7 @@ class TestCutShort:
 class TestRunning:
     def test_a_step_running_elsewhere_reads_as_running_and_takes_no_answer(self, tmp_path: Path) -> None:
         ledger = Ledger()
-        runs = pipeline(FakeProject(ledger, shares=[19]), ledger)
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger)
         runs.start(request(), tmp_path)
         assert not (tmp_path / Working.NAME).exists()  # the marker goes when the step ends
         with Working(tmp_path):

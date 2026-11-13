@@ -54,7 +54,7 @@ class HostileSources(FakeSources):
 class Fixture:
     def __init__(self, tmp_path: Path, sources: FakeSources | None = None, **projects: Watched) -> None:
         self.ledger = Ledger()
-        self.project = FakeProject(self.ledger, shares=[19])
+        self.project = FakeProject(self.ledger, shares=[19, 19])
         self.page = FakePage()
         stages = Stages(
             sources or FakeSources(self.ledger), self.project, self.project, self.page, self.ledger
@@ -67,7 +67,7 @@ class Fixture:
         self.client = TestClient(studio.app)
 
     def start(self, **fields: str) -> Any:
-        form = {"topic": "sleep and memory", "reader": "a curious adult", "budget": "2"} | fields
+        form = {"topic": "sleep and memory", "reader": "a curious adult", "budget": "4"} | fields
         return self.client.post("/new", data=form, follow_redirects=False)
 
     def answer(self, choice: str, **fields: str) -> str:

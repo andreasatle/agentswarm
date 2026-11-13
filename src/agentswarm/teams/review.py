@@ -122,8 +122,13 @@ document is finished as far as its writer knows. Find what is wrong with this se
             "Quote the source passage with the missing content."
         ),
         Perspective.READER: (
-            "The reader. Read as the brief's intended reader, new to the subject. Find passages they "
-            "couldn't follow: undefined terms, missing steps, an order that confuses. Quote the passage."
+            "The reader. Read this section as the brief's intended reader, new to the subject, with the "
+            "whole document given for context. Find what gets in their way: a term used before it is "
+            "explained, a "
+            "missing step or a jump in the argument, a reference to something the document doesn't contain, "
+            "a point the document already made, repeated without adding anything, or a citation repeated or "
+            "placed so it clutters the sentence. Quote the passage from this section; for a repetition, also "
+            "the earlier one."
         ),
         Perspective.CONSISTENCY: (
             "Consistency. Find places where this section and another part of the document disagree: a "
@@ -209,7 +214,9 @@ document is finished as far as its writer knows. Find what is wrong with this se
             sources=sources,
             rejected=self.rejected(views),
             material=self.material(worktree, part, views),
-            document=self.document(worktree) if focus is Perspective.CONSISTENCY else "",
+            document=self.document(worktree)
+            if focus in (Perspective.CONSISTENCY, Perspective.READER)
+            else "",
         )
 
         def attacked(

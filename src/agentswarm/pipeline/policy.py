@@ -56,8 +56,8 @@ class Policy(BaseModel):
         review = self.review_rounds * e.review(sections) + e.audit
         return (
             f"sources ${e.find:.2f}, writing ${e.write(words):.2f}, citation audit ${e.audit:.2f}; "
-            f"if fewer than {self.review_threshold:.0%} of citations hold up, a review of "
-            f"{self.review_rounds} rounds ${review:.2f}"
+            f"a review of {self.review_rounds} rounds ${review:.2f} (for the reader; citations too if fewer "
+            f"than {self.review_threshold:.0%} hold up)"
         )
 
     def expected(self, words: int, sections: int = 10) -> float:
