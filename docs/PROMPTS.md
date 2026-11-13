@@ -2291,7 +2291,7 @@ class SearchQueries(Frozen):
 
 ### PaperFinder
 
-`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded. Version `b56b19927524`.
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded. Version `26bebd646a2c`.
 
 ```text
 You choose the papers a tutorial on the topic will be written from, for the reader described, from the
@@ -2299,10 +2299,10 @@ candidates found. Pick the number asked for that together teach the topic: the p
 ideas, the main competing approaches, and the evidence comparing them. Prefer papers that build on one
 another, and influential original work (times cited, where given, is a hint) over small variations; a good
 review may anchor the set. When threads are listed, the picks must cover every one of them between them: say
-which thread each answers. For a web page, say what kind of publisher its site is, and prefer official and
-institutional sites where a thread has them: a ticket seller's or a blogger's page only where nothing better
-covers its thread. Use only ids from the candidates. Order them as a reader should meet them, and say
-in one sentence what each adds.
+which thread each answers, by its number. For a web page, say what kind of publisher its site is, and prefer
+official and institutional sites where a thread has them: a ticket seller's or a blogger's page only where
+nothing better covers its thread. Use only ids from the candidates. Order them as a reader should meet them,
+and say in one sentence what each adds.
 ```
 
 ### User message (sample)
@@ -2314,7 +2314,12 @@ in one sentence what each adds.
   "reader_knows": "graduate-level ML",
   "papers": 5,
   "brief": "",
-  "threads": [],
+  "threads": [
+    {
+      "number": 1,
+      "question": "Does checking each step beat checking only the answer?"
+    }
+  ],
   "candidates": [
     {
       "id": "2305.20050",
@@ -2350,8 +2355,15 @@ class PickRequest(Frozen):
     reader_knows: str
     papers: int  # how many to pick
     brief: str = ""  # the user's own brief, when they wrote one
-    threads: tuple[str, ...] = ()  # what the picks must cover between them, each at least once
+    threads: tuple[Thread, ...] = ()  # what the picks must cover between them, each at least once
     candidates: tuple[Candidate, ...]
+
+
+class Thread(Frozen):
+    """A question the document must answer, numbered so a pick can name it exactly."""
+
+    number: int
+    question: str
 
 
 class Candidate(Frozen):
@@ -2455,8 +2467,8 @@ class ReadingList(Frozen):
 class PickedPaper(Frozen):
     id: str = Field(description="the candidate's id, exactly as given")
     why: str = Field(description="one sentence: what this source gives the document that the others don't")
-    covers: str = Field(
-        default="", description="the thread it answers, as listed (empty when none is listed)"
+    covers: int | None = Field(
+        default=None, description="the number of the thread it answers (empty when none is listed)"
     )
     standing: Standing | None = Field(
         default=None, description="for a web page: what kind of publisher its site is; empty for a paper"
@@ -2482,10 +2494,17 @@ class PickedPaper(Frozen):
           "type": "string"
         },
         "covers": {
-          "default": "",
-          "description": "the thread it answers, as listed (empty when none is listed)",
-          "title": "Covers",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the number of the thread it answers (empty when none is listed)",
+          "title": "Covers"
         },
         "standing": {
           "anyOf": [

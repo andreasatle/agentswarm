@@ -36,6 +36,7 @@ from agentswarm.evaluation.papers import (
     QueryRequest,
     ReadingList,
     SearchQueries,
+    Thread,
 )
 from agentswarm.evaluation.probe import (
     AcceptAnswer,
@@ -313,6 +314,7 @@ class SampleData:
             topic="test-time compute for reasoning",
             reader_knows="graduate-level ML",
             papers=5,
+            threads=(Thread(number=1, question="Does checking each step beat checking only the answer?"),),
             candidates=(
                 Candidate(
                     id="2305.20050",

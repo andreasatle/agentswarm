@@ -437,7 +437,7 @@ class TestThreads:
             assert isinstance(payload, PickRequest)
             asked.append(payload)
             return ReadingList(
-                papers=[PickedPaper(id="1", why="fares", covers="getting around", standing=Standing.OFFICIAL)]
+                papers=[PickedPaper(id="1", why="fares", covers=1, standing=Standing.OFFICIAL)]
             )
 
         worker = ScriptedWorker(
@@ -452,7 +452,10 @@ class TestThreads:
         folder = await PaperFinder(worker, search, queries=8).find(
             "Venice", "a first-time visitor", 5, tmp_path
         )
-        assert asked[0].threads == ("getting around", "what to see")
+        assert [(t.number, t.question) for t in asked[0].threads] == [
+            (1, "getting around"),
+            (2, "what to see"),
+        ]
         assert asked[0].brief == ""  # no brief of the user's: the plan works from the topic
         (found,) = folder.papers
         assert (found.covers, found.paper.standing) == ("getting around", Standing.OFFICIAL)
@@ -471,7 +474,7 @@ class TestBrief:
 
         def pick(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
             planned.append(payload)
-            return ReadingList(papers=[PickedPaper(id="1", why="costs", covers="costs")])
+            return ReadingList(papers=[PickedPaper(id="1", why="costs", covers=1)])
 
         worker = ScriptedWorker({SearchQueries: plan, ReadingList: pick})
         brief = "Cover what scaling costs and who pays."

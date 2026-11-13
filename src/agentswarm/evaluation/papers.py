@@ -605,6 +605,13 @@ class SearchQueries(Frozen):
     )
 
 
+class Thread(Frozen):
+    """A question the document must answer, numbered so a pick can name it exactly."""
+
+    number: int
+    question: str
+
+
 class PickRequest(Frozen):
     """The payload a picker receives: the topic, the reader and the candidates found."""
 
@@ -612,15 +619,15 @@ class PickRequest(Frozen):
     reader_knows: str
     papers: int  # how many to pick
     brief: str = ""  # the user's own brief, when they wrote one
-    threads: tuple[str, ...] = ()  # what the picks must cover between them, each at least once
+    threads: tuple[Thread, ...] = ()  # what the picks must cover between them, each at least once
     candidates: tuple[Candidate, ...]
 
 
 class PickedPaper(Frozen):
     id: str = Field(description="the candidate's id, exactly as given")
     why: str = Field(description="one sentence: what this source gives the document that the others don't")
-    covers: str = Field(
-        default="", description="the thread it answers, as listed (empty when none is listed)"
+    covers: int | None = Field(
+        default=None, description="the number of the thread it answers (empty when none is listed)"
     )
     standing: Standing | None = Field(
         default=None, description="for a web page: what kind of publisher its site is; empty for a paper"
@@ -756,10 +763,10 @@ candidates found. Pick the number asked for that together teach the topic: the p
 ideas, the main competing approaches, and the evidence comparing them. Prefer papers that build on one
 another, and influential original work (times cited, where given, is a hint) over small variations; a good
 review may anchor the set. When threads are listed, the picks must cover every one of them between them: say
-which thread each answers. For a web page, say what kind of publisher its site is, and prefer official and
-institutional sites where a thread has them: a ticket seller's or a blogger's page only where nothing better
-covers its thread. Use only ids from the candidates. Order them as a reader should meet them, and say
-in one sentence what each adds."""
+which thread each answers, by its number. For a web page, say what kind of publisher its site is, and prefer
+official and institutional sites where a thread has them: a ticket seller's or a blogger's page only where
+nothing better covers its thread. Use only ids from the candidates. Order them as a reader should meet them,
+and say in one sentence what each adds."""
 
     QUERIES = 5
     PER_QUERY = 8
@@ -809,7 +816,7 @@ in one sentence what each adds."""
             reader_knows=know,
             papers=papers,
             brief=self._brief,
-            threads=self._threads,
+            threads=tuple(Thread(number=n, question=t) for n, t in enumerate(self._threads, 1)),
             candidates=self.shown(candidates),
         )
         chosen = await self._worker.run(self.PICK, request, ReadingList)
@@ -821,8 +828,17 @@ in one sentence what each adds."""
                 held = known[name]
                 if paper.standing is not None:
                     held = held.model_copy(update={"standing": paper.standing})
-                picked.append(Found(paper=held, why=paper.why, covers=paper.covers, file=None))
+                covers = self.thread(paper.covers)
+                picked.append(Found(paper=held, why=paper.why, covers=covers, file=None))
         return picked[:papers]
+
+    def thread(self, number: int | None) -> str:
+        """The question a pick's thread number names; empty for none, or a number not listed. Picks named
+        threads in their own words until 2026-11-12, which never equalled the plan's, so every thread was
+        reported uncovered."""
+        if number is None or not 1 <= number <= len(self._threads):
+            return ""
+        return self._threads[number - 1]
 
     async def find(self, topic: str, know: str, papers: int, out: Path) -> ReadingFolder:
         """Searches, picks and downloads into `out`, and writes the reading list there."""
