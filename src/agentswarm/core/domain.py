@@ -51,6 +51,10 @@ class FindingKind(StrEnum):
     EDGE_CASE = "edge_case"  # breaks on unusual input or misuse (red team)
     UNSUPPORTED = "unsupported"  # a claim that may be wrong or lacks support (fact checker)
     UNCLEAR = "unclear"  # hard to follow for the intended reader (audience reviewer, document gate)
+    # a hard check couldn't run (it timed out twice, or its runner failed): no evidence about the work, so a
+    # gate escalates to a person instead of rejecting (2026-11-13: a slow Docker start rejected a good
+    # section, and GPT-Sol was paid to rewrite it)
+    UNRUNNABLE = "unrunnable"
 
 
 class Severity(StrEnum):

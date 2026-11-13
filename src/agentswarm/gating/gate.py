@@ -23,7 +23,7 @@ from agentswarm.core.domain import (
     Severity,
     TeamName,
 )
-from agentswarm.gating.checks import CheckSet, HardCheck, Parts
+from agentswarm.gating.checks import CheckSet, CheckStatus, HardCheck, Parts
 from agentswarm.judging.deciders import DeciderError
 from agentswarm.judging.decisions import Decision
 from agentswarm.judging.judgement import Judgement
@@ -89,16 +89,27 @@ class Gate:
         return TeamName(self.name)
 
     def run_checks(self, cwd: Path, ctx: ArtifactContext) -> tuple[Finding, ...]:
-        """Run the hard checks in order and stop at the first failure, which becomes a blocker finding."""
+        """Run the hard checks in order and stop at the first failure, which becomes a blocker finding. A
+        check that couldn't run becomes an UNRUNNABLE finding: callers escalate it rather than reject."""
         for check in Parts.checks(self._checks, ctx):
             result = check.run(cwd)
+            if result.status is CheckStatus.ERROR:
+                detail = f"{result.name} couldn't run:\n{result.output}"
+                return (self._finding(ctx, FindingKind.UNRUNNABLE, detail),)
             if not result.passed:
                 return (self._finding(ctx, check.kind, f"{result.name} failed:\n{result.output}"),)
         return ()
 
+    @staticmethod
+    def unrunnable(findings: Sequence[Finding]) -> str | None:
+        """Why the checks couldn't judge the work, when they couldn't: a reason to escalate, not to reject."""
+        return next((f.detail for f in findings if f.kind is FindingKind.UNRUNNABLE), None)
+
     def evaluate(self, ctx: ArtifactContext, worktree: Worktree, approved: bool = False) -> GateOutcome:
         """`approved`: a person accepted this state, which replaces judgement and the human requirement."""
         findings = self.run_checks(worktree.path, ctx)
+        if (why := self.unrunnable(findings)) is not None:
+            return GateOutcome(verdict=Verdict.ESCALATE, decision=None, reason=f"{self.name}: {why}")
         if findings:
             return GateOutcome(verdict=Verdict.REJECT, decision=None, findings=findings)
         if approved:

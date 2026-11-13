@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,19 @@ class TestCommandCheck:
         result = check.run(tmp_path)
         assert not result.passed
         assert "timed out" in result.output
+
+    def test_a_timed_out_check_runs_once_more(self, tmp_path: Path) -> None:
+        # first run: sleeps past the timeout; the second finds the marker the first left, and passes at once
+        marker = tmp_path / "started"  # outside the checked folder, so it outlives the first run
+        script = (
+            "import pathlib, sys, time\n"
+            f"m = pathlib.Path({str(marker)!r})\n"
+            "if not m.exists():\n    m.write_text('')\n    time.sleep(5)\n"
+            "sys.exit(0)"
+        )
+        config = CheckConfig(command=(sys.executable, "-c", script), timeout_s=1.0)
+        (tmp_path / "work").mkdir()
+        assert CommandCheck("cold start", config, LocalSandbox()).run(tmp_path / "work").passed
 
     def test_missing_program_fails(self, tmp_path: Path) -> None:
         check = CommandCheck("missing", CheckConfig(command=("no-such-program-xyz",)), LocalSandbox())
@@ -78,6 +92,13 @@ class TestGate:
         outcome = Gated(Harness(tmp_path)).evaluate()
         assert outcome.verdict is Verdict.PROMOTE
         assert outcome.decision is None
+
+    def test_a_check_that_cannot_run_escalates_instead_of_rejecting(self, tmp_path: Path) -> None:
+        missing = CommandCheck("check_doc", CheckConfig(command=("no-such-program-xyz",)), LocalSandbox())
+        g = Gated(Harness(tmp_path))
+        outcome = g.evaluate(Gate(Samples.RAW, Samples.EXPERIMENTAL, [missing]))
+        assert outcome.verdict is Verdict.ESCALATE and outcome.findings == ()
+        assert "check_doc couldn't run" in outcome.reason
 
     def test_requires_human_turns_a_pass_into_an_escalation(self, tmp_path: Path) -> None:
         g = Gated(Harness(tmp_path))

@@ -101,6 +101,8 @@ class CommandCheck:
         `failure_exit_codes` overrides the check's own, e.g. to count a test that can't import yet as failing.
         """
         result = self._sandbox.run((*self._config.command, *paths), cwd, self._config.timeout_s)
+        if result.timed_out:  # once more: a slow start (a cold Docker container) is no verdict on the work
+            result = self._sandbox.run((*self._config.command, *paths), cwd, self._config.timeout_s)
         codes = failure_exit_codes if failure_exit_codes is not None else self._config.failure_exit_codes
         status = CheckStatus.of(result, codes)
         return CheckResult(name=self._name, status=status, output=result.output[-self.OUTPUT_LIMIT :])

@@ -11,7 +11,7 @@ from collections import deque
 
 from pydantic import BaseModel, ConfigDict
 
-from agentswarm.core.domain import ArtifactContext, DecisionId, Event, Promoted, Rejected
+from agentswarm.core.domain import ArtifactContext, DecisionId, Escalated, Event, Promoted, Rejected
 from agentswarm.gating.gate import Gate
 from agentswarm.gating.publication import LevelPublisher
 from agentswarm.workspace.git import Repository, Worktree
@@ -74,6 +74,9 @@ class MergeQueue:
                 gate_decision=request.decision,
             )
         findings = self._gate.run_checks(worktree.path, ctx)
+        if (why := self._gate.unrunnable(findings)) is not None:
+            worktree.reset_hard(before)
+            return Escalated(artifact=artifact.id, reason=f"{self._gate.name} on the merged result: {why}")
         if findings:
             worktree.reset_hard(before)
             return Rejected(
