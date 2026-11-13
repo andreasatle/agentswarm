@@ -395,6 +395,7 @@ class ExecutorTeam(Executor):
     is committed but escalated, so it is kept for a human and the gate doesn't judge it.
     """
 
+    FAILURE_LIMIT: ClassVar[int] = 1_000  # characters of the failing checks' output kept in AttemptFailed
     INSTRUCTIONS = """\
 You are the executor in a software team. Implement the task in `instruction.goal` in the project.
 
@@ -639,7 +640,10 @@ You are the executor in a software team. Implement the task in `instruction.goal
             )
         if not (checks.passed and complete) and not last:
             worktree.discard_changes()
-            why = "checks fail" if not checks.passed else f"reports incomplete: {report.summary}"
+            # what failed, on the board: three sections went to the strong model on 2026-11-13 and no record
+            # said why
+            failing = "\n".join(r.output for r in checks.results if not r.passed)[-self.FAILURE_LIMIT :]
+            why = f"checks fail:\n{failing}" if not checks.passed else f"reports incomplete: {report.summary}"
             return self._failed(ctx, model, why)
         sha = worktree.commit(f"{artifact.id}: {report.summary}")
         events: list[Event] = [*protection, CommitPushed(artifact=artifact.id, commit=sha, model=model)]

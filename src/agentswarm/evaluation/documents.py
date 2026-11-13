@@ -279,6 +279,9 @@ class DocumentAssembly:
     references from the briefer, the sources cited are listed by name with their headings."""
 
     CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)(?:,\s*page\s+(\d+))?[^\]]*\]")
+    # "... tasks. [@x]" at the end of a line: the citation goes inside its sentence. Revisions and list items
+    # don't pass the writer's own clean-up, and a dozen of them ended up after the full stop (2026-11-13)
+    AFTER_STOP: ClassVar[re.Pattern[str]] = re.compile(r"([.!?])((?:[ \t]*\[@[^\]\n]+\])+)[ \t]*$", re.M)
     REFERENCES = "docs/references.json"
 
     @classmethod
@@ -288,7 +291,7 @@ class DocumentAssembly:
         if not sections:
             return None
         title = cls.title(level / "docs" / "brief.md")
-        body = "\n\n".join(p.read_text().strip() for p in sections)
+        body = cls.AFTER_STOP.sub(r"\2\1", "\n\n".join(p.read_text().strip() for p in sections))
         references = cls.references(level / cls.REFERENCES)
         if references:
             used: dict[str, Reference] = {}

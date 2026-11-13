@@ -85,7 +85,9 @@ class TestDocumentAssembly:
         level = tmp_path / "level"
         (level / "sections").mkdir(parents=True)
         (level / "docs").mkdir()
-        (level / "sections" / "01-a.md").write_text("## A\n\nGlass is made there [@wikipedia-murano-01].\n")
+        (level / "sections" / "01-a.md").write_text(
+            "## A\n\nGlass is made there [@wikipedia-murano-01].\n- Boats come too. [@wikipedia-murano-01]\n"
+        )
         murano = Reference(
             document="wikipedia-murano",
             authors="Wikipedia",
@@ -98,6 +100,7 @@ class TestDocumentAssembly:
         (level / "docs" / "references.json").write_text(json.dumps([murano.model_dump()]))
         text = (DocumentAssembly.write(level, tmp_path / "d.md") or tmp_path).read_text()
         assert "(Wikipedia: Murano)" in text
+        assert "- Boats come too (Wikipedia: Murano).\n" in text  # a citation after the stop moves inside
         assert "- Wikipedia (2026). [*Murano*](https://en.wikipedia.org/wiki/Murano).\n" in text
 
     def test_a_reference_named_by_the_whole_file_name_owns_the_shortened_parts(self) -> None:

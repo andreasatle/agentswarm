@@ -243,9 +243,9 @@ class TestExecutorTeam:
         )
         team = ExecutorTeam(worker, [Toolboxes.CHECK], Samples.RAW, attempts=3)
         failed, event = Traces.drop(await team.act(w.ctx(), w.worktree))
-        assert (
-            isinstance(failed, AttemptFailed) and failed.reason == "checks fail"
-        )  # counted against the model
+        assert isinstance(failed, AttemptFailed) and failed.reason.startswith(
+            "checks fail:\n"
+        )  # counted against the model, with what the checks said
         assert isinstance(event, CommitPushed) and len(worker.calls) == 2
         assert w.h.repository.files_at(w.artifact.branch) == [
             "greeting.py"

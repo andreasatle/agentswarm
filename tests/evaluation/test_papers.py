@@ -312,6 +312,9 @@ class TestWebShort:
             "intercom.com: Fin AI Agent Automation\u2026"
         )
         assert Candidate.web_short("Wikipedia", "Murano") == "Wikipedia: Murano"
+        assert Candidate.web_short("arxiv.org", "[2302.06590] The Impact of AI on Developers") == (
+            "arxiv.org: The Impact of AI\u2026"
+        )
         assert Candidate.web_short(
             "deloitte.com", "Hands Off the Task, Eyes on the Outcome | Deloitte US"
         ) == (

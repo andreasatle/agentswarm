@@ -2440,7 +2440,8 @@ class Candidate(Frozen):
         assistant handles two-thirds…)". The whole title after every sentence buried a blog post in citations
         (2026-11-13); the site alone can't tell two pages of one site apart. A trailing " | Site" or " - Site"
         is the page's own label for its site, and is left out."""
-        own = re.split(r"\s+[|\u2013\u2014-]\s+", title)[0].strip().strip("\"'\u201c\u201d") or title
+        own = re.split(r"\s+[|\u2013\u2014-]\s+", title)[0].strip().strip("\"'\u201c\u201d")
+        own = re.sub(r"^(?:\[[^\]]*\]\s*)+", "", own) or title  # "[2302.06590] ...", "[PDF] ...": no tags
         words = own.split()
         cut = len(words) > cls.SHORT_WORDS  # a cut title ends in "…", without the punctuation it was cut at
         start = " ".join(words[: cls.SHORT_WORDS]).rstrip(",:;.-") + ("\u2026" if cut else "")
