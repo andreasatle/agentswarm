@@ -50,3 +50,12 @@ The user's order: advanced web search on 2026-11-14, RAG at scale after it. The 
 **Not now:** following links and references out of the picked pages (snowballing). Its evidence is a modest gain, and gap-driven searching is the cheaper step that answers the measured problem (uncovered threads). Due when runs show threads still uncovered after the follow-up rounds while the picked pages link to sources that would cover them.
 
 **Measure:** a few topics through `agentswarm find-papers --source web`, coverage after the first search against the end, credits and dollars; then a document run whose sources come from the loop, through the citation audit and the benchmark's judge.
+
+**First measure (2026-11-14), `find-papers --source web`, 8 picks, $0.45 for both:**
+
+| topic | threads covered after the first search | at the end | rounds | sources | cost |
+|---|---|---|---|---|---|
+| how companies automate software engineering and IT operations (post 3's topic, without its brief) | 6 of 8 | 8 of 8 | 1 | 9 | $0.23 |
+| a guide to Venice for a first-time visitor | 7 of 8 | 8 of 8 | 1 | 9 | $0.22 |
+
+The loop did what it was built for: one follow-up round closed the gaps in both. Two caveats. "Covered" is a low bar: Venice's history and art was covered by one sentence of a travel guide ("Venice city used to be a bridge between the Middle East and the rest of Europe"), which answers the question only nominally; the check should ask whether a passage answers the thread well enough for the document, not whether it touches it. And without post 3's brief the plan's threads differ (no IT service desk thread), so post 3's gap is not retested here. Two topics are not a result; the real measure is a document run from the loop's sources through the audit and the benchmark's judge.
