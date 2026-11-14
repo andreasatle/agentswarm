@@ -829,7 +829,8 @@ You plan a search for the sources of a tutorial or guide on the topic given, for
 list the threads the document must cover, as the questions this reader needs answered (for a field: its
 foundations, the main competing ideas or methods, the evidence for them; for a place: getting there, getting
 around, what to see, when to go, what it costs, its history and art); when a brief is given, every part of it
-is a thread of its own. Then write the number of short keyword
+is a thread of its own, except the document's own conclusions (what the cases have in common, the lessons
+to draw), which the writer draws from the sources and no search finds. Then write the number of short keyword
 queries asked for, so that every thread has at least one. Search ranks by matching words, not importance, so
 also list the exact titles of the well-known papers or articles on the topic that you are sure of: each is
 looked up, and kept only if found."""
