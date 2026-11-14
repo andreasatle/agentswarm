@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
@@ -52,6 +53,7 @@ from agentswarm.evaluation.papers import Found, PaperFinder, PaperSource, WebPag
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionTrace
+from agentswarm.evaluation.retrieval import RetrievalBenchmark, RetrievalCases
 from agentswarm.evaluation.review import ReviewReport, ReviewRun
 from agentswarm.evaluation.review_comparison import Arm, ArmResult, ComparisonRecord, ReviewComparison
 from agentswarm.evaluation.run import EvaluationRun, TaskResult
@@ -79,7 +81,7 @@ from agentswarm.pipeline.run import Answer, Choice, RunRequest
 from agentswarm.pipeline.stages import MeteredFinder, Stages
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
-from agentswarm.retrieval.passages import PassageIndex
+from agentswarm.retrieval.passages import Chunker, PassageIndex
 from agentswarm.studio.app import Studio
 from agentswarm.studio.worker import ThreadWorker
 from agentswarm.swarm import Swarm, SwarmConfig
@@ -219,6 +221,8 @@ class Cli:
                 return self.approve_run(args)
             case "benchmark":
                 return self.benchmark(args)
+            case "retrieval-benchmark":
+                return self.retrieval_benchmark(args)
             case "studio":
                 return self.open_studio(args)
             case "audit-citations":
@@ -603,6 +607,30 @@ class Cli:
             self._show(
                 f"{m.case}: ${m.usd:.2f}, {m.minutes:.0f} min, audit {share}, flaws {len(m.flaws)} ({counts})"
             )
+        return 0
+
+    RETRIEVAL_RESULTS = Path("~/agentswarm-data/retrieval-benchmark.jsonl")
+
+    def retrieval_benchmark(self, args: argparse.Namespace) -> int:
+        """The index scored on the retrieval benchmark's known answers (docs/design/rag.md); local, free."""
+        folder = self.RETRIEVAL_RESULTS.expanduser().with_suffix(
+            ""
+        )  # an index per label: reruns embed nothing
+        folder.mkdir(parents=True, exist_ok=True)
+        options = {"size": args.size, "overlap": args.overlap, "context": args.context}
+        index = PassageIndex(
+            LangChainEmbedder(args.embeddings, "search_query: ", "search_document: "),
+            folder / f"{args.label}.sqlite",
+            Chunker(args.size, args.overlap, args.context),
+        )
+        try:
+            for score in asyncio.run(RetrievalBenchmark(index).scores(RetrievalCases.load())):
+                figures = score.summary()
+                with self.RETRIEVAL_RESULTS.expanduser().open("a") as out:
+                    out.write(json.dumps({"label": args.label, **options, **figures}) + "\n")
+                self._show(", ".join(f"{k} {v}" for k, v in figures.items()))
+        finally:
+            index.close()
         return 0
 
     def find_papers(self, args: argparse.Namespace) -> int:
@@ -1086,6 +1114,14 @@ class Cli:
             "benchmark", help="run the held-out document cases with the current code, measure and record them"
         )
         bench.add_argument("label", help="the round's name, e.g. r0-baseline")
+        rbench = commands.add_parser(
+            "retrieval-benchmark", help="score the passage index on audited citations (local, free)"
+        )
+        rbench.add_argument("label", help="the variant's name, e.g. baseline")
+        rbench.add_argument("--size", type=int, default=1200, help="passage size in characters")
+        rbench.add_argument("--overlap", type=int, default=0, help="carry a last paragraph up to this long")
+        rbench.add_argument("--context", action="store_true", help="start each passage with its title")
+        rbench.add_argument("--embeddings", default="ollama:nomic-embed-text", help="the embedding model")
         find = commands.add_parser("find-papers", help="papers for a topic (OpenAlex or arXiv), for `learn`")
         find.add_argument("topic", help="e.g. 'test-time compute for language model reasoning'")
         find.add_argument("--know", required=True, help="what you know already, e.g. 'Python and basic ML'")

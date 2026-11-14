@@ -39,23 +39,35 @@ class Embedder(Protocol):
 
 
 class Chunker:
-    """Cuts a source into passages of whole paragraphs, up to a size; a page marker starts a new passage."""
+    """Cuts a source into passages of whole paragraphs, up to a size; a page marker starts a new passage.
+
+    Options measured on the retrieval benchmark (docs/design/rag.md): `overlap` carries a passage's last
+    paragraph into the next when it is at most that long, so a statement near a cut is whole in one of them;
+    `context` starts each passage with the source's title line (contextual retrieval, the free version)."""
 
     PAGE: ClassVar[re.Pattern[str]] = re.compile(r"^\[page (\d+)\]$")
+    PART: ClassVar[re.Pattern[str]] = re.compile(r",? part \d+ of \d+$")
 
-    def __init__(self, size: int = 1200) -> None:
+    def __init__(self, size: int = 1200, overlap: int = 0, context: bool = False) -> None:
         self._size = size  # characters: a few paragraphs, enough to hold a claim and its context
+        self._overlap = overlap  # characters; 0: passages don't share text
+        self._context = context
 
     def passages(self, source: str, text: str) -> list[Passage]:
         found: list[Passage] = []
         page: int | None = None
         start: int | None = None
         held: list[str] = []
+        title = self.title(text) if self._context else ""
 
         def flush() -> None:
             if held:
-                found.append(Passage(source=source, page=start, text="\n\n".join(held)))
+                body = "\n\n".join(held)
+                found.append(Passage(source=source, page=start, text=f"{title}\n\n{body}" if title else body))
+                carried = held[-1] if 0 < len(held[-1]) <= self._overlap and len(held) > 1 else None
                 held.clear()
+                if carried is not None:
+                    held.append(carried)
 
         for paragraph in (p.strip() for p in re.split(r"\n\s*\n", text)):
             if not paragraph:
@@ -63,6 +75,7 @@ class Chunker:
             marked = self.PAGE.match(paragraph.splitlines()[0])
             if marked:
                 flush()
+                held.clear()  # a new page starts clean: a passage knows the one page it starts on
                 page = int(marked.group(1))
                 paragraph = "\n".join(paragraph.splitlines()[1:]).strip()
                 if not paragraph:
@@ -70,11 +83,18 @@ class Chunker:
             for piece in self.pieces(paragraph):
                 if held and sum(len(p) for p in held) + len(piece) > self._size:
                     flush()
-                if not held:
+                if not held:  # a carried paragraph is on the same page: a page marker clears it
                     start = page
                 held.append(piece)
         flush()
+        held.clear()
         return found
+
+    @classmethod
+    def title(cls, text: str) -> str:
+        """The source's title line, without its part number: "# name, part 2 of 3" gives "name"."""
+        first = text.lstrip().split("\n", 1)[0]
+        return cls.PART.sub("", first.lstrip("# ").strip()) if first.startswith("#") else ""
 
     def pieces(self, paragraph: str) -> list[str]:
         """A paragraph longer than a passage, cut at line breaks (text from PDFs often has no blank lines

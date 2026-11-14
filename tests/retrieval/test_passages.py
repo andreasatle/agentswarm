@@ -33,6 +33,20 @@ class TestChunker:
         assert [p.page for p in passages] == [None, 3, 4, 5]
         assert "Slow-wave sleep follows" in passages[1].text and "replay" in passages[1].text
 
+    def test_overlap_carries_a_short_last_paragraph_into_the_next_passage_on_its_page(self) -> None:
+        text = "Alpha one.\n\nBeta two.\n\nGamma three.\n\n[page 2]\nDelta four."
+        passages = Chunker(size=22, overlap=12).passages("s", text)
+        assert [p.text for p in passages] == [
+            "Alpha one.\n\nBeta two.",
+            "Beta two.\n\nGamma three.",
+            "Delta four.",  # a new page starts clean
+        ]
+
+    def test_context_starts_each_passage_with_the_sources_title_without_its_part(self) -> None:
+        text = "# sleep-and-memory, part 2 of 3\n\nReplay happens in slow-wave sleep."
+        passages = Chunker(context=True).passages("s", text)
+        assert passages[0].text.startswith("sleep-and-memory\n\n")
+
 
 class TestPassageIndex:
     async def test_a_query_finds_the_passage_about_it_within_the_sources_named(self) -> None:

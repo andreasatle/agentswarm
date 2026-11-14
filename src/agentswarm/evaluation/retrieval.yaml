@@ -1,0 +1,9 @@
+# The retrieval benchmark's cases (evaluation/retrieval.py, docs/design/rag.md): citation audits already run,
+# and the source parts their statements cite. Never changed: a new case is added beside them.
+cases:
+  - name: sleep  # 9 parts of 5 papers (PDFs, pages marked); the reference audit of the review A/B
+    audit: ~/agentswarm-runs/how-sleep-affects-memory/review-ab.json
+    sources: ~/agentswarm-runs/how-sleep-affects-memory/project/seed/sources
+  - name: scaling  # 44 parts of 16 web pages and papers; the audit after its review
+    audit: ~/agentswarm-runs/llm-scaling-2/audit-after-review.json
+    sources: ~/agentswarm-runs/llm-scaling-2/project/seed/sources

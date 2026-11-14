@@ -37,3 +37,21 @@ Steps 1-2 cost nothing but time; step 3 is a moderate change with a clear use if
 ## Open question for the user
 
 Whether a library across runs (step 3) is wanted now: it pays when documents share sources (the workflow series did), and it is the natural place for "re-indexing", but no measured problem asks for it yet.
+
+## Results (2026-11-14)
+
+**Step 1, the retrieval benchmark** (`agentswarm retrieval-benchmark <label>`, evaluation/retrieval.py, cases in retrieval.yaml, results in ~/agentswarm-data/retrieval-benchmark.jsonl): 64 known answers, 48 from the sleep tutorial's reference audit (9 parts of 5 papers, 174k characters) and 16 from the LLM-scaling audit (44 parts of 16 web pages and papers, 1.0M characters); quotes matched on letters and digits only, so PDF line breaks and quotation marks don't lose them (41 and 14 by plain text). Local embeddings (nomic-embed-text), free, about a minute a run.
+
+**Step 2, variants**, recall at 5 and 10 (within the cited part / across all parts):
+
+| variant | sleep within | sleep across | scaling within | scaling across |
+|---|---|---|---|---|
+| baseline: 1,200 characters | 0.85 / 0.98 | 0.79 / 0.90 | 1.00 / 1.00 | 0.94 / 1.00 |
+| + overlap 300 | 0.88 / 0.98 | 0.81 / 0.90 | 1.00 / 1.00 | 0.94 / 1.00 |
+| + title prefixed | 0.85 / 0.94 | 0.81 / 0.81 | 0.88 / 1.00 | 0.81 / 0.94 |
+| 600 characters | 0.69 / 0.81 | 0.67 / 0.79 | 1.00 / 1.00 | 0.81 / 1.00 |
+| 2,000 characters | 0.92 / 0.98 | 0.77 / 0.88 | 1.00 / 1.00 | 0.81 / 1.00 |
+
+One query is 2 points on sleep and 6 on scaling, so only the 600-character drop is clearly real. Conclusions: the index as built is good (the right passage in the top 10 for 90-100% of statements, in the top 5 for 79-100%); smaller passages lose; the free contextual prefix doesn't help, because our parts' title lines are file slugs, not titles (a real title, or a model-written note as Anthropic does, is untested); overlap and larger passages are within the noise. No change to the defaults. A reranker could lift recall at 5 toward recall at 10 (a gap of about 10 points on sleep); the cheaper equivalent is k = 10, at twice the passages.
+
+**What it means for token cost** (the user, 2026-11-14: "even if it is slightly better to send the full docs, it is also a matter of token cost"): 10 passages are about 12k characters. Within a cited part (19-23k characters on average) that is about half; across a document's sources it is 7% of the sleep sources and about 1% of the scaling sources. So retrieval matters little to the claim checker, whose input is one part (and cached), and a lot wherever a model reads all the sources: the writers (each reads its section's parts whole, up to about 80k tokens), and later the library. The next measure is end to end, where cost is: writers on passages with Self-Route's fallback against writers on whole parts, on the benchmark's cases, by audit, judge and cost (step 4, now worth trying before its size trigger, since the token saving is the goal).
