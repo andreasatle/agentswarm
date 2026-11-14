@@ -98,13 +98,14 @@ from agentswarm.teams.executor import ExecutorReport, ExecutorRequest, ExecutorT
 from agentswarm.teams.hardening import AttackReport, AttackRequest, AttackToolbox, Hardener
 from agentswarm.teams.referee import (
     ConflictingTest,
-    FindingAnswer,
     FindingRequest,
+    FindingRulings,
     QuotedPassage,
     ReconsiderAnswer,
     ReconsiderRequest,
     Referee,
     ReportAnswer,
+    ReportedFinding,
     ReportRequest,
     RulingAnswer,
     RulingRequest,
@@ -387,18 +388,23 @@ class SampleData:
             perspective=ReviewCampaign.PERSPECTIVE[Perspective.FACTS],
             document="<sections/01-tagging.md>\n## Tagging\n\nThe tagger reaches 99% accuracy [@1909.00001].",
             brief="# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
-            title="Wrong accuracy",
-            problem="The section says 99%; the paper reports 97.1%.",
-            evidence=(
-                QuotedPassage(
-                    file="sections/01-tagging.md",
-                    quote="The tagger reaches 99% accuracy",
-                    context="## Tagging The tagger reaches 99% accuracy [@1909.00001].",
-                ),
-                QuotedPassage(
-                    file="sources/1909.00001.md",
-                    quote="reaches 97.1% accuracy on the test set",
-                    context="## Results The tagger reaches 97.1% accuracy on the test set.",
+            findings=(
+                ReportedFinding(
+                    number=1,
+                    title="Wrong accuracy",
+                    problem="The section says 99%; the paper reports 97.1%.",
+                    evidence=(
+                        QuotedPassage(
+                            file="sections/01-tagging.md",
+                            quote="The tagger reaches 99% accuracy",
+                            context="## Tagging The tagger reaches 99% accuracy [@1909.00001].",
+                        ),
+                        QuotedPassage(
+                            file="sources/1909.00001.md",
+                            quote="reaches 97.1% accuracy on the test set",
+                            context="## Results The tagger reaches 97.1% accuracy on the test set.",
+                        ),
+                    ),
                 ),
             ),
         )
@@ -684,11 +690,11 @@ class PromptCatalogue:
                 None,
             ),
             CallFamily(
-                "Referee: rules on a document reviewer's finding before it becomes a revision",
+                "Referee: rules on a document reviewer's findings before they become revisions",
                 (Caller("", Referee, Referee.FINDING),),
                 Referee,
                 SampleData.review_finding(),
-                FindingAnswer,
+                FindingRulings,
                 None,
             ),
             CallFamily(

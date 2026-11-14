@@ -38,7 +38,7 @@ from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.analyzer import Quotes
 from agentswarm.teams.campaign import Campaign, Part
 from agentswarm.teams.claims import CheckedClaim, CitedStatement, ClaimChecker, WholeParts
-from agentswarm.teams.referee import FindingRequest, QuotedPassage, Referee
+from agentswarm.teams.referee import FindingRequest, QuotedPassage, Referee, ReportedFinding
 from agentswarm.workspace.git import Repository, Worktree
 
 
@@ -261,27 +261,39 @@ document is finished as far as its writer knows. Find what is wrong with this se
         rejections: list[RejectedReport] = []
         dropped: list[str] = []
         events: list[Event] = []
-        for finding in found:
+        backed: list[tuple[int, ReviewFinding, CitationRequest | None]] = []
+        reported: list[ReportedFinding] = []
+        for number, finding in enumerate(found, 1):
             evidence = self.evidence(worktree, finding)
             unbacked = self.unbacked(evidence, focus)
             if unbacked is not None:
                 dropped.append(f"{finding.title}: {unbacked}")
                 continue
             claimed = cited.get(finding.evidence[0].quote) if finding.evidence else None
-            ruling = await (
-                self._referee.rule_claim(claimed)
-                if claimed is not None
-                else self._referee.rule_finding(
-                    FindingRequest(
-                        perspective=self.PERSPECTIVE[focus],
-                        brief=request.brief,
-                        document=self.document(worktree),
+            backed.append((number, finding, claimed))
+            if claimed is None:
+                reported.append(
+                    ReportedFinding(
+                        number=number,
                         title=finding.title,
                         problem=finding.problem,
                         evidence=tuple(e for e in evidence if e is not None),
                     )
                 )
+        ruled = (  # the review's findings ruled together: the document is sent once, not once a finding
+            await self._referee.rule_findings(
+                FindingRequest(
+                    perspective=self.PERSPECTIVE[focus],
+                    brief=request.brief,
+                    document=self.document(worktree),
+                    findings=tuple(reported),
+                )
             )
+            if reported
+            else {}
+        )
+        for number, finding, claimed in backed:
+            ruling = await self._referee.rule_claim(claimed) if claimed is not None else ruled.get(number)
             if ruling is None:
                 dropped.append(f"{finding.title}: no ruling")
                 continue

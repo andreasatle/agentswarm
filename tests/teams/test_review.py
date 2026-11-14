@@ -9,7 +9,7 @@ from agentswarm.core.domain import Attacked, Escalated, Event, Perspective, Scor
 from agentswarm.evaluation.citations import CitationAnswer, CitationRequest, Support
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.claims import ClaimChecker, ClaimVerdict, WholeParts
-from agentswarm.teams.referee import FindingAnswer, FindingRequest, Referee
+from agentswarm.teams.referee import FindingAnswer, FindingRequest, FindingRulings, Referee
 from agentswarm.teams.review import Evidence, ReviewCampaign, ReviewFinding, ReviewFindings, ReviewRequest
 from tests.support.harness import Harness
 
@@ -32,7 +32,10 @@ def review(*evidence: Evidence, title: str = "wrong accuracy") -> Step[BaseModel
 
 def ruling(confirmed: bool) -> Step[BaseModel]:
     def step(toolbox: Toolbox | None) -> BaseModel:
-        return FindingAnswer(reason="the source says 97.1%", shown=confirmed, matters=True, fits=True)
+        answer = FindingAnswer(
+            number=1, reason="the source says 97.1%", shown=confirmed, matters=True, fits=True
+        )
+        return FindingRulings(rulings=[answer])
 
     return step
 
@@ -87,7 +90,7 @@ class Review:
 class TestFindingAnswer:
     def test_confirmed_only_when_shown_matters_and_fits(self) -> None:
         def answer(shown: bool, matters: bool, fits: bool) -> bool:
-            return FindingAnswer(reason="r", shown=shown, matters=matters, fits=fits).confirmed
+            return FindingAnswer(number=1, reason="r", shown=shown, matters=matters, fits=fits).confirmed
 
         assert answer(True, True, True)
         assert (
@@ -113,8 +116,9 @@ class TestReviewCampaign:
         assert any(isinstance(e, Sized) and e.fits and e.artifact == task.id for e in r.events())
         ruled = r.referee.calls[0][1]
         assert isinstance(ruled, FindingRequest)
-        assert [e.file for e in ruled.evidence] == ["sections/01-tagging.md", "sources/p1.md"]
-        assert "97.1% accuracy" in ruled.evidence[1].context
+        (reported,) = ruled.findings
+        assert [e.file for e in reported.evidence] == ["sections/01-tagging.md", "sources/p1.md"]
+        assert "97.1% accuracy" in reported.evidence[1].context
         assert "<sections/01-tagging.md>" in ruled.document  # the whole guide: is it missing everywhere?
 
     async def test_evidence_that_isnt_there_or_doesnt_fit_the_perspective_is_dropped_unruled(
@@ -275,3 +279,38 @@ class TestClaims:
     def test_the_claims_perspective_needs_a_checker_model(self) -> None:
         with pytest.raises(ValueError, match="needs `claims:`"):
             ReviewConfig(model="rev", referee="ref", perspectives=(Perspective.CLAIMS,))
+
+
+class TestBatchedRulings:
+    async def test_a_reviews_findings_are_ruled_together_and_only_the_undecided_are_asked_again(
+        self, tmp_path: Path
+    ) -> None:
+        def two(toolbox: Toolbox | None) -> BaseModel:
+            def finding(title: str) -> ReviewFinding:
+                return ReviewFinding(title=title, problem="p", fix="f", evidence=(WRONG, SAYS))
+
+            return ReviewFindings(summary="reviewed", findings=(finding("first"), finding("second")))
+
+        def vote(first: bool, second: bool | None) -> Step[BaseModel]:
+            def step(toolbox: Toolbox | None) -> BaseModel:
+                rulings = [FindingAnswer(number=1, reason="r1", shown=first, matters=True, fits=True)]
+                if second is not None:
+                    rulings.append(
+                        FindingAnswer(number=2, reason="r2", shown=second, matters=True, fits=True)
+                    )
+                return FindingRulings(rulings=rulings)
+
+            return step
+
+        # votes: 1 is confirmed twice; 2 is split, so only 2 is asked a third time, and rejected
+        r = Review(tmp_path, [two], [vote(True, True), vote(True, False), vote(False, False)])
+        await r.campaign.step()
+        asked = [call[1] for call in r.referee.calls]
+        assert all(isinstance(a, FindingRequest) for a in asked)
+        assert [[f.number for f in a.findings] for a in asked if isinstance(a, FindingRequest)] == [
+            [1, 2],
+            [1, 2],
+            [2],
+        ]
+        attacked = r.attacked()
+        assert attacked.confirmed == 1 and attacked.dropped == ("second: not confirmed: r2",)

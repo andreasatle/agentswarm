@@ -110,20 +110,30 @@ class QuotedPassage(Frozen):
     context: str  # the file around the quote, whitespace collapsed
 
 
-class FindingRequest(Frozen):
-    """The payload a referee receives for a document reviewer's finding."""
+class ReportedFinding(Frozen):
+    """One finding of a reviewer, numbered so its ruling can name it."""
 
-    perspective: str  # what the reviewer looks for, and what counts as a problem
-    brief: str  # what the document is for
-    document: str  # the whole document as it is: content "missing" here may be in another section
+    number: int
     title: str
     problem: str  # what the reviewer says is wrong
     evidence: tuple[QuotedPassage, ...]
 
 
+class FindingRequest(Frozen):
+    """The payload a referee receives for one review of a section: its findings, ruled together. One call
+    per finding sent the whole document again for each (2026-11-14: 93 calls, $1.17 for 41 reader
+    findings)."""
+
+    perspective: str  # what the reviewer looks for, and what counts as a problem
+    brief: str  # what the document is for
+    document: str  # the whole document as it is: content "missing" here may be in another section
+    findings: tuple[ReportedFinding, ...]
+
+
 class FindingAnswer(Frozen):
     """Your ruling on one finding, question by question: first your reasoning, then each verdict."""
 
+    number: int = Field(description="the finding's number, exactly as given")
     reason: str = Field(description="what the evidence and the document show, read with the brief")
     shown: bool = Field(
         description="the evidence shows the problem, and the document as a whole has it (content called "
@@ -143,6 +153,12 @@ class FindingAnswer(Frozen):
         """All three: decided by plain code, not by a single verdict that a model gives too easily
         (2026-10-16: a single verdict confirmed 84 of 88 findings about a guide)."""
         return self.shown and self.matters and self.fits
+
+
+class FindingRulings(Frozen):
+    """Your rulings: one for each finding, each on its own."""
+
+    rulings: list[FindingAnswer]
 
 
 class Referee:
@@ -188,15 +204,16 @@ tests that the product passed. Rule again on that report alone, in a single answ
 - Don't judge the builders' code: it isn't shown, and doesn't matter here."""
     FINDING = """\
 You are the referee for the reviewers of a document. A reviewer looks at one section from one perspective
-and says something is wrong, with quotes from the document or its sources as evidence (each checked to be
-there word for word; the text around each is shown). Rule on that finding alone, in a single answer.
+and says what is wrong, each finding with quotes from the document or its sources as evidence (each checked
+to be there word for word; the text around each is shown). Rule on each finding on its own, one ruling for
+each, by its number.
 
-- Read the perspective, the brief, the finding, the evidence and the whole document.
+- Read the perspective, the brief, the findings, their evidence and the whole document.
 - Answer three questions, each on its own: is the problem shown (by the evidence, and true of the document as
   a whole)? Does it matter for what the brief asks? Can it be fixed within the brief's rules, its length cap
   included, without losing something that matters more? A finding becomes work for the writer only if all
   three hold, so answer each strictly: most findings fail at least one.
-- Don't rewrite the document: rule on the finding."""
+- Don't rewrite the document: rule on the findings."""
     EXCERPT_LINES = 12  # lines of a broken test's file on either side of its case
     EXCERPT_LIMIT = 3_000  # characters of each broken test given to the model
     MAX_CONFLICTS = 5
@@ -345,21 +362,34 @@ there word for word; the text around each is shown). Rule on that finding alone,
             return None
         return answer.support is not Support.SUPPORTED, answer.reason
 
-    async def rule_finding(self, request: FindingRequest) -> tuple[bool, str] | None:
-        """Whether a document reviewer's finding is confirmed, and why; None when no ruling was had. The
-        evidence has been checked by plain code already: each quote is in its file."""
-        answers: list[FindingAnswer] = []
+    async def rule_findings(self, request: FindingRequest) -> dict[int, tuple[bool, str]]:
+        """Whether each of a review's findings is confirmed, and why, by its number; a finding with no
+        majority is left out. The evidence has been checked by plain code already: each quote is in its file.
+        Each vote rules on every finding still undecided."""
+        votes: dict[int, list[FindingAnswer]] = {f.number: [] for f in request.findings}
         for _ in range(self.VOTES):
+            undecided = tuple(
+                f for f in request.findings if self.majority([a.confirmed for a in votes[f.number]]) is None
+            )
+            if not undecided:
+                break
             try:
-                answers.append(await self._worker.run(self.FINDING, request, FindingAnswer))
+                answer = await self._worker.run(
+                    self.FINDING, request.model_copy(update={"findings": undecided}), FindingRulings
+                )
             except WorkerError:
                 continue
-            if self.majority([a.confirmed for a in answers]) is not None:
-                break
-        verdict = self.majority([a.confirmed for a in answers])
-        if verdict is None:
-            return None
-        return verdict, next(a.reason for a in answers if a.confirmed == verdict)
+            asked = {f.number for f in undecided}
+            for ruling in answer.rulings:  # one vote per finding a call: a repeated number is ignored
+                if ruling.number in asked:
+                    asked.discard(ruling.number)
+                    votes[ruling.number].append(ruling)
+        decided: dict[int, tuple[bool, str]] = {}
+        for number, answers in votes.items():
+            verdict = self.majority([a.confirmed for a in answers])
+            if verdict is not None:
+                decided[number] = (verdict, next(a.reason for a in answers if a.confirmed == verdict))
+        return decided
 
     @staticmethod
     def around(text: str, quote: str, context: int) -> str | None:

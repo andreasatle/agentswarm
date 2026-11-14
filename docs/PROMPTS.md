@@ -53,7 +53,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Specifier: revises the draft with the answers to its questions](#specifier-revises-the-draft-with-the-answers-to-its-questions) | (`Specifier`) | `SpecDraft` |
 | [Simulated user (experiments): answers the specifier's question from a reference, quoting it](#simulated-user-experiments-answers-the-specifiers-question-from-a-reference-quoting-it) | (`Specifier`) | `UserAnswer` |
 | [Reviewer (documents): reviews one section from one perspective, with quotes as evidence](#reviewer-documents-reviews-one-section-from-one-perspective-with-quotes-as-evidence) | (`ReviewCampaign`) | `ReviewFindings` |
-| [Referee: rules on a document reviewer's finding before it becomes a revision](#referee-rules-on-a-document-reviewers-finding-before-it-becomes-a-revision) | (`Referee`) | `FindingAnswer` |
+| [Referee: rules on a document reviewer's findings before they become revisions](#referee-rules-on-a-document-reviewers-findings-before-they-become-revisions) | (`Referee`) | `FindingRulings` |
 | [Reader (scoring a document): answers a hidden question from the document alone](#reader-scoring-a-document-answers-a-hidden-question-from-the-document-alone) | (`QuestionScore`) | `ReaderAnswer` |
 | [Reader (scoring a document): answers a hidden question from memory, to drop what it knows](#reader-scoring-a-document-answers-a-hidden-question-from-memory-to-drop-what-it-knows) | (`QuestionScore`) | `ReaderAnswer` |
 | [Grader (scoring a document): compares the reader's answer with the references](#grader-scoring-a-document-compares-the-readers-answer-with-the-references) | (`QuestionScore`) | `GradeAnswer` |
@@ -3556,23 +3556,24 @@ class Evidence(Frozen):
 
 `ReviewCampaign`: 
 
-## Referee: rules on a document reviewer's finding before it becomes a revision
+## Referee: rules on a document reviewer's findings before they become revisions
 
 ### Referee
 
-`agentswarm.teams.referee.Referee` Version `67edaa2c71e8`.
+`agentswarm.teams.referee.Referee` Version `7ee95c870a1e`.
 
 ```text
 You are the referee for the reviewers of a document. A reviewer looks at one section from one perspective
-and says something is wrong, with quotes from the document or its sources as evidence (each checked to be
-there word for word; the text around each is shown). Rule on that finding alone, in a single answer.
+and says what is wrong, each finding with quotes from the document or its sources as evidence (each checked
+to be there word for word; the text around each is shown). Rule on each finding on its own, one ruling for
+each, by its number.
 
-- Read the perspective, the brief, the finding, the evidence and the whole document.
+- Read the perspective, the brief, the findings, their evidence and the whole document.
 - Answer three questions, each on its own: is the problem shown (by the evidence, and true of the document as
   a whole)? Does it matter for what the brief asks? Can it be fixed within the brief's rules, its length cap
   included, without losing something that matters more? A finding becomes work for the writer only if all
   three hold, so answer each strictly: most findings fail at least one.
-- Don't rewrite the document: rule on the finding.
+- Don't rewrite the document: rule on the findings.
 ```
 
 ### User message (sample)
@@ -3583,18 +3584,23 @@ there word for word; the text around each is shown). Rule on that finding alone,
   "perspective": "Facts. Find statements in this section that the source they cite doesn't support: wrong numbers, names or results, claims the paper doesn't make, or a factual statement citing no source. Quote the statement from the section and, when it cites one, the source passage it misstates (or the passage that says otherwise).",
   "brief": "# The brief\n\nA guide for a newcomer, at most 3000 words; every fact cites its paper.",
   "document": "<sections/01-tagging.md>\n## Tagging\n\nThe tagger reaches 99% accuracy [@1909.00001].",
-  "title": "Wrong accuracy",
-  "problem": "The section says 99%; the paper reports 97.1%.",
-  "evidence": [
+  "findings": [
     {
-      "file": "sections/01-tagging.md",
-      "quote": "The tagger reaches 99% accuracy",
-      "context": "## Tagging The tagger reaches 99% accuracy [@1909.00001]."
-    },
-    {
-      "file": "sources/1909.00001.md",
-      "quote": "reaches 97.1% accuracy on the test set",
-      "context": "## Results The tagger reaches 97.1% accuracy on the test set."
+      "number": 1,
+      "title": "Wrong accuracy",
+      "problem": "The section says 99%; the paper reports 97.1%.",
+      "evidence": [
+        {
+          "file": "sections/01-tagging.md",
+          "quote": "The tagger reaches 99% accuracy",
+          "context": "## Tagging The tagger reaches 99% accuracy [@1909.00001]."
+        },
+        {
+          "file": "sources/1909.00001.md",
+          "quote": "reaches 97.1% accuracy on the test set",
+          "context": "## Results The tagger reaches 97.1% accuracy on the test set."
+        }
+      ]
     }
   ]
 }
@@ -3605,11 +3611,20 @@ there word for word; the text around each is shown). Rule on that finding alone,
 
 ```python
 class FindingRequest(Frozen):
-    """The payload a referee receives for a document reviewer's finding."""
+    """The payload a referee receives for one review of a section: its findings, ruled together. One call
+    per finding sent the whole document again for each (2026-11-14: 93 calls, $1.17 for 41 reader
+    findings)."""
 
     perspective: str  # what the reviewer looks for, and what counts as a problem
     brief: str  # what the document is for
     document: str  # the whole document as it is: content "missing" here may be in another section
+    findings: tuple[ReportedFinding, ...]
+
+
+class ReportedFinding(Frozen):
+    """One finding of a reviewer, numbered so its ruling can name it."""
+
+    number: int
     title: str
     problem: str  # what the reviewer says is wrong
     evidence: tuple[QuotedPassage, ...]
@@ -3626,9 +3641,16 @@ class QuotedPassage(Frozen):
 ### Answer
 
 ```python
+class FindingRulings(Frozen):
+    """Your rulings: one for each finding, each on its own."""
+
+    rulings: list[FindingAnswer]
+
+
 class FindingAnswer(Frozen):
     """Your ruling on one finding, question by question: first your reasoning, then each verdict."""
 
+    number: int = Field(description="the finding's number, exactly as given")
     reason: str = Field(description="what the evidence and the document show, read with the brief")
     shown: bool = Field(
         description="the evidence shows the problem, and the document as a whole has it (content called "
@@ -3654,37 +3676,63 @@ class FindingAnswer(Frozen):
 
 ```json
 {
+  "$defs": {
+    "FindingAnswer": {
+      "additionalProperties": false,
+      "description": "Your ruling on one finding, question by question: first your reasoning, then each verdict.",
+      "properties": {
+        "number": {
+          "description": "the finding's number, exactly as given",
+          "title": "Number",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "what the evidence and the document show, read with the brief",
+          "title": "Reason",
+          "type": "string"
+        },
+        "shown": {
+          "description": "the evidence shows the problem, and the document as a whole has it (content called missing is missing everywhere, a claim called wrong is wrong)",
+          "title": "Shown",
+          "type": "boolean"
+        },
+        "matters": {
+          "description": "the brief's reader would be worse off without the fix: it concerns what the brief asks for, not taste or a nice-to-have",
+          "title": "Matters",
+          "type": "boolean"
+        },
+        "fits": {
+          "description": "it can be fixed within the brief's rules (its length cap included) without losing something that matters more",
+          "title": "Fits",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "number",
+        "reason",
+        "shown",
+        "matters",
+        "fits"
+      ],
+      "title": "FindingAnswer",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
-  "description": "Your ruling on one finding, question by question: first your reasoning, then each verdict.",
+  "description": "Your rulings: one for each finding, each on its own.",
   "properties": {
-    "reason": {
-      "description": "what the evidence and the document show, read with the brief",
-      "title": "Reason",
-      "type": "string"
-    },
-    "shown": {
-      "description": "the evidence shows the problem, and the document as a whole has it (content called missing is missing everywhere, a claim called wrong is wrong)",
-      "title": "Shown",
-      "type": "boolean"
-    },
-    "matters": {
-      "description": "the brief's reader would be worse off without the fix: it concerns what the brief asks for, not taste or a nice-to-have",
-      "title": "Matters",
-      "type": "boolean"
-    },
-    "fits": {
-      "description": "it can be fixed within the brief's rules (its length cap included) without losing something that matters more",
-      "title": "Fits",
-      "type": "boolean"
+    "rulings": {
+      "items": {
+        "$ref": "#/$defs/FindingAnswer"
+      },
+      "title": "Rulings",
+      "type": "array"
     }
   },
   "required": [
-    "reason",
-    "shown",
-    "matters",
-    "fits"
+    "rulings"
   ],
-  "title": "FindingAnswer",
+  "title": "FindingRulings",
   "type": "object"
 }
 ```
