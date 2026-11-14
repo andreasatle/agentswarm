@@ -48,6 +48,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Claim checker (review, `claims` perspective): one cited statement against its source](#claim-checker-review-claims-perspective-one-cited-statement-against-its-source) | (`ClaimChecker`) | `ClaimVerdict` |
 | [Paper finder: search queries (and well-known titles) for a topic, run against arXiv](#paper-finder-search-queries-and-well-known-titles-for-a-topic-run-against-arxiv) | (`PaperFinder`) | `SearchQueries` |
 | [Paper finder: picks the papers a tutorial is written from, among the candidates found](#paper-finder-picks-the-papers-a-tutorial-is-written-from-among-the-candidates-found) | (`PaperFinder`) | `ReadingList` |
+| [Paper finder: the threads the downloaded sources answer, quoted; queries for the rest](#paper-finder-the-threads-the-downloaded-sources-answer-quoted-queries-for-the-rest) | (`PaperFinder`) | `Coverage` |
 | [Briefer: drafts a document's brief and outline from the goal and the sources](#briefer-drafts-a-documents-brief-and-outline-from-the-goal-and-the-sources) | (`Briefer`) | `BriefDraft` |
 | [Specifier: revises the draft with the answers to its questions](#specifier-revises-the-draft-with-the-answers-to-its-questions) | (`Specifier`) | `SpecDraft` |
 | [Simulated user (experiments): answers the specifier's question from a reference, quoting it](#simulated-user-experiments-answers-the-specifiers-question-from-a-reference-quoting-it) | (`Specifier`) | `UserAnswer` |
@@ -2311,7 +2312,9 @@ class ClaimVerdict(Frozen):
 
 ### PaperFinder
 
-`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded. Version `02af68c5403c`.
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `02af68c5403c`.
 
 ```text
 You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
@@ -2415,11 +2418,15 @@ class SearchQueries(Frozen):
 
 `PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread.
+
 ## Paper finder: picks the papers a tutorial is written from, among the candidates found
 
 ### PaperFinder
 
-`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded. Version `26bebd646a2c`.
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `26bebd646a2c`.
 
 ```text
 You choose the papers a tutorial on the topic will be written from, for the reader described, from the
@@ -2709,6 +2716,170 @@ class PickedPaper(Frozen):
 ### What happens to the answer
 
 `PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread.
+
+## Paper finder: the threads the downloaded sources answer, quoted; queries for the rest
+
+### PaperFinder
+
+`agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `b0183cde6961`.
+
+```text
+You check which of the threads a document must cover are answered by the sources found so far, for the reader
+described. For each thread, name the source that answers it and copy the passage that does, word for word (a
+sentence or two); a source that only mentions the subject doesn't answer it. When no source answers a thread,
+write one or two short search queries, narrower than a first search, that would find a source that does.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "topic": "test-time compute for reasoning",
+  "reader_knows": "graduate-level ML",
+  "brief": "",
+  "threads": [
+    {
+      "number": 1,
+      "question": "Does checking each step beat checking only the answer?"
+    }
+  ],
+  "sources": [
+    {
+      "file": "lightman-2023-lets-verify-step-by-step.pdf",
+      "title": "Let's Verify Step by Step",
+      "text": "We find that process supervision significantly outperforms outcome supervision ..."
+    }
+  ]
+}
+</data>
+```
+
+### Payload types
+
+```python
+class CoverageRequest(Frozen):
+    """The payload of the coverage check: the threads the document must cover and the sources found."""
+
+    topic: str
+    reader_knows: str
+    brief: str = ""
+    threads: tuple[Thread, ...]
+    sources: tuple[SourceExcerpt, ...]
+
+
+class Thread(Frozen):
+    """A question the document must answer, numbered so a pick can name it exactly."""
+
+    number: int
+    question: str
+
+
+class SourceExcerpt(Frozen):
+    """The start of a downloaded source, as the coverage check reads it."""
+
+    file: str
+    title: str
+    text: str
+```
+
+### Answer
+
+```python
+class Coverage(Frozen):
+    """For every thread: the source and passage that answer it, or the queries that might find one."""
+
+    threads: list[ThreadAnswer]
+
+
+class ThreadAnswer(Frozen):
+    thread: int = Field(description="the thread's number, exactly as given")
+    file: str | None = Field(default=None, description="the source that answers it; empty when none does")
+    quote: str = Field(default="", description="the passage of that source that answers it, copied verbatim")
+    queries: list[str] = Field(
+        default_factory=list,
+        description="when no source answers it: one or two short, narrower queries that would find one",
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "ThreadAnswer": {
+      "additionalProperties": false,
+      "properties": {
+        "thread": {
+          "description": "the thread's number, exactly as given",
+          "title": "Thread",
+          "type": "integer"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the source that answers it; empty when none does",
+          "title": "File"
+        },
+        "quote": {
+          "default": "",
+          "description": "the passage of that source that answers it, copied verbatim",
+          "title": "Quote",
+          "type": "string"
+        },
+        "queries": {
+          "description": "when no source answers it: one or two short, narrower queries that would find one",
+          "items": {
+            "type": "string"
+          },
+          "title": "Queries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "title": "ThreadAnswer",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "For every thread: the source and passage that answer it, or the queries that might find one.",
+  "properties": {
+    "threads": {
+      "items": {
+        "$ref": "#/$defs/ThreadAnswer"
+      },
+      "title": "Threads",
+      "type": "array"
+    }
+  },
+  "required": [
+    "threads"
+  ],
+  "title": "Coverage",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
+
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread.
 
 ## Briefer: drafts a document's brief and outline from the goal and the sources
 

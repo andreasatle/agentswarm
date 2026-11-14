@@ -32,11 +32,14 @@ from agentswarm.evaluation.benchmark import JudgeReport, JudgeRequest, ReaderJud
 from agentswarm.evaluation.citations import CitationAnswer, CitationAudit, CitationRequest, CitedSource
 from agentswarm.evaluation.papers import (
     Candidate,
+    Coverage,
+    CoverageRequest,
     PaperFinder,
     PickRequest,
     QueryRequest,
     ReadingList,
     SearchQueries,
+    SourceExcerpt,
     Thread,
 )
 from agentswarm.evaluation.probe import (
@@ -335,6 +338,21 @@ class SampleData:
         )
 
     @classmethod
+    def coverage(cls) -> CoverageRequest:
+        return CoverageRequest(
+            topic="test-time compute for reasoning",
+            reader_knows="graduate-level ML",
+            threads=(Thread(number=1, question="Does checking each step beat checking only the answer?"),),
+            sources=(
+                SourceExcerpt(
+                    file="lightman-2023-lets-verify-step-by-step.pdf",
+                    title="Let's Verify Step by Step",
+                    text="We find that process supervision significantly outperforms outcome supervision ...",
+                ),
+            ),
+        )
+
+    @classmethod
     def revise(cls) -> ReviseRequest:
         return ReviseRequest(
             goal="A greeter: hello(name) greets by name.",
@@ -623,6 +641,14 @@ class PromptCatalogue:
                 PaperFinder,
                 SampleData.pick(),
                 ReadingList,
+                None,
+            ),
+            CallFamily(
+                "Paper finder: the threads the downloaded sources answer, quoted; queries for the rest",
+                (Caller("", PaperFinder, PaperFinder.COVER),),
+                PaperFinder,
+                SampleData.coverage(),
+                Coverage,
                 None,
             ),
             CallFamily(

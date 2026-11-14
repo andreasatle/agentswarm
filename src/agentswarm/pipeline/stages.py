@@ -17,7 +17,7 @@ from agentswarm.core.clock import SystemClock
 from agentswarm.core.config import ProjectConfig, SpendLimits
 from agentswarm.core.domain import ArtifactId, Resolution, Usage
 from agentswarm.evaluation.citations import CitationAudit, Support
-from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport
+from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceText
 from agentswarm.evaluation.papers import Found, PaperFinder, WebPage
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, Worker
@@ -125,6 +125,7 @@ class SourceStage:
             request.source.search(),
             request.source.queries,
             brief=request.goal or "",
+            reader=SourceText(),
         )
         found = asyncio.run(finder.find(request.topic, request.reader, policy.papers, run.sources))
         named: list[Found] = []

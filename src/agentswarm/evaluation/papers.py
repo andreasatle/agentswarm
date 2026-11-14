@@ -660,6 +660,52 @@ class Found(Frozen):
     file: str | None  # its file in the folder; None: not there yet (the download failed)
 
 
+class SourceExcerpt(Frozen):
+    """The start of a downloaded source, as the coverage check reads it."""
+
+    file: str
+    title: str
+    text: str
+
+
+class CoverageRequest(Frozen):
+    """The payload of the coverage check: the threads the document must cover and the sources found."""
+
+    topic: str
+    reader_knows: str
+    brief: str = ""
+    threads: tuple[Thread, ...]
+    sources: tuple[SourceExcerpt, ...]
+
+
+class ThreadAnswer(Frozen):
+    thread: int = Field(description="the thread's number, exactly as given")
+    file: str | None = Field(default=None, description="the source that answers it; empty when none does")
+    quote: str = Field(default="", description="the passage of that source that answers it, copied verbatim")
+    queries: list[str] = Field(
+        default_factory=list,
+        description="when no source answers it: one or two short, narrower queries that would find one",
+    )
+
+
+class Coverage(Frozen):
+    """For every thread: the source and passage that answer it, or the queries that might find one."""
+
+    threads: list[ThreadAnswer]
+
+
+class CoveredThread(Frozen):
+    """A thread a source answers, with the passage that shows it (checked to be in the source)."""
+
+    thread: str
+    file: str
+    quote: str
+
+
+class TextReader(Protocol):
+    def read(self, path: Path) -> str: ...
+
+
 class ReadingFolder(Frozen):
     """The papers picked for a topic, as kept beside their PDFs: papers.json for programs, papers.md for the
     user. Refreshed from the files actually there, whatever their names (the user, 2026-10-18: a PDF fetched
@@ -668,6 +714,8 @@ class ReadingFolder(Frozen):
     topic: str
     papers: tuple[Found, ...]
     threads: tuple[str, ...] = ()  # what the request needs covered, as the search plan listed it
+    answered: tuple[CoveredThread, ...] = ()  # threads answered by a quoted passage, at the last check
+    progress: tuple[int, ...] = ()  # threads covered at each check: after the first search, after each round
 
     RECORDS: ClassVar[str] = "papers.json"
     LISTING: ClassVar[str] = "papers.md"
@@ -738,7 +786,16 @@ class ReadingFolder(Frozen):
             year = f.paper.year or "n.d."  # a page with no date
             lines.append(f"{n}. **{f.paper.title}** ({authors}, {year}), {where}{standing}: {state}.")
             lines.append(f"   {f.why}" + (f" Covers: {f.covers}" if f.covers else ""))
-        uncovered = [t for t in self.threads if all(f.covers != t for f in self.papers)]
+        if self.progress:  # checked against the sources' text: covered only with a quoted passage
+            rounds = len(self.progress) - 1
+            plural = "s" if rounds != 1 else ""
+            later = f", {self.progress[-1]} after {rounds} more round{plural}" if rounds else ""
+            first = f"{self.progress[0]} of {len(self.threads)} after the first search"
+            lines += ["", f"**Threads covered by a quoted passage:** {first}{later}."]
+            lines += [f'- {c.thread}: `{c.file}`, "{c.quote}"' for c in self.answered]
+            uncovered = [t for t in self.threads if all(c.thread != t for c in self.answered)]
+        else:
+            uncovered = [t for t in self.threads if all(f.covers != t for f in self.papers)]
         if uncovered:
             lines += ["", "**Threads no source covers:** " + "; ".join(uncovered)]
         missing = [f for f in self.papers if f.file is None]
@@ -759,7 +816,13 @@ class ReadingFolder(Frozen):
 class PaperFinder:
     """The queries are run on the search service and each known title is looked up there (kept only if
     found); the picked ids are checked against the candidates (an id not among them is dropped) and their
-    PDFs downloaded."""
+    PDFs downloaded.
+
+    Then, when the plan listed threads, the search goes on until they are covered (2026-11-14,
+    docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source
+    and the passage that answer it, a passage plain code finds in that source; for the threads none answers it
+    writes narrower queries, whose new results are picked from for those threads only. It stops when every
+    thread is covered, after ROUNDS rounds, or when a round covers no new thread."""
 
     QUERY = """\
 You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
@@ -782,18 +845,37 @@ official and institutional sites where a thread has them: a ticket seller's or a
 nothing better covers its thread. Use only ids from the candidates. Order them as a reader should meet them,
 and say in one sentence what each adds."""
 
+    COVER = """\
+You check which of the threads a document must cover are answered by the sources found so far, for the reader
+described. For each thread, name the source that answers it and copy the passage that does, word for word (a
+sentence or two); a source that only mentions the subject doesn't answer it. When no source answers a thread,
+write one or two short search queries, narrower than a first search, that would find a source that does."""
+
     QUERIES = 5
     PER_QUERY = 8
     KNOWN = 10
     CANDIDATES = 40  # known titles first; 2026-10-18: about 80 full abstracts cost $0.15 a pick on Sonnet
     ABSTRACT = 600  # characters of each abstract the picker reads
+    ROUNDS = 2  # follow-up rounds at most (the design: gap-driven search typically stops after 2)
+    PER_GAP = 2  # follow-up queries searched for each uncovered thread
+    FOLLOW_UPS = 8  # follow-up queries in a round at most
+    MORE = 4  # sources added in a round at most: one for each uncovered thread
+    EXCERPT = 4000  # characters of each source the check reads
+    MIN_QUOTE = 20  # characters; a shorter passage matches too easily to show a thread is answered
 
     def __init__(
-        self, worker: Worker, search: PaperSearch, queries: int | None = None, brief: str = ""
+        self,
+        worker: Worker,
+        search: PaperSearch,
+        queries: int | None = None,
+        brief: str = "",
+        *,
+        reader: TextReader,
     ) -> None:
         self._brief = brief  # the user's own brief: the plan and the picks cover all of it
         self._worker = worker
         self._search = search
+        self._reader = reader  # a downloaded source's text, for the coverage check
         self._queries = queries or self.QUERIES
         self._found: dict[str, Candidate] = {}  # every candidate as found, PDF links included
         self._threads: tuple[str, ...] = ()  # the threads the query plan listed, for the picker to cover
@@ -815,6 +897,16 @@ and say in one sentence what each adds."""
                 found.setdefault(candidate.id, candidate)
         return list(found.values())[: self.CANDIDATES]
 
+    async def searched(self, queries: Sequence[str]) -> list[Candidate]:
+        """The candidates the follow-up queries find that no earlier search found."""
+        new: dict[str, Candidate] = {}
+        for query in list(dict.fromkeys(queries))[: self.FOLLOW_UPS]:
+            for candidate in await asyncio.to_thread(self._search.search, query, self.PER_QUERY):
+                if candidate.id not in self._found:
+                    new.setdefault(candidate.id, candidate)
+        self._found.update(new)
+        return list(new.values())[: self.CANDIDATES]
+
     def shown(self, candidates: Sequence[Candidate]) -> tuple[Candidate, ...]:
         """As the picker sees them: abstracts cut, no links. Picked whether or not they download (2026-10-18:
         about 30% of OpenAlex's links let a program download, and the essential papers are often the refused
@@ -824,13 +916,24 @@ and say in one sentence what each adds."""
             for c in candidates
         )
 
-    async def pick(self, topic: str, know: str, papers: int, candidates: Sequence[Candidate]) -> list[Found]:
+    def numbered(self) -> tuple[Thread, ...]:
+        return tuple(Thread(number=n, question=t) for n, t in enumerate(self._threads, 1))
+
+    async def pick(
+        self,
+        topic: str,
+        know: str,
+        papers: int,
+        candidates: Sequence[Candidate],
+        threads: tuple[Thread, ...] | None = None,
+    ) -> list[Found]:
+        """`threads`: those the picks must cover; all of them unless given (a follow-up round: the gaps)."""
         request = PickRequest(
             topic=topic,
             reader_knows=know,
             papers=papers,
             brief=self._brief,
-            threads=tuple(Thread(number=n, question=t) for n, t in enumerate(self._threads, 1)),
+            threads=self.numbered() if threads is None else threads,
             candidates=self.shown(candidates),
         )
         chosen = await self._worker.run(self.PICK, request, ReadingList)
@@ -854,9 +957,48 @@ and say in one sentence what each adds."""
             return ""
         return self._threads[number - 1]
 
-    async def find(self, topic: str, know: str, papers: int, out: Path) -> ReadingFolder:
-        """Searches, picks and downloads into `out`, and writes the reading list there."""
-        picked = await self.pick(topic, know, papers, await self.candidates(topic, know))
+    async def check(
+        self, topic: str, know: str, picked: Sequence[Found], out: Path
+    ) -> tuple[tuple[CoveredThread, ...], list[str]]:
+        """The threads the downloaded sources answer, each with a passage found in its source, and the
+        follow-up queries for the rest."""
+        texts: dict[str, str] = {}
+        for found in picked:
+            if found.file is not None:
+                try:
+                    texts[found.file] = await asyncio.to_thread(self._reader.read, out / found.file)
+                except (OSError, RuntimeError):  # a file that gives no text answers nothing
+                    continue
+        titles = {f.file: f.paper.title for f in picked}
+        request = CoverageRequest(
+            topic=topic,
+            reader_knows=know,
+            brief=self._brief,
+            threads=self.numbered(),
+            sources=tuple(
+                SourceExcerpt(file=file, title=titles[file], text=" ".join(text.split())[: self.EXCERPT])
+                for file, text in texts.items()
+            ),
+        )
+        answered = await self._worker.run(self.COVER, request, Coverage)
+        covered: list[CoveredThread] = []
+        queries: list[str] = []
+        for answer in answered.threads:
+            question = self.thread(answer.thread)
+            if not question or any(c.thread == question for c in covered):
+                continue
+            quote = " ".join(answer.quote.split())
+            if (
+                answer.file in texts
+                and len(quote) >= self.MIN_QUOTE
+                and quote in " ".join(texts[answer.file].split())
+            ):
+                covered.append(CoveredThread(thread=question, file=answer.file, quote=quote))
+            else:
+                queries += answer.queries[: self.PER_GAP]
+        return tuple(sorted(covered, key=lambda c: self._threads.index(c.thread))), queries
+
+    async def download(self, picked: Sequence[Found], out: Path) -> list[Found]:
         out.mkdir(parents=True, exist_ok=True)
         done: list[Found] = []
         for found in picked:
@@ -866,6 +1008,35 @@ and say in one sentence what each adds."""
                 done.append(found)  # the user fetches it by hand
                 continue
             done.append(found.model_copy(update={"file": found.paper.download_name}))
-        folder = ReadingFolder(topic=topic, papers=tuple(done), threads=self._threads)
+        return done
+
+    async def find(self, topic: str, know: str, papers: int, out: Path) -> ReadingFolder:
+        """Searches, picks and downloads into `out`, searches on for the threads not yet covered, and writes
+        the reading list there."""
+        picked = await self.download(
+            await self.pick(topic, know, papers, await self.candidates(topic, know)), out
+        )
+        covered: tuple[CoveredThread, ...] = ()
+        progress: list[int] = []
+        for round in range(self.ROUNDS + 1) if self._threads else ():
+            covered, queries = await self.check(topic, know, picked, out)
+            progress.append(len(covered))
+            stalled = len(progress) > 1 and progress[-1] <= progress[-2]
+            if len(covered) == len(self._threads) or stalled or round == self.ROUNDS:
+                break
+            held = {c.thread for c in covered}
+            gaps = tuple(t for t in self.numbered() if t.question not in held)
+            more = await self.searched(queries)
+            extra = await self.pick(topic, know, min(len(gaps), self.MORE), more, gaps) if more else []
+            if not extra:
+                break
+            picked += await self.download(extra, out)
+        folder = ReadingFolder(
+            topic=topic,
+            papers=tuple(picked),
+            threads=self._threads,
+            answered=covered,
+            progress=tuple(progress),
+        )
         folder.save(out)
         return folder

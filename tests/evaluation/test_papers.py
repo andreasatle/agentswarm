@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from pydantic import BaseModel
@@ -8,6 +9,8 @@ from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.evaluation.papers import (
     ArxivSearch,
     Candidate,
+    Coverage,
+    CoverageRequest,
     Found,
     OpenAlexSearch,
     OpenAlexWork,
@@ -20,6 +23,7 @@ from agentswarm.evaluation.papers import (
     SearchQueries,
     Standing,
     TavilySearch,
+    ThreadAnswer,
     WebPage,
     WikipediaSearch,
 )
@@ -71,6 +75,13 @@ class FakeSearch:
         path.write_bytes(b"%PDF")
 
 
+class FakeReader:
+    """A downloaded source's text: the file as written."""
+
+    def read(self, path: Path) -> str:
+        return path.read_text(errors="replace")
+
+
 def finder(picked: list[str], search: FakeSearch) -> tuple[PaperFinder, list[PickRequest]]:
     asked: list[PickRequest] = []
 
@@ -87,7 +98,7 @@ def finder(picked: list[str], search: FakeSearch) -> tuple[PaperFinder, list[Pic
             ReadingList: pick,
         }
     )
-    return PaperFinder(worker, search), asked
+    return PaperFinder(worker, search, reader=FakeReader()), asked
 
 
 class TestArxivSearch:
@@ -469,10 +480,11 @@ class TestThreads:
                     threads=["getting around", "what to see"], queries=["vaporetto"]
                 ),
                 ReadingList: pick,
+                Coverage: lambda payload, toolbox: Coverage(threads=[]),
             }
         )
         search = FakeSearch({"vaporetto": [paper("1"), paper("2")]})
-        folder = await PaperFinder(worker, search, queries=8).find(
+        folder = await PaperFinder(worker, search, queries=8, reader=FakeReader()).find(
             "Venice", "a first-time visitor", 5, tmp_path
         )
         assert [(t.number, t.question) for t in asked[0].threads] == [
@@ -484,7 +496,8 @@ class TestThreads:
         assert (found.covers, found.paper.standing) == ("getting around", Standing.OFFICIAL)
         listing = folder.render()
         assert "(official)" in listing and "Covers: getting around" in listing
-        assert "**Threads no source covers:** what to see" in listing
+        # the picker's word isn't enough: covered only with a passage the check finds in the source
+        assert "**Threads no source covers:** getting around; what to see" in listing
         undated = folder.model_copy(
             update={
                 "papers": (found.model_copy(update={"paper": found.paper.model_copy(update={"year": 0})}),)
@@ -505,10 +518,111 @@ class TestBrief:
             planned.append(payload)
             return ReadingList(papers=[PickedPaper(id="1", why="costs", covers=1)])
 
-        worker = ScriptedWorker({SearchQueries: plan, ReadingList: pick})
+        def check(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            planned.append(payload)
+            return Coverage(threads=[])
+
+        worker = ScriptedWorker({SearchQueries: plan, ReadingList: pick, Coverage: check})
         brief = "Cover what scaling costs and who pays."
-        finder = PaperFinder(worker, FakeSearch({"vaporetto": [paper("1")]}), brief=brief)
+        finder = PaperFinder(
+            worker, FakeSearch({"vaporetto": [paper("1")]}), brief=brief, reader=FakeReader()
+        )
         await finder.find("LLM scaling", "ML", 5, tmp_path)
-        query, picking = planned
+        query, picking, checking = planned
         assert isinstance(query, QueryRequest) and query.brief == brief
         assert isinstance(picking, PickRequest) and picking.brief == brief
+        assert isinstance(checking, CoverageRequest) and checking.brief == brief
+
+
+class TextSearch(FakeSearch):
+    """Downloads each page as its text."""
+
+    def __init__(self, results: dict[str, list[Candidate]], texts: dict[str, str]) -> None:
+        super().__init__(results)
+        self._texts = texts
+
+    def download(self, paper: Candidate, path: Path) -> None:
+        self.downloaded.append(paper.id)
+        path.write_text(self._texts[paper.id])
+
+
+class TestFollowUp:
+    TEXTS: ClassVar[dict[str, str]] = {
+        "fares": "A single vaporetto ticket costs 9.50 euros and lasts 75 minutes.",
+        "museums": "The Doge's Palace is open daily from 9 to 18, and the Accademia closes on Mondays.",
+    }
+
+    def worker(
+        self, coverage: list[Coverage], asked: list[BaseModel]
+    ) -> tuple[ScriptedWorker, list[PickRequest]]:
+        picks: list[PickRequest] = []
+
+        def pick(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            assert isinstance(payload, PickRequest)
+            picks.append(payload)
+            return ReadingList(papers=[PickedPaper(id=c.id, why="it answers") for c in payload.candidates])
+
+        def check(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            asked.append(payload)
+            return coverage[len(asked) - 1]
+
+        plan = SearchQueries(threads=["what it costs", "what to see"], queries=["vaporetto"])
+        return ScriptedWorker(
+            {SearchQueries: lambda payload, toolbox: plan, ReadingList: pick, Coverage: check}
+        ), picks
+
+    async def test_an_uncovered_thread_is_searched_again_and_picked_for_alone(self, tmp_path: Path) -> None:
+        asked: list[BaseModel] = []
+        fares, museums = paper("fares", "Fares"), paper("museums", "Museums")
+        coverage = [
+            Coverage(
+                threads=[
+                    ThreadAnswer(thread=1, file="author-2024-fares.pdf", quote="costs 9.50 euros and lasts"),
+                    ThreadAnswer(thread=2, queries=["venice museum hours"]),
+                ]
+            ),
+            Coverage(
+                threads=[
+                    ThreadAnswer(thread=1, file="author-2024-fares.pdf", quote="costs 9.50 euros and lasts"),
+                    ThreadAnswer(
+                        thread=2, file="author-2024-museums.pdf", quote="the Accademia closes on Mondays"
+                    ),
+                ]
+            ),
+        ]
+        worker, picks = self.worker(coverage, asked)
+        search = TextSearch({"vaporetto": [fares], "venice museum hours": [fares, museums]}, self.TEXTS)
+        folder = await PaperFinder(worker, search, reader=FakeReader()).find(
+            "Venice", "a visitor", 5, tmp_path
+        )
+        first, _ = asked
+        assert isinstance(first, CoverageRequest)
+        assert [s.text for s in first.sources] == [self.TEXTS["fares"]]
+        follow = picks[1]  # only the new page, for the thread still open
+        assert [c.id for c in follow.candidates] == ["museums"] and follow.papers == 1
+        assert [(t.number, t.question) for t in follow.threads] == [(2, "what to see")]
+        assert [f.paper.id for f in folder.papers] == ["fares", "museums"]
+        assert folder.progress == (1, 2)
+        listing = folder.render()
+        assert "1 of 2 after the first search, 2 after 1 more round." in listing
+        assert "no source covers" not in listing
+
+    async def test_a_passage_not_in_the_source_covers_nothing_and_a_round_that_adds_nothing_ends_it(
+        self, tmp_path: Path
+    ) -> None:
+        asked: list[BaseModel] = []
+        invented = ThreadAnswer(thread=1, file="author-2024-fares.pdf", quote="tickets are free on Sundays")
+        coverage = [
+            Coverage(threads=[invented, ThreadAnswer(thread=2, queries=["venice museum hours"])]),
+            Coverage(threads=[invented, ThreadAnswer(thread=2, queries=["venice sights"])]),
+        ]
+        worker, _ = self.worker(coverage, asked)
+        search = TextSearch(
+            {"vaporetto": [paper("fares")], "venice museum hours": [paper("museums")]}, self.TEXTS
+        )
+        folder = await PaperFinder(worker, search, reader=FakeReader()).find(
+            "Venice", "a visitor", 5, tmp_path
+        )
+        assert len(asked) == 2 and folder.progress == (0, 0)  # stalled: no third check, no third search
+        assert folder.answered == ()
+        assert "**Threads no source covers:** what it costs; what to see" in folder.render()

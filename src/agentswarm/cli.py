@@ -630,9 +630,12 @@ class Cli:
         )
         try:
             found = asyncio.run(
-                PaperFinder(worker, PaperSource(args.source).search(), PaperSource(args.source).queries).find(
-                    args.topic, args.know, args.papers, out
-                )
+                PaperFinder(
+                    worker,
+                    PaperSource(args.source).search(),
+                    PaperSource(args.source).queries,
+                    reader=SourceText(),
+                ).find(args.topic, args.know, args.papers, out)
             )
         finally:
             if shared is not None:
