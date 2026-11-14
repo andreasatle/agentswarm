@@ -2725,13 +2725,16 @@ Then, when the plan listed threads, the search goes on until they are covered (2
 
 `agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
-Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `b0183cde6961`.
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `f54e9ba0c71b`.
 
 ```text
 You check which of the threads a document must cover are answered by the sources found so far, for the reader
 described. For each thread, name the source that answers it and copy the passage that does, word for word (a
-sentence or two); a source that only mentions the subject doesn't answer it. When no source answers a thread,
-write one or two short search queries, narrower than a first search, that would find a source that does.
+sentence or two). A passage answers a thread only if the document could be written from it: it gives what the
+question asks for (the facts, figures, steps or evidence), and for a broad thread its substance, not one
+general sentence about it. A source that only mentions the subject, or touches the thread in passing, doesn't
+answer it: then say no source answers it. When none does, write one or two short search queries, narrower
+than a first search, that would find a source that does.
 ```
 
 ### User message (sample)

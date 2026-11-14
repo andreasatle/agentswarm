@@ -848,8 +848,11 @@ and say in one sentence what each adds."""
     COVER = """\
 You check which of the threads a document must cover are answered by the sources found so far, for the reader
 described. For each thread, name the source that answers it and copy the passage that does, word for word (a
-sentence or two); a source that only mentions the subject doesn't answer it. When no source answers a thread,
-write one or two short search queries, narrower than a first search, that would find a source that does."""
+sentence or two). A passage answers a thread only if the document could be written from it: it gives what the
+question asks for (the facts, figures, steps or evidence), and for a broad thread its substance, not one
+general sentence about it. A source that only mentions the subject, or touches the thread in passing, doesn't
+answer it: then say no source answers it. When none does, write one or two short search queries, narrower
+than a first search, that would find a source that does."""
 
     QUERIES = 5
     PER_QUERY = 8
