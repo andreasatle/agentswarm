@@ -158,17 +158,17 @@ The papers are in `sources/`, one file each. Use them, and nothing else, for eve
 - At most {words} words in all.
 - Every factual statement cites the paper it comes from, like `[@{example}]`; a citation names a file in \
 `sources/` without its extension.
-- One sentence per line.
 """
 
     CHECK = '''"""The guide's rules, checked deterministically; from the root: python tools/check_doc.py
 
 - every file in sections/ is Markdown, starts with a '## ' heading and has text under it;
-- one sentence per line, each line a whole sentence: none starts mid-word, with punctuation or with a
-  citation, and no citation is broken off (a revision that replaced part of a line once left its tail
-  behind, 2026-11-10; again as ", and it has not been peer-reviewed", 2026-11-13);
 - every citation [@name] names a file in sources/, and every section cites at least one;
 - at most {words} words in all sections together.
+
+Structural rules only: the writer gives its sentences and their citations as typed fields and plain code lays
+them out, so the prose rules this file had (one sentence per line, no line starting mid-sentence or with a
+citation, abbreviations) have nothing left to catch (docs/design/self-correction.md, 2026-11-14).
 
 Exit code 0 when everything holds; otherwise one problem per line on stdout and exit code 1.
 """
@@ -179,12 +179,6 @@ from pathlib import Path
 
 WORDS = {words}
 CITATION = re.compile(r"\\[@([^\\],\\s]+)(?:,[^\\]]*)?\\]")  # [@name] or [@name, page 121]
-TWO_SENTENCES = re.compile(r"[.!?] +[A-Z]")
-LISTED = re.compile(r"\\s*(?:[-*|]|\\d+[.)]\\s)")  # list items and table rows: left as written
-MATH = re.compile(r"\\$[^$]*\\$")  # inline mathematics: its dots end no sentence
-# Abbreviations end in a dot without ending the sentence: a.m., p.m., U.S., Dr., e.g.
-TITLES = "Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd"
-ABBREVIATIONS = re.compile(r"\\b(?:[A-Za-z]\\.){{2,}}|\\b[A-Z]\\.|\\b(?:" + TITLES + r")\\.")  # J. SERVO
 
 
 class GuideCheck:
@@ -225,13 +219,6 @@ class GuideCheck:
         text = [line for line in self.prose(lines[1:]) if not line.startswith("#")]
         if not text:
             self.problems.append(f"{{name}}: has no text under its heading")
-        for number, line in enumerate(text, 1):
-            plain = ABBREVIATIONS.sub("", CITATION.sub("", MATH.sub("", line)))
-            if TWO_SENTENCES.search(plain) and not LISTED.match(line):
-                self.problems.append(f"{{name}}: one sentence per line: {{line[:60]!r}}")
-            broken = line[:1].islower() or line[:1] in ",;:.)" or line.startswith("[@")
-            if broken or line.count("]") > line.count("["):
-                self.problems.append(f"{{name}}: a broken line, not a whole sentence: {{line[:60]!r}}")
         cited = CITATION.findall("\\n".join(text))
         for source in cited:
             if not (self.root / "sources" / f"{{source}}.md").is_file():

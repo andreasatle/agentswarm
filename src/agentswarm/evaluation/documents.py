@@ -274,14 +274,13 @@ review:
 
 
 class DocumentAssembly:
-    """A finished document as one Markdown file: its title from the brief, every section in order, citations
-    in the reader's form (Assran et al., 2023, p. 4), and a bibliography: authors, year, title, venue. Without
-    references from the briefer, the sources cited are listed by name with their headings."""
+    """A finished document as one Markdown file: its title from the brief, every section in order, and
+    numbered references: each source a footnote [^n], numbered in the order the text first cites it, its
+    entry the bibliography's (authors, year, title, venue) and the pages cited. A page shows [n] linking to
+    the entry and a way back (the user, 2026-11-13: "shorten them to just be the ref number"). Without
+    references from the briefer, an entry is the source's name and heading."""
 
-    CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)(?:,\s*page\s+(\d+))?[^\]]*\]")
-    # "... tasks. [@x]" at the end of a line: the citation goes inside its sentence. Revisions and list items
-    # don't pass the writer's own clean-up, and a dozen of them ended up after the full stop (2026-11-13)
-    AFTER_STOP: ClassVar[re.Pattern[str]] = re.compile(r"([.!?])((?:[ \t]*\[@[^\]\n]+\])+)[ \t]*$", re.M)
+    CITATION: ClassVar[re.Pattern[str]] = re.compile(r" ?\[@([^\],\s]+)(?:,\s*page\s+(\d+))?[^\]]*\]")
     REFERENCES = "docs/references.json"
 
     @classmethod
@@ -291,34 +290,51 @@ class DocumentAssembly:
         if not sections:
             return None
         title = cls.title(level / "docs" / "brief.md")
-        body = cls.AFTER_STOP.sub(r"\2\1", "\n\n".join(p.read_text().strip() for p in sections))
+        body = "\n\n".join(p.read_text().strip() for p in sections)
         references = cls.references(level / cls.REFERENCES)
-        if references:
-            used: dict[str, Reference] = {}
+        numbers: dict[str, int] = {}  # a source's key: its reference's document, or the part's name
+        entries: dict[str, str] = {}
+        pages: dict[str, list[int]] = {}
 
-            def cited(match: re.Match[str]) -> str:
-                reference = cls.owner(match.group(1), references)
-                if reference is None:
-                    return match.group(0)
-                used[reference.document] = reference
-                page = f", p. {match.group(2)}" if match.group(2) else ""
-                return f"({reference.short}{page})"
+        def key_of(part: str) -> tuple[str, str]:
+            if references:
+                reference = cls.owner(part, references)
+                if reference is not None:
+                    return reference.document, cls.entry(reference)
+            return part, f"`{part}`: {cls.heading(level / 'sources' / f'{part}.md')}"
 
-            body = cls.CITATION.sub(cited, body)
-            entries = sorted(used.values(), key=lambda r: (r.authors.lower(), r.year))
-            listing = "\n".join(
-                f"- {r.authors} ({r.year}). "
-                + (f"[*{r.title}*]({r.url})." if r.url else f"*{r.title}*.")
-                + (f" {r.venue}." if r.venue and r.venue != r.authors else "")
-                for r in entries
+        def cited(match: re.Match[str]) -> str:
+            key, entry = key_of(match.group(1))
+            numbers.setdefault(key, len(numbers) + 1)
+            entries.setdefault(key, entry)
+            if match.group(2):
+                pages.setdefault(key, []).append(int(match.group(2)))
+            return f"@@CITE{numbers[key]}@@"
+
+        body = cls.CITATION.sub(cited, body)
+        # one marker per source in a sentence: [@a, page 3] [@a, page 5] is [^1] once
+        body = re.sub(r"(@@CITE(\d+)@@)(?:@@CITE\2@@)+", r"\1", body)
+        body = re.sub(r"@@CITE(\d+)@@", r"[^\1]", body)
+        notes: list[str] = []
+        for key, number in sorted(numbers.items(), key=lambda kv: kv[1]):
+            cited_pages = sorted(set(pages.get(key, [])))
+            where = (
+                f" Cited at page{'s' if len(cited_pages) > 1 else ''} {', '.join(map(str, cited_pages))}."
+                if cited_pages
+                else ""
             )
-            tail = f"## References\n\n{listing}\n"
-        else:
-            names = sorted({m.group(1) for m in cls.CITATION.finditer(body)})
-            listing = "\n".join(f"- `{n}`: {cls.heading(level / 'sources' / f'{n}.md')}" for n in names)
-            tail = f"## Sources cited\n\n{listing}\n"
+            notes.append(f"[^{number}]: {entries[key]}{where}")
+        tail = "## References\n\n" + "\n".join(notes) + "\n" if notes else ""
         out.write_text(f"{title}\n\n{body}\n\n{tail}")
         return out
+
+    @staticmethod
+    def entry(r: Reference) -> str:
+        return (
+            f"{r.authors} ({r.year}). "
+            + (f"[*{r.title}*]({r.url})." if r.url else f"*{r.title}*.")
+            + (f" {r.venue}." if r.venue and r.venue != r.authors else "")
+        )
 
     @staticmethod
     def title(brief: Path) -> str:

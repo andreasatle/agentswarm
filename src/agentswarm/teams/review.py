@@ -313,8 +313,11 @@ document is finished as far as its writer knows. Find what is wrong with this se
             batches = [(self.fix_claims(part.title, upheld), upheld)]
         else:
             batches = [(self.fix_task(part.title, focus, f), [f]) for f in upheld]
+        assigned = self.assignment(part.title, views)
         for task, fixed in batches:
             tasks.append(task)
+            if assigned is not None:  # the writer revises it in one typed answer, as it wrote it
+                events.append(SectionAssigned(artifact=task, path=part.title, section=assigned.section))
             findings.extend(
                 AttackFinding(task=task, claim=f.problem, quotes=tuple(e.quote for e in f.evidence))
                 for f in fixed
@@ -379,6 +382,21 @@ document is finished as far as its writer knows. Find what is wrong with this se
         )
 
     MATERIAL_LIMIT = 200_000  # characters of source text given with a review
+
+    @staticmethod
+    def assignment(path: str, views: BoardViews) -> SectionAssigned | None:
+        """The section of the outline a file was written for: a revision of it is written from the same
+        sources, by the writer's typed answer (until 2026-11-14 revisions went to a tool-using agent that
+        edited the Markdown freely, past the writer's clean-up)."""
+        return next(
+            (
+                e
+                for artifact in views.artifacts()
+                for e in views.history(artifact.id)
+                if isinstance(e, SectionAssigned) and e.path == path
+            ),
+            None,
+        )
 
     def material(self, worktree: Worktree, part: Part, views: BoardViews) -> tuple[ReviewSource, ...]:
         """The parts the section cites, then those it was assigned (its writer's sources), within a limit."""

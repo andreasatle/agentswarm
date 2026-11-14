@@ -108,41 +108,16 @@ class TestGuideCheck:
         good = "## Tagging\n\nThe paper tags words [@1909.00001].\nIt uses little data [@1909.00001].\n"
         assert self.check(tmp_path / "out" / "seed", {"01-tagging.md": good}) == []
 
-    def test_abbreviations_and_page_citations_pass(self, qasper: Path, tmp_path: Path) -> None:
-        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=50).write()
-        line = "## Launch\n\nThe call began at 8:45 p.m. EST, as Dr. Lund said [@1909.00001, page 3].\n"
-        assert self.check(tmp_path / "out" / "seed", {"01-launch.md": line}) == []
-
-    def test_displayed_and_inline_mathematics_pass(self, qasper: Path, tmp_path: Path) -> None:
-        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=50).write()
-        text = "## Loss\n\nThe energy is $E(x). y$ here [@1909.00001].\n$$\nE = F(x). G(y)\n$$\n"
+    def test_mathematics_is_not_counted_and_prose_is_not_policed(self, qasper: Path, tmp_path: Path) -> None:
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
+        # the writer's typed answer lays out the sentences, so the check has no prose rules left to apply
+        text = (
+            "## Loss\n\nThe energy is $E(x)$ [@1909.00001, page 3]. It is low.\n"
+            "$$\nE = F(x) + G(y) + H(z)\n$$\n"
+        )
         assert self.check(tmp_path / "out" / "seed", {"01-loss.md": text}) == []
 
-    def test_the_tail_of_a_line_left_behind_is_reported(self, qasper: Path, tmp_path: Path) -> None:
-        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=80).write()
-        text = (
-            "## Tagging\n\nThe paper tags words [@1909.00001].\n"
-            "gs words, and is fast [@1909.00001].\n"  # a revision replaced the start of a line
-            "-00001]\n"  # the end of a citation, cut off
-        )
-        problems = self.check(tmp_path / "out" / "seed", {"01-tagging.md": text})
-        assert len([p for p in problems if "a broken line" in p]) == 2
-
-    def test_a_line_starting_with_punctuation_or_a_citation_is_reported(
-        self, qasper: Path, tmp_path: Path
-    ) -> None:
-        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=500).write()
-        section = (
-            "## Tagging\n\nThe paper tags words [@1909.00001].\n"
-            ", and it has not been peer-reviewed [@1909.00001].\n"
-            "[@1909.00001] It uses little data.\n"
-            "In Moffatt v. Air Canada the tribunal ruled [@1909.00001].\n"
-            "J. SERVO could not verify it [@1909.00001].\n"
-        )
-        problems = self.check(tmp_path / "out" / "seed", {"01-tagging.md": section})
-        assert len([p for p in problems if "a broken line" in p]) == 2 and len(problems) == 2
-
-    def test_uncited_unknown_long_and_crowded_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
+    def test_uncited_unknown_and_long_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
         GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
         problems = self.check(
             tmp_path / "out" / "seed",
@@ -151,7 +126,6 @@ class TestGuideCheck:
                 "02-b.md": "## B\n\nSee [@nowhere] for words and more words here.\n",
             },
         )
-        assert any("01-a.md: one sentence per line" in p for p in problems)
         assert any("01-a.md: cites no source" in p for p in problems)
         assert any("[@nowhere] names no file" in p for p in problems)
         assert any("words; the brief allows at most 12" in p for p in problems)

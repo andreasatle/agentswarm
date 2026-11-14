@@ -45,7 +45,15 @@ class TestPageRenderer:
 
     @staticmethod
     def body(text: str) -> str:
-        return PageRenderer().render("# T\n\n" + text, "").split('<p class="note"></p>\n')[1]
+        page = PageRenderer().render("# T\n\n" + text, "")
+        return page.split('<p class="note"></p>\n')[1].split(f"<script>{PageRenderer.REFERENCES}")[0]
+
+    def test_numbered_references_link_to_their_entries_and_back(self) -> None:
+        body = self.body(
+            "It grew[^1]. It slowed[^2][^1].\n\n## References\n\n[^1]: Kaplan (2020).\n[^2]: Lane.\n"
+        )
+        assert '<a class="footnote-ref" href="#fn:1">1</a>' in body  # shown as [1] by the page's style
+        assert '<li id="fn:2">' in body and 'class="footnote-backref" href="#fnref:2"' in body
 
     def test_raw_html_is_shown_not_run(self) -> None:
         body = self.body("x < y, <script>alert(1)</script> and <b>b</b>")

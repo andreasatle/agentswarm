@@ -5,7 +5,19 @@ from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.core.config import ClaimsConfig, ReviewConfig
-from agentswarm.core.domain import Attacked, Escalated, Event, Perspective, Scored, Sized, TeamName
+from agentswarm.core.domain import (
+    Attacked,
+    Escalated,
+    EscalationResolved,
+    Event,
+    OutlineEntry,
+    Perspective,
+    Resolution,
+    Scored,
+    SectionAssigned,
+    Sized,
+    TeamName,
+)
 from agentswarm.evaluation.citations import CitationAnswer, CitationRequest, Support
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.claims import ClaimChecker, ClaimVerdict, WholeParts
@@ -120,6 +132,24 @@ class TestReviewCampaign:
         assert [e.file for e in reported.evidence] == ["sections/01-tagging.md", "sources/p1.md"]
         assert "97.1% accuracy" in reported.evidence[1].context
         assert "<sections/01-tagging.md>" in ruled.document  # the whole guide: is it missing everywhere?
+
+    async def test_a_revision_carries_its_sections_assignment_so_the_writer_answers_it_typed(
+        self, tmp_path: Path
+    ) -> None:
+        r = Review(tmp_path, [review(WRONG, SAYS)], [ruling(True), ruling(True)])
+        writing = r.h.create(task="Write sections/01-tagging.md")
+        entry = OutlineEntry(title="Tagging", covers="the tagger", sources=("p1",), words=300)
+        r.h.board.append(
+            [
+                SectionAssigned(artifact=writing.id, path="sections/01-tagging.md", section=entry),
+                # its writing is done (here: dropped), or the review waits for the document to be written
+                EscalationResolved(artifact=writing.id, resolution=Resolution.DROP),
+            ]
+        )
+        await r.campaign.step()
+        (task,) = r.attacked().tasks
+        assigned = [e for e in r.events() if isinstance(e, SectionAssigned) and e.artifact == task]
+        assert [(a.path, a.section) for a in assigned] == [("sections/01-tagging.md", entry)]
 
     async def test_evidence_that_isnt_there_or_doesnt_fit_the_perspective_is_dropped_unruled(
         self, tmp_path: Path

@@ -42,7 +42,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Red team (hardening): attacks the finished product, one spec section and focus at a time](#red-team-hardening-attacks-the-finished-product-one-spec-section-and-focus-at-a-time) | (`Hardener`) | `AttackReport` |
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
-| [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionText` |
+| [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionDraft` |
 | [Benchmark judge (not part of any run): reader-facing flaws in a finished document](#benchmark-judge-not-part-of-any-run-reader-facing-flaws-in-a-finished-document) | (`ReaderJudge`) | `JudgeReport` |
 | [Citation audit, and the referee of a claims finding: does the cited source support a document's statement?](#citation-audit-and-the-referee-of-a-claims-finding-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
 | [Claim checker (review, `claims` perspective): one cited statement against its source](#claim-checker-review-claims-perspective-one-cited-statement-against-its-source) | (`ClaimChecker`) | `ClaimVerdict` |
@@ -1836,23 +1836,25 @@ class OpenQuestion(Frozen):
 
 ### Writer
 
-`agentswarm.teams.documents.Writer` Version `28898dbb0a6c`.
+`agentswarm.teams.documents.Writer` Version `01158cc2bdd5`.
 
 ```text
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
-its rules), what this section covers and its length, and the full text of the sources it draws on: the only
-source of facts.
+its rules), your task (write the section, or revise it), what the section covers and its length, and the
+full text of the sources it draws on: the only source of facts.
 
-- Write the whole section file: a '## ' heading with the section's title, then the text.
+- Give the section's text as blocks in reading order: paragraphs of sentences, a list where the content is a
+  list, a displayed formula where one is needed. The heading is written for you.
 - Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
-- Cite every factual statement with the source it comes from, like [@name], using the names in the data
-  exactly. Where a source marks its pages ([page 121]), name the page too: [@name, page 121]. State only
-  what a source says.
-- Write mathematics in LaTeX: inline as $...$, a displayed formula as $$ on a line of its own, the formula,
-  and $$ again. The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the
-  paper's own notation, define every symbol, and cite where it appears.
-- One sentence per line. Stay within the word count.
-- If `current` holds the section already, revise it to fix everything in `must_fix`; keep what is right.
+- Each sentence is one whole sentence. Give the sources its facts come from in its `cites`, by their names
+  in the data exactly, with the page where a source marks its pages ([page 121]); never write a citation into
+  the text. State only what a source says.
+- Write mathematics in LaTeX: inline as $...$ within a sentence, a displayed formula as an equation block.
+  The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the paper's own
+  notation, define every symbol, and cite where it appears in the sentence that introduces it.
+- Stay within the word count.
+- If `current` holds the section already, revise it as the task says and fix everything in `must_fix`;
+  keep what is right.
 ```
 
 ### User message (sample)
@@ -1861,6 +1863,7 @@ source of facts.
 <data>
 {
   "brief": "# The brief: Challenger for engineers\n\n## Audience\n\nPracticing engineers ...",
+  "task": "Write section 3, The technical cause, of the outline in docs/brief.md.",
   "file": "sections/03-the-technical-cause.md",
   "title": "The technical cause",
   "covers": "The field joint, its O-rings, and why cold mattered.",
@@ -1884,6 +1887,7 @@ class SectionRequest(Frozen):
     """The payload a section writer receives: everything it needs, read by plain code."""
 
     brief: str  # who the document is for, what it must do, its rules
+    task: str  # what to do: write the section of the outline, or revise it for a reviewer's finding
     file: str  # the section's file
     title: str
     covers: str
@@ -1901,29 +1905,204 @@ class SourcePart(Frozen):
 ### Answer
 
 ```python
-class SectionText(Frozen):
-    """The whole section file."""
+class SectionDraft(Frozen):
+    """The section's text as blocks in reading order, under its heading (which plain code writes)."""
 
-    text: str = Field(description="the section file: a '## ' heading, then the text, one sentence per line")
+    blocks: list[Block] = Field(min_length=1)
+
+
+class Paragraph(Frozen):
+    kind: Literal["paragraph"] = "paragraph"
+    sentences: list[Sentence] = Field(min_length=1)
+
+
+class Sentence(Frozen):
+    text: str = Field(description="one whole sentence with its final punctuation, and no citation in it")
+    cites: list[Cite] = Field(
+        default_factory=list[Cite],
+        description="the sources its facts come from; empty only for a sentence that states no fact",
+    )
+
+
+class Cite(Frozen):
+    source: str = Field(description="a source's name, exactly as given in `sources`")
+    page: int | None = Field(
+        default=None, description="the page, where the source marks its pages ([page 121])"
+    )
+
+
+class Bullets(Frozen):
+    kind: Literal["list"] = "list"
+    items: list[Sentence] = Field(min_length=1)
+
+
+class Equation(Frozen):
+    kind: Literal["equation"] = "equation"
+    latex: str = Field(
+        description="a displayed formula in LaTeX, without the $$; cite it in the sentence before"
+    )
 ```
 
 <details><summary>JSON schema</summary>
 
 ```json
 {
+  "$defs": {
+    "Bullets": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Sentence"
+          },
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Bullets",
+      "type": "object"
+    },
+    "Cite": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "a source's name, exactly as given in `sources`",
+          "title": "Source",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the page, where the source marks its pages ([page 121])",
+          "title": "Page"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "Cite",
+      "type": "object"
+    },
+    "Equation": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "equation",
+          "default": "equation",
+          "title": "Kind",
+          "type": "string"
+        },
+        "latex": {
+          "description": "a displayed formula in LaTeX, without the $$; cite it in the sentence before",
+          "title": "Latex",
+          "type": "string"
+        }
+      },
+      "required": [
+        "latex"
+      ],
+      "title": "Equation",
+      "type": "object"
+    },
+    "Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sentences": {
+          "items": {
+            "$ref": "#/$defs/Sentence"
+          },
+          "minItems": 1,
+          "title": "Sentences",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sentences"
+      ],
+      "title": "Paragraph",
+      "type": "object"
+    },
+    "Sentence": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "description": "one whole sentence with its final punctuation, and no citation in it",
+          "title": "Text",
+          "type": "string"
+        },
+        "cites": {
+          "description": "the sources its facts come from; empty only for a sentence that states no fact",
+          "items": {
+            "$ref": "#/$defs/Cite"
+          },
+          "title": "Cites",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Sentence",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
-  "description": "The whole section file.",
+  "description": "The section's text as blocks in reading order, under its heading (which plain code writes).",
   "properties": {
-    "text": {
-      "description": "the section file: a '## ' heading, then the text, one sentence per line",
-      "title": "Text",
-      "type": "string"
+    "blocks": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "equation": "#/$defs/Equation",
+            "list": "#/$defs/Bullets",
+            "paragraph": "#/$defs/Paragraph"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Paragraph"
+          },
+          {
+            "$ref": "#/$defs/Bullets"
+          },
+          {
+            "$ref": "#/$defs/Equation"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Blocks",
+      "type": "array"
     }
   },
   "required": [
-    "text"
+    "blocks"
   ],
-  "title": "SectionText",
+  "title": "SectionDraft",
   "type": "object"
 }
 ```

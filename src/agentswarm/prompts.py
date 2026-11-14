@@ -89,8 +89,8 @@ from agentswarm.teams.documents import (
     ConsistencyChecker,
     FactChecker,
     Outliner,
+    SectionDraft,
     SectionRequest,
-    SectionText,
     SourcePart,
     Writer,
 )
@@ -287,6 +287,7 @@ class SampleData:
     def section(cls) -> SectionRequest:
         return SectionRequest(
             brief="# The brief: Challenger for engineers\n\n## Audience\n\nPracticing engineers ...",
+            task="Write section 3, The technical cause, of the outline in docs/brief.md.",
             file="sections/03-the-technical-cause.md",
             title="The technical cause",
             covers="The field joint, its O-rings, and why cold mattered.",
@@ -602,7 +603,7 @@ class PromptCatalogue:
                 (Caller("", Writer, Writer.SECTION),),
                 Writer,
                 SampleData.section(),
-                SectionText,
+                SectionDraft,
                 None,
             ),
             CallFamily(

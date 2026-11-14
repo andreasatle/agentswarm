@@ -5,8 +5,8 @@ the three reviewers are reviewing analyzers, whose evidence is a verbatim quote 
 """
 
 import re
-from collections.abc import Mapping, Sequence
-from typing import ClassVar
+from collections.abc import Sequence
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,6 +43,7 @@ class SectionRequest(Frozen):
     """The payload a section writer receives: everything it needs, read by plain code."""
 
     brief: str  # who the document is for, what it must do, its rules
+    task: str  # what to do: write the section of the outline, or revise it for a reviewer's finding
     file: str  # the section's file
     title: str
     covers: str
@@ -52,133 +53,104 @@ class SectionRequest(Frozen):
     must_fix: tuple[str, ...]  # what failed last time: the checks' report, a reviewer's finding
 
 
-class SectionText(Frozen):
-    """The whole section file."""
+class Cite(Frozen):
+    source: str = Field(description="a source's name, exactly as given in `sources`")
+    page: int | None = Field(
+        default=None, description="the page, where the source marks its pages ([page 121])"
+    )
 
-    text: str = Field(description="the section file: a '## ' heading, then the text, one sentence per line")
+
+class Sentence(Frozen):
+    text: str = Field(description="one whole sentence with its final punctuation, and no citation in it")
+    cites: list[Cite] = Field(
+        default_factory=list[Cite],
+        description="the sources its facts come from; empty only for a sentence that states no fact",
+    )
 
 
-class Citations:
-    """Mends citations that name a page as if it were a source: [@report-p123] becomes
-    [@report-p118, page 123] when the part report-p118 holds pages 118 to 135 (2026-10-18: a writer cited
-    pages that way three times in a row; the page is right, only the form is wrong)."""
+class Paragraph(Frozen):
+    kind: Literal["paragraph"] = "paragraph"
+    sentences: list[Sentence] = Field(min_length=1)
 
-    PAGED: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)-p(\d{3})(?:,\s*page\s+(\d+))?\]")
 
-    GROUP: ClassVar[re.Pattern[str]] = re.compile(r"\[(@[^\]]*?;?\s*@[^\]]*)\]")
+class Bullets(Frozen):
+    kind: Literal["list"] = "list"
+    items: list[Sentence] = Field(min_length=1)
+
+
+class Equation(Frozen):
+    kind: Literal["equation"] = "equation"
+    latex: str = Field(
+        description="a displayed formula in LaTeX, without the $$; cite it in the sentence before"
+    )
+
+
+Block = Annotated[Paragraph | Bullets | Equation, Field(discriminator="kind")]
+
+
+class SectionDraft(Frozen):
+    """The section's text as blocks in reading order, under its heading (which plain code writes)."""
+
+    blocks: list[Block] = Field(min_length=1)
+
+
+class SectionLayout:
+    """A typed section laid out as Markdown by plain code: its heading, one sentence per line, a paragraph's
+    sentences together, a list's items as bullets, a formula between $$ lines, each sentence's citations
+    inside it before its final punctuation, as [@name] or [@name, page 121].
+
+    The writer used to return the Markdown itself, and plain code guessed where its sentences ended and
+    moved citations around (abbreviation lists, citations after a full stop or at a line's start): every
+    patch improved the guess, none removed it (docs/design/self-correction.md, 2026-11-14)."""
+
+    END: ClassVar[re.Pattern[str]] = re.compile(r"^(.*?)([.!?]+[\"')\]\u201d\u2019]*)?$", re.S)
 
     @classmethod
-    def separate(cls, text: str) -> str:
-        """[@a, @b] or [@a; @b, page 3] as one citation each: [@a] [@b, page 3]."""
-
-        def apart(match: re.Match[str]) -> str:
-            pieces = [p.strip() for p in re.split(r"[;,]\s*(?=@)", match.group(1))]
-            return " ".join(f"[{p}]" for p in pieces if p)
-
-        return cls.GROUP.sub(apart, text)
-
-    @classmethod
-    def mend(cls, text: str, names: Sequence[str]) -> str:
-        text = cls.separate(text)
-        known = set(names)
-        starts: dict[str, list[int]] = {}
-        for name in names:
-            if (paged := re.fullmatch(r"(.+)-p(\d{3})", name)) is not None:
-                starts.setdefault(paged.group(1), []).append(int(paged.group(2)))
-
-        def fixed(match: re.Match[str]) -> str:
-            whole = f"{match.group(1)}-p{match.group(2)}"
-            if whole in known or match.group(1) not in starts:
-                return match.group(0)
-            page = int(match.group(3) or match.group(2))
-            first = max((p for p in starts[match.group(1)] if p <= page), default=None)
-            if first is None:
-                return match.group(0)
-            return f"[@{match.group(1)}-p{first:03d}, page {page}]"
-
-        return cls.PAGED.sub(fixed, text)
-
-    SPOKEN: ClassVar[re.Pattern[str]] = re.compile(r"\(([^()\n]{3,200})\)")
+    def markdown(cls, title: str, draft: SectionDraft) -> str:
+        parts = [f"## {title}"]
+        for block in draft.blocks:
+            match block:
+                case Paragraph():
+                    parts.append("\n".join(cls.sentence(s) for s in block.sentences))
+                case Bullets():
+                    parts.append("\n".join(f"- {cls.sentence(s)}" for s in block.items))
+                case Equation():
+                    parts.append(f"$$\n{block.latex.strip().strip('$').strip()}\n$$")
+        return "\n\n".join(parts) + "\n"
 
     @classmethod
-    def spoken(cls, text: str, headings: Mapping[str, str]) -> str:
-        """Citations written the way a reader sees them, by a source's heading, as tags: "(Wikipedia: Maritime
-        republics, part 1 of 3)" becomes [@wikipedia-maritime-republics-01] when that is the heading of the
-        part given (2026-10-19: a writer cited a whole Venice section that way three times and failed the
-        check each time). `headings` maps each part's heading to its name; a parenthesis that isn't one, or
-        several separated by semicolons, is left alone."""
-        known = {cls.letters(h): name for h, name in headings.items()}
-        for heading, name in headings.items():  # "Maritime republics" for its first part as well
-            whole = re.sub(r",\s*(?:part 1 of \d+|pages 1-\d+)$", "", heading)
-            known.setdefault(cls.letters(whole), name)
-
-        def tagged(match: re.Match[str]) -> str:
-            names: list[str] = []
-            for piece in match.group(1).split(";"):
-                cited = piece.strip()
-                name = known.get(cls.letters(cited)) or known.get(cls.letters(cited.split(":", 1)[-1]))
-                if name is None:
-                    return match.group(0)
-                names.append(name)
-            return " ".join(f"[@{n}]" for n in names)
-
-        return cls.SPOKEN.sub(tagged, text)
+    def sentence(cls, sentence: Sentence) -> str:
+        text = " ".join(sentence.text.split())
+        tags = " ".join(
+            f"[@{c.source.strip()}, page {c.page}]" if c.page is not None else f"[@{c.source.strip()}]"
+            for c in dict.fromkeys(sentence.cites)
+        )
+        if not tags:
+            return text
+        found = cls.END.match(text)
+        body, end = (found.group(1), found.group(2) or "") if found else (text, "")
+        return f"{body.rstrip()} {tags}{end}"
 
     @staticmethod
-    def letters(text: str) -> str:
-        return re.sub(r"[^a-z0-9]", "", text.lower())
-
-
-class Sentences:
-    """Puts each sentence on its own line, by the document checker's own rule (tools/check_doc.py): writers
-    run sentences together ("Architecture. The context encoder ..."), and the checker then fails a correct
-    section (2026-10-18: three of eleven tutorial sections). Lists and tables are left as they are."""
-
-    END: ClassVar[re.Pattern[str]] = re.compile(r"([.!?]) +(?=[A-Z])")
-    ABBREVIATION: ClassVar[re.Pattern[str]] = re.compile(
-        r"(?:\b(?:[A-Za-z]\.){2,}|\b[A-Z]\.|\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|No|Nos|Fig|Vol|vs|v|cf|al|Inc|Co|Corp|Ltd|Eq|Sec)\.)$"
-    )
-
-    # "... 24/7. [@klarna]": a citation after the full stop goes before it, inside its sentence
-    TRAILING_CITATION: ClassVar[re.Pattern[str]] = re.compile(r"([.!?])((?:[ \t]*\[@[^\]\n]+\])+)[ \t]*$")
-    LEADING_CITATION: ClassVar[re.Pattern[str]] = re.compile(
-        r"(?<=[.!?\"\u201d)])\n[ \t]*((?:\[@[^\]\n]+\][ \t]*)+)"
-    )
+    def sentences(draft: SectionDraft) -> list[Sentence]:
+        return [
+            s
+            for b in draft.blocks
+            for s in (b.sentences if isinstance(b, Paragraph) else b.items if isinstance(b, Bullets) else [])
+        ]
 
     @classmethod
-    def lines(cls, text: str) -> str:
-        # A citation a writer put at the start of the next line belongs to the sentence before it (2026-11-13:
-        # "lower cost.\n[@klarna] Its AI assistant ..." put Klarna's claim on the wrong sentence)
-        text = cls.LEADING_CITATION.sub(lambda m: " " + m.group(1).strip() + "\n", text)
-        out: list[str] = []
-        display = False  # inside a $$ ... $$ block: mathematics, left as it is
-        for line in text.splitlines():
-            if line.strip().startswith("$$"):
-                display = not display if line.strip() == "$$" or not line.strip().endswith("$$") else display
-                out.append(line)
-                continue
-            listed = (
-                re.match(r"\s*(?:[-*|>#]|\d+[.)]\s)", line) is not None
-            )  # lists, tables, quotes, headings
-            if display or listed or not line.strip():
-                out.append(line)
-                continue
-            out += [cls.TRAILING_CITATION.sub(r"\2\1", part) for part in cls.split(line)]
-        return "\n".join(out)
+    def words(cls, draft: SectionDraft) -> int:
+        """Words of the sentences, citations and formulas left out: as the document checker counts them."""
+        return sum(len(s.text.split()) for s in cls.sentences(draft))
 
     @classmethod
-    def split(cls, line: str) -> list[str]:
-        parts: list[str] = []
-        start = 0
-        for match in cls.END.finditer(line):
-            before = line[start : match.start() + 1]
-            inside = before.count("[") > before.count("]") or line[: match.start()].count("$") % 2 == 1
-            if cls.ABBREVIATION.search(before) or inside:
-                continue  # "p.m. EST", "Fig. 3", or inside a citation or an inline formula
-            parts.append(before.strip())
-            start = match.end()
-        parts.append(line[start:].strip())
-        return [p for p in parts if p]
+    def unknown(cls, draft: SectionDraft, names: Sequence[str]) -> list[str]:
+        """The sources cited that aren't among the names given."""
+        known = set(names)
+        return list(
+            dict.fromkeys(c.source for s in cls.sentences(draft) for c in s.cites if c.source not in known)
+        )
 
 
 class Overlap:
@@ -216,19 +188,21 @@ class Overlap:
 class Writer(ExecutorTeam):
     SECTION = """\
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
-its rules), what this section covers and its length, and the full text of the sources it draws on: the only
-source of facts.
+its rules), your task (write the section, or revise it), what the section covers and its length, and the
+full text of the sources it draws on: the only source of facts.
 
-- Write the whole section file: a '## ' heading with the section's title, then the text.
+- Give the section's text as blocks in reading order: paragraphs of sentences, a list where the content is a
+  list, a displayed formula where one is needed. The heading is written for you.
 - Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
-- Cite every factual statement with the source it comes from, like [@name], using the names in the data
-  exactly. Where a source marks its pages ([page 121]), name the page too: [@name, page 121]. State only
-  what a source says.
-- Write mathematics in LaTeX: inline as $...$, a displayed formula as $$ on a line of its own, the formula,
-  and $$ again. The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the
-  paper's own notation, define every symbol, and cite where it appears.
-- One sentence per line. Stay within the word count.
-- If `current` holds the section already, revise it to fix everything in `must_fix`; keep what is right."""
+- Each sentence is one whole sentence. Give the sources its facts come from in its `cites`, by their names
+  in the data exactly, with the page where a source marks its pages ([page 121]); never write a citation into
+  the text. State only what a source says.
+- Write mathematics in LaTeX: inline as $...$ within a sentence, a displayed formula as an equation block.
+  The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the paper's own
+  notation, define every symbol, and cite where it appears in the sentence that introduces it.
+- Stay within the word count.
+- If `current` holds the section already, revise it as the task says and fix everything in `must_fix`;
+  keep what is right."""
     INSTRUCTIONS = """\
 You are the writer of a document. Write or revise what `instruction.goal` asks for.
 
@@ -246,13 +220,6 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
     # Rewrites to shorten, at most: one wasn't enough, Haiku's sections stayed 23-49% over after it and the
     # whole document over its cap, which a strong model was then paid to fix (2026-11-13, $0.40 of $1.31)
     SHORTEN: ClassVar[int] = 3
-    CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@[^\],\s]+(?:,[^\]]*)?\]")
-
-    @classmethod
-    def words(cls, text: str) -> int:
-        """Words of text under the heading, citations left out: as the document checker counts them."""
-        body = [line for line in text.splitlines()[1:] if line.strip() and not line.startswith("#")]
-        return sum(len(cls.CITATION.sub("", line).split()) for line in body)
 
     def request(
         self,
@@ -304,6 +271,7 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
             )
         section = SectionRequest(
             brief=toolbox.text("docs/brief.md") or "",
+            task=request.instruction.goal,
             file=assigned.path,
             title=assigned.section.title,
             covers=assigned.section.covers,
@@ -312,8 +280,17 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
             current=toolbox.text(assigned.path) or "",
             must_fix=tuple(f.detail for f in request.instruction.must_fix),
         )
-        answer = await worker.run(self.SECTION, section, SectionText)
-        words = self.words(answer.text)
+        draft = await worker.run(self.SECTION, section, SectionDraft)
+        unknown = SectionLayout.unknown(draft, names)
+        if unknown:  # once: a citation naming no source fails the document check anyway
+            wrong = (
+                f"The section cites {', '.join(unknown)}, which are not sources; cite only these: "
+                f"{', '.join(p.name for p in sources)}."
+            )
+            draft = await worker.run(
+                self.SECTION, self.again(section, draft, assigned.section.title, wrong), SectionDraft
+            )
+        words = SectionLayout.words(draft)
         for _ in range(self.SHORTEN):  # rewrites told the numbers: writers ran 40% long
             if words <= assigned.section.words * self.OVER:
                 break
@@ -322,20 +299,21 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
                 f"Cut about {words - assigned.section.words} words: "
                 "drop the least important sentences, shorten the rest."
             )
-            again = section.model_copy(
-                update={"current": answer.text, "must_fix": (*section.must_fix, too_long)}
+            draft = await worker.run(
+                self.SECTION, self.again(section, draft, assigned.section.title, too_long), SectionDraft
             )
-            answer = await worker.run(self.SECTION, again, SectionText)
-            words = self.words(answer.text)
-        headings = {
-            (toolbox.text(f"sources/{n}.md") or "").split("\n", 1)[0].lstrip("# ").strip(): n for n in names
-        }
-        headings.pop("", None)
-        text = Sentences.lines(Citations.mend(Citations.spoken(answer.text.strip(), headings), names))
-        result = toolbox.write_file(assigned.path, text + "\n")
+            words = SectionLayout.words(draft)
+        result = toolbox.write_file(assigned.path, SectionLayout.markdown(assigned.section.title, draft))
         if result.startswith("error:"):
             return ExecutorReport(summary=f"could not write {assigned.path}: {result}", complete=False)
         return ExecutorReport(summary=f"{assigned.path}: {assigned.section.title}", complete=True)
+
+    @staticmethod
+    def again(section: SectionRequest, draft: SectionDraft, title: str, problem: str) -> SectionRequest:
+        """The request once more, with the draft as the current section and what is wrong with it."""
+        return section.model_copy(
+            update={"current": SectionLayout.markdown(title, draft), "must_fix": (*section.must_fix, problem)}
+        )
 
 
 class Outliner(Decomposer):

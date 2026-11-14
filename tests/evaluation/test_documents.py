@@ -81,12 +81,16 @@ class TestOptions:
 
 
 class TestDocumentAssembly:
-    def test_a_web_source_is_listed_with_its_link(self, tmp_path: Path) -> None:
+    def test_sources_are_numbered_by_first_citation_with_their_entries_and_pages(
+        self, tmp_path: Path
+    ) -> None:
         level = tmp_path / "level"
         (level / "sections").mkdir(parents=True)
         (level / "docs").mkdir()
         (level / "sections" / "01-a.md").write_text(
-            "## A\n\nGlass is made there [@wikipedia-murano-01].\n- Boats come too. [@wikipedia-murano-01]\n"
+            "## A\n\nGlass is made there [@wikipedia-murano-01].\n"
+            "Furnaces moved [@history-p010, page 12] [@history-p010, page 14] [@wikipedia-murano-02].\n"
+            "- Boats come too [@history-p010, page 12].\n"
         )
         murano = Reference(
             document="wikipedia-murano",
@@ -97,11 +101,19 @@ class TestDocumentAssembly:
             short="Wikipedia: Murano",
             url="https://en.wikipedia.org/wiki/Murano",
         )
-        (level / "docs" / "references.json").write_text(json.dumps([murano.model_dump()]))
+        history = Reference(
+            document="history", authors="Lane", title="Venice", year="1973", short="Lane, 1973"
+        )
+        (level / "docs" / "references.json").write_text(
+            json.dumps([murano.model_dump(), history.model_dump()])
+        )
         text = (DocumentAssembly.write(level, tmp_path / "d.md") or tmp_path).read_text()
-        assert "(Wikipedia: Murano)" in text
-        assert "- Boats come too (Wikipedia: Murano).\n" in text  # a citation after the stop moves inside
-        assert "- Wikipedia (2026). [*Murano*](https://en.wikipedia.org/wiki/Murano).\n" in text
+        assert "Glass is made there[^1].\n" in text
+        assert "Furnaces moved[^2][^1].\n" in text  # one number per source in a sentence
+        assert "- Boats come too[^2].\n" in text
+        assert "[^1]: Wikipedia (2026). [*Murano*](https://en.wikipedia.org/wiki/Murano).\n" in text
+        assert "[^2]: Lane (1973). *Venice*. Cited at pages 12, 14.\n" in text
+        assert text.index("## References") < text.index("[^1]: ")
 
     def test_a_reference_named_by_the_whole_file_name_owns_the_shortened_parts(self) -> None:
         reference = Reference(
@@ -129,11 +141,13 @@ class TestDocumentAssembly:
         text = out.read_text()
         assert text.startswith("# Diffusion for beginners\n\n## One\n")
         assert text.index("## One") < text.index("## Two")
-        assert "- `paper-p001`: Paper, pages 1-2" in text and "- `paper-p003`: Paper, pages 3-5" in text
+        assert "First[^1]." in text and "Later[^2]." in text
+        assert "[^1]: `paper-p001`: Paper, pages 1-2\n" in text
+        assert "[^2]: `paper-p003`: Paper, pages 3-5 Cited at page 4." in text
 
 
 class TestReferences:
-    def test_citations_in_the_readers_form_and_a_bibliography(self, tmp_path: Path) -> None:
+    def test_the_parts_of_one_document_share_its_number(self, tmp_path: Path) -> None:
         level = tmp_path / "level"
         for sub in ("sections", "sources", "docs"):
             (level / sub).mkdir(parents=True)
@@ -148,5 +162,7 @@ class TestReferences:
         out = DocumentAssembly.write(level, tmp_path / "document.md")
         assert out is not None
         text = out.read_text()
-        assert "It predicts (Assran et al., 2023, p. 4). Also (Assran et al., 2023)." in text
-        assert text.endswith("## References\n\n- Assran, M., et al. (2023). *I-JEPA*. CVPR.\n")
+        assert "It predicts[^1]. Also[^1]." in text
+        assert text.endswith(
+            "## References\n\n[^1]: Assran, M., et al. (2023). *I-JEPA*. CVPR. Cited at page 4.\n"
+        )

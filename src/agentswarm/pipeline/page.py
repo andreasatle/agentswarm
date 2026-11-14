@@ -50,7 +50,24 @@ class PageRenderer:
             "th,td{border:1px solid var(--rule);padding:.35rem .5rem;vertical-align:top}",
             "h3{font-size:1.05rem;margin:1.6rem 0 .4rem}li{margin:.3rem 0}"
             ".katex-display{overflow-x:auto;overflow-y:hidden}",
+            # numbered references: [3] in the text, one way back from the entry, to where the reader was
+            "sup{line-height:0}.footnote-ref{text-decoration:none;font-size:.8em}"
+            '.footnote-ref::before{content:"["}.footnote-ref::after{content:"]"}'
+            ".footnote hr{display:none}.footnote{font-size:.93rem}.footnote li:target{background:var(--rule)}"
+            ".footnote-backref{text-decoration:none;margin-left:.3em}"
+            ".footnote-backref~.footnote-backref{display:none}",
         )
+    )
+    # Each reference's entry as the [n]'s tooltip, and the way back to the [n] the reader followed (a source
+    # cited ten times has ten back links; one is shown, and it returns to the right place)
+    REFERENCES = (
+        "document.querySelectorAll('.footnote-ref').forEach(function(a){"
+        "var li=document.getElementById(a.getAttribute('href').slice(1));"
+        "if(li){a.title=li.textContent.replace(/\\u21a9/g,'').trim();}"
+        "a.addEventListener('click',function(){window.lastRef=a.parentNode.id;});});"
+        "document.querySelectorAll('.footnote-backref').forEach(function(b){"
+        "b.addEventListener('click',function(e){if(window.lastRef){e.preventDefault();"
+        "location.hash=window.lastRef;}});});"
     )
 
     def render(self, text: str, note: str) -> str:
@@ -72,7 +89,7 @@ class PageRenderer:
         text = self.YEAR.sub(r"\1\\. ", self.TIMES.sub(r"\\*", text.replace("\\$", "&#36;")))
         first, _, body = text.partition("\n")
         title = first.lstrip("# ").strip() or "Untitled"
-        converter = markdown.Markdown(extensions=["tables", "sane_lists", "fenced_code"])
+        converter = markdown.Markdown(extensions=["tables", "sane_lists", "fenced_code", "footnotes"])
         converter.preprocessors.deregister("html_block")
         converter.inlinePatterns.deregister("html")
         content = self.restore(converter.convert(self.restore(body, kept, code_only=True)), kept)
@@ -90,7 +107,7 @@ class PageRenderer:
             f'<script defer src="{self.KATEX}/katex.min.js"></script>\n'
             f'<script defer src="{self.KATEX}/contrib/auto-render.min.js" onload="{render}"></script>\n'
             f"<style>{self.STYLE}</style></head><body><h1>{html.escape(title)}</h1>\n"
-            f'<p class="note">{note}</p>\n{content}\n</body></html>\n'
+            f'<p class="note">{note}</p>\n{content}\n<script>{self.REFERENCES}</script>\n</body></html>\n'
         )
 
     @staticmethod
