@@ -107,6 +107,9 @@ class TestProjectStage:
         stage.validate(reviewing)
         review = ProjectConfig.load(reviewing).review
         assert review is not None and review.max_rounds == Policy.load().review_rounds == 2
+        # findings are ruled without reasoning, cited statements with it (docs/design/self-correction.md)
+        config = ProjectConfig.load(reviewing)
+        assert review.finding_referee == "referee-fast" and config.models["referee-fast"].thinking is False
 
 
 class TestSpentBy:

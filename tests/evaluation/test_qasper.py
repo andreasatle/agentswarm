@@ -7,6 +7,15 @@ from typing import Any
 import pytest
 
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
+from agentswarm.teams.documents import (
+    Bullets,
+    Cite,
+    Equation,
+    Paragraph,
+    SectionDraft,
+    SectionLayout,
+    Sentence,
+)
 
 
 def answer(**fields: Any) -> dict[str, Any]:
@@ -116,6 +125,23 @@ class TestGuideCheck:
             "$$\nE = F(x) + G(y) + H(z)\n$$\n"
         )
         assert self.check(tmp_path / "out" / "seed", {"01-loss.md": text}) == []
+
+    def test_the_writer_counts_a_section_exactly_as_the_check(self, qasper: Path, tmp_path: Path) -> None:
+        cited = [Cite(source="1909.00001", page=2)]
+        draft = SectionDraft(
+            blocks=[
+                Paragraph(
+                    sentences=[Sentence(text="It tags words.", cites=cited), Sentence(text="It is fast.")]
+                ),
+                Bullets(items=[Sentence(text="A point.", cites=cited), Sentence(text="Another one")]),
+                Equation(latex="E = mc^2"),
+            ]
+        )
+        words = SectionLayout.words(draft)
+        text = SectionLayout.markdown("Tags", draft)
+        for cap, fits in ((words, True), (words - 1, False)):
+            GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / f"out{cap}", words=cap).write()
+            assert (self.check(tmp_path / f"out{cap}" / "seed", {"01-tags.md": text}) == []) == fits
 
     def test_uncited_unknown_and_long_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
         GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()

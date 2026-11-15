@@ -190,6 +190,7 @@ class ProjectStage:
             # document (round 0 of the benchmark: 24 of 35 judged flaws were unclear passages or repetition)
             "model": "haiku55",
             "referee": "referee",
+            "finding_referee": "referee-fast",  # reasoning off for findings (docs/design/self-correction.md)
             "perspectives": ["reader", *(["claims"] if short else [])],
             "claims": {"model": "haiku55"},
             "quiet_rounds": 1,

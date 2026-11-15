@@ -85,9 +85,9 @@ class TestSectionWriter:
         await Writer(worker, [], Harness.LADDER.lowest).work(worker, request, WorktreeToolbox(worktree, []))
         again = worker.calls[1][1]
         assert (
-            isinstance(again, SectionRequest) and "has 21 words; it may have at most 10" in again.must_fix[-1]
+            isinstance(again, SectionRequest) and "has 22 words; it may have at most 10" in again.must_fix[-1]
         )
-        assert "Cut about 11 words" in again.must_fix[-1] and len(worker.calls) == 3
+        assert "Cut about 12 words" in again.must_fix[-1] and len(worker.calls) == 3
         assert worktree.read("sections/03-cause.md") == "## Cause\n\nThe joint failed [@rogers-07].\n"
         worktree.remove()
 
@@ -140,7 +140,8 @@ class TestSectionLayout:
             "## I-JEPA\n\nArchitecture.\nThe encoder is a ViT (see Fig. 2) [@p, page 3].\n"
             'It was "a surprise [@p] [@q]."\n\n- A first point [@q].\n- No fact here\n\n$$\nE = mc^2\n$$\n'
         )
-        assert SectionLayout.words(typed) == 1 + 8 + 4 + 3 + 3
+        # as the document checker counts the Markdown: a cited sentence's full stop and a bullet's dash count
+        assert SectionLayout.words(typed) == 1 + 9 + 5 + 5 + 4
         assert SectionLayout.unknown(typed, ["p"]) == ["q"]
 
 

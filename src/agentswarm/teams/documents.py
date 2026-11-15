@@ -139,10 +139,19 @@ class SectionLayout:
             for s in (b.sentences if isinstance(b, Paragraph) else b.items if isinstance(b, Bullets) else [])
         ]
 
+    # A citation as the document checker (evaluation/qasper.py CHECK) finds it, to leave it out of the count.
+    CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)(?:,[^\]]*)?\]")
+
     @classmethod
     def words(cls, draft: SectionDraft) -> int:
-        """Words of the sentences, citations and formulas left out: as the document checker counts them."""
-        return sum(len(s.text.split()) for s in cls.sentences(draft))
+        """The section's words exactly as the document checker counts them in its Markdown: the heading,
+        formulas and citations left out, but a bullet's dash and the full stop a citation leaves apart
+        counted. Counting the sentences' own words instead ran 2-4% short of the checker (benchmark r1,
+        2026-11-15): sections written to their budget overran the document's cap, and the writer could not
+        see why."""
+        prose = [b for b in draft.blocks if not isinstance(b, Equation)]
+        lines = cls.markdown("", draft.model_copy(update={"blocks": prose})).splitlines()[1:]
+        return sum(len(cls.CITATION.sub("", line).split()) for line in lines)
 
     @classmethod
     def unknown(cls, draft: SectionDraft, names: Sequence[str]) -> list[str]:
