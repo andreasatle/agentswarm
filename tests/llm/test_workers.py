@@ -341,6 +341,26 @@ class TestChatModels:
         ).get("m")
         assert model.model_dump()["extra_body"] == {"cache_control": {"type": "ephemeral"}}
 
+    def test_thinking_is_switched_in_the_request_body_through_openrouter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TEST_ROUTER_KEY", "k-test")
+
+        def body(model: str, thinking: bool) -> object:
+            config = ModelConfig(
+                model=model,
+                base_url="https://openrouter.ai/api/v1",
+                api_key_env="TEST_ROUTER_KEY",
+                thinking=thinking,
+            )
+            return ChatModels.settings(config).get("extra_body")
+
+        assert body("openai:deepseek/deepseek-v4-pro", False) == {"reasoning": {"enabled": False}}
+        assert body("openai:anthropic/claude-haiku-5.5", True) == {
+            "cache_control": {"type": "ephemeral"},
+            "reasoning": {"enabled": True},
+        }
+
     def test_thinking_can_be_switched_off_for_ollama_and_is_refused_elsewhere(self) -> None:
         assert (
             ChatModels.settings(ModelConfig(model="ollama:gemma4:26b", thinking=False))["reasoning"] is False

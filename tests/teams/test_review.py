@@ -63,6 +63,7 @@ class Review:
         perspectives: tuple[Perspective, ...] = (Perspective.FACTS,),
         checker: list[Step[BaseModel]] | None = None,  # the claim checker's script, for `claims`
         max_rounds: int | None = None,
+        finding_referee: list[Step[BaseModel]] | None = None,  # its own referee for findings, when given
     ) -> None:
         tmp_path.mkdir(parents=True, exist_ok=True)
         self.h = Harness(tmp_path)
@@ -76,6 +77,7 @@ class Review:
         self.reviewer = FakeWorker(reviewer)
         self.referee = FakeWorker(referee)
         self.checker = FakeWorker(checker or [])
+        self.finding_referee = FakeWorker(finding_referee or [])
         claims = ClaimsConfig(model="cheap") if checker is not None else None
         config = ReviewConfig(
             model="rev", referee="ref", perspectives=perspectives, claims=claims, max_rounds=max_rounds
@@ -90,6 +92,9 @@ class Review:
             self.reviewer,
             Referee(self.referee, "deepseek", ()),
             claims=ClaimChecker(self.checker, WholeParts()) if checker is not None else None,
+            finding_referee=Referee(self.finding_referee, "fast", ())
+            if finding_referee is not None
+            else None,
         )
 
     def events(self) -> list[Event]:
@@ -111,6 +116,12 @@ class TestFindingAnswer:
 
 
 class TestReviewCampaign:
+    async def test_findings_go_to_their_own_referee_when_the_review_names_one(self, tmp_path: Path) -> None:
+        r = Review(tmp_path, [review(WRONG, SAYS)], [], finding_referee=[ruling(True), ruling(True)])
+        assert await r.campaign.step() == 1
+        assert r.attacked().confirmed == 1
+        assert not r.referee.calls and len(r.finding_referee.calls) == 2
+
     async def test_a_confirmed_finding_becomes_a_revision_the_writer_tries_whole(
         self, tmp_path: Path
     ) -> None:

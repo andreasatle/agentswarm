@@ -167,6 +167,8 @@ document is finished as far as its writer knows. Find what is wrong with this se
         budget: Budget | None = None,
         progress: Measure | None = None,
         claims: ClaimChecker | None = None,  # checks each cited statement, for the `claims` perspective
+        finding_referee: Referee
+        | None = None,  # rules on findings that aren't cited statements; None: referee
     ) -> None:
         super().__init__(board, repository, ladder, config.quiet_rounds, budget, progress, config.max_rounds)
         self._claims = claims
@@ -175,6 +177,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
         self._artifacts = artifacts
         self._worker = worker
         self._referee = referee
+        self._finding_referee = finding_referee or referee
 
     @property
     def focuses(self) -> tuple[Focus, ...]:
@@ -281,7 +284,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
                     )
                 )
         ruled = (  # the review's findings ruled together: the document is sent once, not once a finding
-            await self._referee.rule_findings(
+            await self._finding_referee.rule_findings(
                 FindingRequest(
                     perspective=self.PERSPECTIVE[focus],
                     brief=request.brief,

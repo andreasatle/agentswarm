@@ -17,6 +17,7 @@ models:
   haiku55: {{max_tokens: 32768, model: 'anthropic:claude-haiku-5-5', usd_per_million: {{input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125}}}}
   gpt-sol: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:openai/gpt-6.1-sol', usd_per_million: {{input: 2.0, output: 10.0, cache_read: 0.1}}}}
   referee: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {{cache_read: 0.022, input: 0.66, output: 1.98}}}}
+  referee-fast: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, thinking: false, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {{cache_read: 0.022, input: 0.66, output: 1.98}}}}
 checks:
   check_doc: {{command: [python, tools/check_doc.py], kind: build_failure, timeout_s: 60}}
 teams:

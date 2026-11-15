@@ -77,16 +77,16 @@ class ChatModels:
             "base_url": config.base_url,
             "timeout": config.timeout_s,
         }
-        if config.thinking is not None:
+        if config.thinking is not None and config.account not in cls.THINKING_HOSTS:
             setting = cls.THINKING_SETTING.get(config.provider)
             if setting is None:
                 raise ModelUnavailable(
                     f"{config.model}: `thinking` can't be set for provider {config.provider!r} yet "
-                    f"(settable for: {sorted(cls.THINKING_SETTING)})"
+                    f"(settable for: {sorted(cls.THINKING_SETTING | dict.fromkeys(cls.THINKING_HOSTS, ''))})"
                 )
             candidates[setting] = config.thinking
         candidates["api_key"] = cls.api_key(config)
-        candidates["extra_body"] = cls.cache_request(config)
+        candidates["extra_body"] = cls.extra_body(config)
         context = config.context_window or cls.DEFAULT_CONTEXT.get(config.provider)
         if context is not None:
             setting = cls.CONTEXT_SETTING.get(config.provider)
@@ -106,6 +106,19 @@ class ChatModels:
     CACHE_ON_REQUEST: ClassVar[dict[tuple[str, str], dict[str, object]]] = {
         ("openrouter.ai", "anthropic/"): {"cache_control": {"type": "ephemeral"}},
     }
+
+    # Hosts that switch a model's reasoning on or off in an OpenAI-compatible request's body. OpenRouter's
+    # `reasoning.effort` and `reasoning.max_tokens` did not bound DeepSeek V4 Pro's reasoning (2026-11-15:
+    # 14,336 and 16,384 reasoning tokens with a 3,000 cap); `enabled: false` did (750-1,255 tokens a reply).
+    THINKING_HOSTS: ClassVar[frozenset[str]] = frozenset({"openrouter.ai"})
+
+    @classmethod
+    def extra_body(cls, config: ModelConfig) -> dict[str, object] | None:
+        """What an OpenAI-compatible request carries beyond the standard fields: caching and reasoning."""
+        body = dict(cls.cache_request(config) or {})
+        if config.thinking is not None and config.account in cls.THINKING_HOSTS:
+            body["reasoning"] = {"enabled": config.thinking}
+        return body or None
 
     @classmethod
     def cache_request(cls, config: ModelConfig) -> dict[str, object] | None:

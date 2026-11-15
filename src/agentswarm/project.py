@@ -21,7 +21,7 @@ from agentswarm.control.scheduler import Scheduler
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
-from agentswarm.core.config import ClaimsConfig, ProjectConfig, SpendLimits
+from agentswarm.core.config import ClaimsConfig, ProjectConfig, ReviewConfig, SpendLimits
 from agentswarm.core.domain import Artifact, Level, OverBudget, ProjectId, TeamName, Usage
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionProgress, QuestionScore
 from agentswarm.evaluation.score import Measure, Progress
@@ -363,6 +363,7 @@ class Project:
                     budget,
                     progress,
                     cls.claim_checker(reviewing.claims, root, workers.worker, metered, owned),
+                    cls.finding_referee(reviewing, config, workers.worker, metered),
                 )
             )
         return cls(
@@ -383,6 +384,19 @@ class Project:
             lambda model, role: workers.worker(model, 1, metered(role, model)),
             budget,
         )
+
+    @staticmethod
+    def finding_referee(
+        review: ReviewConfig,
+        config: ProjectConfig,
+        worker: Callable[[str, int, Meter], Worker],
+        metered: Callable[[str, str], Meter],
+    ) -> Referee | None:
+        """The referee for findings that aren't cited statements, when the review names its own."""
+        name = review.finding_referee
+        if name is None:
+            return None
+        return Referee(worker(name, 3, metered("referee", name)), config.models[name].model, ())
 
     @staticmethod
     def claim_checker(

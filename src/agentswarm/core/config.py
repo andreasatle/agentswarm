@@ -348,6 +348,10 @@ class ReviewConfig(Strict):
 
     model: str  # the reviewers' model, a name in `models`
     referee: str  # rules on each finding before it becomes a task, a name in `models`
+    # Rules on the findings that aren't cited statements (reader, coverage, ...); None: the referee. Reasoning
+    # ran away in half the batched rulings on 2026-11-15 (to the 16,384 output limit), so these can go to a
+    # model with thinking off while cited statements keep the reasoning referee.
+    finding_referee: str | None = None
     brief: str = "docs/brief.md"  # what the document is for, in the project
     sections: str = "sections"  # the folder of the document's section files
     sources: str = "sources"  # the folder of the sources every fact must come from
@@ -586,7 +590,13 @@ class ProjectConfig(Strict):
                 )
         if self.review is not None:
             claims = self.review.claims
-            for model in (self.review.model, self.review.referee, *([claims.model] if claims else [])):
+            named = (
+                self.review.model,
+                self.review.referee,
+                self.review.finding_referee,
+                *([claims.model] if claims else []),
+            )
+            for model in (m for m in named if m is not None):
                 if model not in self.models:
                     raise ValueError(f"review uses undefined model {model!r}")
         if self.hardening is not None:

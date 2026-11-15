@@ -147,6 +147,7 @@ class DocumentImport:
 review:
   model: gpt-sol
   referee: referee
+  finding_referee: referee-fast
   perspectives: [{perspectives}]
   quiet_rounds: 1
 """
