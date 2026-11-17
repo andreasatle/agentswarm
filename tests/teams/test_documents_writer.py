@@ -91,6 +91,28 @@ class TestSectionWriter:
         assert worktree.read("sections/03-cause.md") == "## Cause\n\nThe joint failed [@rogers-07].\n"
         worktree.remove()
 
+    async def test_a_revision_that_loses_most_of_its_section_is_not_written(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+        artifact = h.create(task="Revise sections/03-cause.md")
+        worktree = h.repository.checkout_artifact(artifact)
+        worktree.write("sources/rogers-07.md", "# Rogers, part 7\n\nThe O-rings lost resilience.\n")
+        current = "## Cause\n\n" + "The joint failed in the cold that morning [@rogers-07].\n" * 4
+        worktree.write("sections/03-cause.md", current)
+        worker = FakeWorker([lambda _: draft(said("The joint failed.", "rogers-07"))])
+        entry = OutlineEntry(title="Cause", covers="the joint", sources=("rogers-07",), words=40)
+        request = SectionWriting(
+            north_star="a report",
+            instruction=Instruction(goal="Revise sections/03-cause.md", must_fix=(), constraints=()),
+            files=(),
+            diff_summary="",
+            assignment=SectionAssigned(artifact=artifact.id, path="sections/03-cause.md", section=entry),
+        )
+        writer = Writer(worker, [], Harness.LADDER.lowest)
+        report = await writer.work(worker, request, WorktreeToolbox(worktree, []))
+        assert not report.complete and "from 36 words to 4" in report.summary  # counted as the checker does
+        assert worktree.read("sections/03-cause.md") == current
+        worktree.remove()
+
 
 class TestUnknownSources:
     async def test_a_citation_of_no_source_is_sent_back_once_with_the_names_to_use(

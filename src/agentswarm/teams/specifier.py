@@ -305,7 +305,7 @@ document against your brief.
 
 - The document lives in `sections/`, one Markdown file per section of the outline, numbered in its order \
 (`sections/01-...md`), each starting with a `## ` heading.
-- At most {words} words in all.
+- About {words} words in all.
 - Every factual statement cites the source it comes from, like `[@{example}]`, naming a file in `sources/` \
 without its extension. The sources are the only source of facts.
 - One sentence per line.

@@ -153,7 +153,7 @@ class TestBriefer:
         level = h.repository.checkout_level(Harness.LADDER.base)
         text = level.read("docs/brief.md")
         level.remove()
-        assert "## Audience\n\nmanagers" in text and "At most 500 words in all." in text
+        assert "## Audience\n\nmanagers" in text and "About 500 words in all." in text
         h.board.append([Resumed(reason="read it")])
         assert await briefer.step() == 1 and briefer.done()
         tasks = [a.task for a in h.board.current().artifacts()]

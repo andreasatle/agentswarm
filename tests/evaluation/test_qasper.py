@@ -118,7 +118,7 @@ class TestGuideCheck:
         assert self.check(tmp_path / "out" / "seed", {"01-tagging.md": good}) == []
 
     def test_mathematics_is_not_counted_and_prose_is_not_policed(self, qasper: Path, tmp_path: Path) -> None:
-        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=10).write()
         # the writer's typed answer lays out the sentences, so the check has no prose rules left to apply
         text = (
             "## Loss\n\nThe energy is $E(x)$ [@1909.00001, page 3]. It is low.\n"
@@ -126,7 +126,10 @@ class TestGuideCheck:
         )
         assert self.check(tmp_path / "out" / "seed", {"01-loss.md": text}) == []
 
-    def test_the_writer_counts_a_section_exactly_as_the_check(self, qasper: Path, tmp_path: Path) -> None:
+    def test_the_writer_counts_a_section_exactly_as_the_check(
+        self, qasper: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(GuideImport, "SLACK", 1.0)  # the count at the limit itself
         cited = [Cite(source="1909.00001", page=2)]
         draft = SectionDraft(
             blocks=[
@@ -144,7 +147,7 @@ class TestGuideCheck:
             assert (self.check(tmp_path / f"out{cap}" / "seed", {"01-tags.md": text}) == []) == fits
 
     def test_uncited_unknown_and_long_text_is_reported(self, qasper: Path, tmp_path: Path) -> None:
-        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=12).write()
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=10).write()
         problems = self.check(
             tmp_path / "out" / "seed",
             {
@@ -154,4 +157,9 @@ class TestGuideCheck:
         )
         assert any("01-a.md: cites no source" in p for p in problems)
         assert any("[@nowhere] names no file" in p for p in problems)
-        assert any("words; the brief allows at most 12" in p for p in problems)
+        assert any("13 words; the brief asks for about 10, at most 12" in p for p in problems)
+
+    def test_a_guide_somewhat_over_its_length_passes(self, qasper: Path, tmp_path: Path) -> None:
+        GuideImport(qasper, ["1909.00001"], "tagging", tmp_path / "out", words=10).write()
+        text = "## A\n\nIt tags words and it is quite fast [@1909.00001].\n"  # 11 words: a target, not a cap
+        assert self.check(tmp_path / "out" / "seed", {"01-a.md": text}) == []

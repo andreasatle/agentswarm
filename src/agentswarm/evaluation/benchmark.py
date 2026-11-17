@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.llm.workers import Worker
 from agentswarm.pipeline.graph import DocumentPipeline
-from agentswarm.pipeline.run import Answer, Choice, RunRequest, RunView
+from agentswarm.pipeline.run import Answer, Choice, RunRequest, RunView, Stage
 
 
 class Frozen(BaseModel):
@@ -134,6 +134,9 @@ class RunMeasure(Frozen):
     usd_by_model: dict[str, float]
     audit_share: float | None  # fully supported citations in the last audit; None: no audit
     flaws: tuple[Flaw, ...]
+    # Why the run didn't publish; None: it did. A run stopped before writing had no flaws to find, and it
+    # showed as "flaws 0" beside the finished ones (benchmark r2, 2026-11-16: Docker was down)
+    unfinished: str | None = None
 
     def flaw_counts(self) -> dict[FlawKind, int]:
         return {kind: sum(f.kind is kind for f in self.flaws) for kind in FlawKind}
@@ -159,6 +162,9 @@ class Benchmark:
             usd_by_model=by_model,
             audit_share=round(run.audits[-1].share, 3) if run.audits else None,
             flaws=tuple(flaws),
+            unfinished=None
+            if run.stage is Stage.PUBLISHED
+            else (view.failure or run.held or f"ended at {run.stage}"),
         )
 
     @staticmethod

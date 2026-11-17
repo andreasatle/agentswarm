@@ -122,6 +122,9 @@ class GuideImport:
     """A seed for a guide to the chosen papers, and their questions held out."""
 
     QUESTIONS: ClassVar[str] = "questions.json"
+    # The length is a target (the user, 2026-11-17): the check fails a guide only this far past it. A hard cap
+    # made a strong model trim a 2,150-word guide eleven times to land at 2,001-2,025 ($0.74, benchmark r2).
+    SLACK: ClassVar[float] = 1.2
     # What the guide is for. The hidden questions are practitioners' (data, baselines, metrics, numbers),
     # so the exam matches the reference brief; a newcomer's guide spends its words on explanations they don't
     # ask about (2026-10-16: two review arms doubled such a guide, and no question was gained).
@@ -155,7 +158,7 @@ The papers are in `sources/`, one file each. Use them, and nothing else, for eve
 
 - The guide lives in `sections/`, one Markdown file per section, numbered in reading order \
 (`sections/01-introduction.md`, ...), each starting with a `## ` heading.
-- At most {words} words in all.
+- About {words} words in all.
 - Every factual statement cites the paper it comes from, like `[@{example}]`; a citation names a file in \
 `sources/` without its extension.
 """
@@ -164,7 +167,8 @@ The papers are in `sources/`, one file each. Use them, and nothing else, for eve
 
 - every file in sections/ is Markdown, starts with a '## ' heading and has text under it;
 - every citation [@name] names a file in sources/, and every section cites at least one;
-- at most {words} words in all sections together.
+- all sections together not far past the brief's {words} words: a target, not an exact limit (the user,
+  2026-11-17: "I see it more as a guideline"), so only a guide over LIMIT words fails.
 
 Structural rules only: the writer gives its sentences and their citations as typed fields and plain code lays
 them out, so the prose rules this file had (one sentence per line, no line starting mid-sentence or with a
@@ -178,6 +182,7 @@ import sys
 from pathlib import Path
 
 WORDS = {words}
+LIMIT = {limit}
 CITATION = re.compile(r"\\[@([^\\],\\s]+)(?:,[^\\]]*)?\\]")  # [@name] or [@name, page 121]
 
 
@@ -191,8 +196,9 @@ class GuideCheck:
         found = sections.glob("*") if sections.is_dir() else []
         files = sorted(p for p in found if not p.name.startswith("."))
         words = sum(self.check_section(path) for path in files)
-        if words > WORDS:
-            self.problems.append(f"the guide has {{words}} words; the brief allows at most {{WORDS}}")
+        if words > LIMIT:
+            self.problems.append(f"the guide has {{words}} words; the brief asks for about {{WORDS}}, "
+                                 f"at most {{LIMIT}}")
         return self.problems
 
     @staticmethod
@@ -272,7 +278,9 @@ if __name__ == "__main__":
         purpose = self.PURPOSES[self._purpose].format(topic=self._topic)
         brief = self.BRIEF.format(purpose=purpose, papers=listed, words=self._words, example=papers[0].id)
         (seed / "docs" / "brief.md").write_text(brief)
-        (seed / "tools" / "check_doc.py").write_text(self.CHECK.format(words=self._words))
+        (seed / "tools" / "check_doc.py").write_text(
+            self.CHECK.format(words=self._words, limit=round(self._words * self.SLACK))
+        )
         questions = [q for p in papers for q in p.questions]
         (hidden / self.QUESTIONS).write_text(json.dumps([q.model_dump() for q in questions], indent=1))
         return GuideSummary(

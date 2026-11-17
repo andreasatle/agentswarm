@@ -355,3 +355,26 @@ class TestBatchedRulings:
         ]
         attacked = r.attacked()
         assert attacked.confirmed == 1 and attacked.dropped == ("second: not confirmed: r2",)
+
+    async def test_a_sections_confirmed_findings_become_one_revision(self, tmp_path: Path) -> None:
+        def two(toolbox: Toolbox | None) -> BaseModel:
+            def finding(title: str) -> ReviewFinding:
+                return ReviewFinding(title=title, problem=f"{title} problem", fix="f", evidence=(WRONG, SAYS))
+
+            return ReviewFindings(summary="reviewed", findings=(finding("first"), finding("second")))
+
+        def both(toolbox: Toolbox | None) -> BaseModel:
+            return FindingRulings(
+                rulings=[
+                    FindingAnswer(number=n, reason="r", shown=True, matters=True, fits=True) for n in (1, 2)
+                ]
+            )
+
+        # the typed writer rewrites a section whole: two revisions of it at once would conflict
+        r = Review(tmp_path, [two], [both, both])
+        await r.campaign.step()
+        attacked = r.attacked()
+        (task,) = attacked.tasks
+        assert attacked.confirmed == 2 and {f.task for f in attacked.findings} == {task}
+        text = next(a.task for a in r.h.board.current().artifacts() if a.id == task)
+        assert "(1) first" in text and "(2) second" in text

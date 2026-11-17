@@ -5,6 +5,7 @@
 import os
 from typing import Any, ClassVar
 
+import httpx
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
@@ -47,7 +48,10 @@ class ChatModels:
         if config is None:
             raise ModelUnavailable(f"no model named {name!r}; known: {sorted(self._configs)}")
         try:
-            model = init_chat_model(config.model, **self.settings(config))
+            settings = self.settings(config)
+            if config.provider == "openai":
+                settings["http_async_client"] = self.async_client(config)
+            model = init_chat_model(config.model, **settings)
         except ImportError as error:
             raise ModelUnavailable(f"model {name!r} ({config.model}): {self.install_hint(config)}") from error
         if not isinstance(model, BaseChatModel):
@@ -65,6 +69,19 @@ class ChatModels:
     # Ollama's own default is 4096 tokens whatever the model supports, and it silently drops the start of
     # a longer conversation, instructions included: Phase 8's first runs lost their answers to it.
     DEFAULT_CONTEXT: ClassVar[dict[str, int]] = {"ollama": 32_768}
+
+    @staticmethod
+    def async_client(config: ModelConfig) -> httpx.AsyncClient:
+        """An HTTP client for an OpenAI-style model that keeps no connection between calls.
+
+        LangChain's default is one client per address for the whole process, and a connection it keeps
+        belongs to the event loop that opened it: the pipeline runs each stage in a loop of its own, so the
+        next stage's first call failed with "Event loop is closed" (benchmark r2, 2026-11-16: every other
+        GPT-Sol attempt). A new connection a call costs a handshake, small beside a model call."""
+        return httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=0),
+            timeout=config.timeout_s if config.timeout_s is not None else httpx.Timeout(600.0, connect=5.0),
+        )
 
     @classmethod
     def settings(cls, config: ModelConfig) -> dict[str, Any]:

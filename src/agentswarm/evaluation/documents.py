@@ -249,7 +249,9 @@ review:
                 (seed / "docs" / "references.json").write_text(
                     json.dumps([r.model_dump() for r in known], indent=1) + "\n"
                 )
-            (seed / "tools" / "check_doc.py").write_text(GuideImport.CHECK.format(words=self._words))
+            (seed / "tools" / "check_doc.py").write_text(
+                GuideImport.CHECK.format(words=self._words, limit=round(self._words * GuideImport.SLACK))
+            )
             goal = f"{self._goal} For this audience: {audience}." if audience else self._goal
             config = folder / "project.yaml"
             config.write_text(

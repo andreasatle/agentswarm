@@ -229,6 +229,10 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
     # Rewrites to shorten, at most: one wasn't enough, Haiku's sections stayed 23-49% over after it and the
     # whole document over its cap, which a strong model was then paid to fix (2026-11-13, $0.40 of $1.31)
     SHORTEN: ClassVar[int] = 3
+    # A revision may shorten a section, not lose it: one cut a 300-word section to its first sentence, and the
+    # checks passed it (benchmark r2, 2026-11-16). Below this share of what was there (or of its budget, if
+    # that is less), the draft is refused.
+    KEEP: ClassVar[float] = 0.5
 
     def request(
         self,
@@ -312,6 +316,12 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
                 self.SECTION, self.again(section, draft, assigned.section.title, too_long), SectionDraft
             )
             words = SectionLayout.words(draft)
+        before = len(SectionLayout.CITATION.sub("", "\n".join(section.current.splitlines()[1:])).split())
+        if before and words < self.KEEP * min(before, assigned.section.words):
+            return ExecutorReport(
+                summary=f"the revision would cut {assigned.path} from {before} words to {words}; not written",
+                complete=False,
+            )
         result = toolbox.write_file(assigned.path, SectionLayout.markdown(assigned.section.title, draft))
         if result.startswith("error:"):
             return ExecutorReport(summary=f"could not write {assigned.path}: {result}", complete=False)

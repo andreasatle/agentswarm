@@ -604,8 +604,10 @@ class Cli:
         for m in measured:
             counts = ", ".join(f"{k}: {n}" for k, n in m.flaw_counts().items())
             share = f"{m.audit_share:.0%}" if m.audit_share is not None else "none"
+            ended = f"UNFINISHED ({m.unfinished}), " if m.unfinished is not None else ""
             self._show(
-                f"{m.case}: ${m.usd:.2f}, {m.minutes:.0f} min, audit {share}, flaws {len(m.flaws)} ({counts})"
+                f"{m.case}: {ended}${m.usd:.2f}, {m.minutes:.0f} min, audit {share}, "
+                f"flaws {len(m.flaws)} ({counts})"
             )
         return 0
 

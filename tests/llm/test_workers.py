@@ -1,5 +1,9 @@
+import asyncio
 import itertools
+import json
+import threading
 from collections.abc import Callable, Sequence
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from langchain.agents.structured_output import StructuredOutputValidationError
@@ -287,6 +291,48 @@ class TestChatModels:
     def test_unknown_model_name(self) -> None:
         with pytest.raises(ModelUnavailable, match="no model named"):
             ChatModels({}).get("missing")
+
+    def test_an_openai_style_model_works_in_one_event_loop_after_another(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # the pipeline runs each stage in an event loop of its own; a connection kept from the last one failed
+        # the next stage's first call with "Event loop is closed" (benchmark r2, 2026-11-16)
+        reply = {
+            "id": "x",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "m",
+            "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"  # keeps connections open, as real hosts do
+
+            def do_POST(self) -> None:
+                self.rfile.read(int(self.headers["Content-Length"]))
+                body = json.dumps(reply).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}/v1"
+            monkeypatch.setenv("LOOP_TEST_KEY", "k")
+            config = ModelConfig(model="openai:m", base_url=base, api_key_env="LOOP_TEST_KEY")
+            model = ChatModels({"m": config}).get("m")
+            assert [asyncio.run(model.ainvoke("hello")).content for _ in range(3)] == ["hi"] * 3
+        finally:
+            server.shutdown()
 
     def test_only_configured_settings_are_passed(self) -> None:
         settings = ChatModels.settings(ModelConfig(model="openai:gpt-5", temperature=0.0, timeout_s=30))

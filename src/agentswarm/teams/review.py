@@ -312,10 +312,17 @@ document is finished as far as its writer knows. Find what is wrong with this se
                 )
                 continue
             upheld.append(finding)
-        if focus is Perspective.CLAIMS and upheld:  # one revision for the section's confirmed claims
-            batches = [(self.fix_claims(part.title, upheld), upheld)]
-        else:
-            batches = [(self.fix_task(part.title, focus, f), [f]) for f in upheld]
+        # One revision for the section's confirmed findings: the typed writer rewrites a section whole, so two
+        # revisions of it at once conflict (benchmark r2: 11 of 11 conflicts were a reviewer's second finding
+        # on the same section, each redone, often by the strong model)
+        batches = []
+        if upheld:
+            fixing = (
+                self.fix_claims(part.title, upheld)
+                if focus is Perspective.CLAIMS
+                else self.fix_findings(part.title, upheld, focus)
+            )
+            batches = [(fixing, upheld)]
         assigned = self.assignment(part.title, views)
         for task, fixed in batches:
             tasks.append(task)
@@ -474,13 +481,20 @@ document is finished as far as its writer knows. Find what is wrong with this se
             )
         return None
 
-    def fix_task(self, section: str, perspective: Perspective, finding: ReviewFinding) -> ArtifactId:
-        quoted = "; ".join(f'{e.file}: "{e.quote}"' for e in finding.evidence)
+    def fix_findings(
+        self, section: str, confirmed: Sequence[ReviewFinding], perspective: Perspective
+    ) -> ArtifactId:
+        """One revision for every confirmed finding a reviewer made on a section."""
+        listed = " ".join(
+            f"({n}) {f.title}. {f.problem} Evidence: "
+            + "; ".join(f'{e.file}: "{e.quote}"' for e in f.evidence)
+            + f". Suggested: {f.fix}"
+            for n, f in enumerate(confirmed, 1)
+        )
         task = (
-            f"Revise {section} for what a reviewer ({perspective}) found: {finding.title}. {finding.problem} "
-            f"Evidence: {quoted}. Suggested: {finding.fix} Keep every factual statement cited to its "
-            f"source, follow {self._config.brief} (its length cap included), and change only what this "
-            "finding needs."
+            f"Revise {section} for what a reviewer ({perspective}) found: {listed} Keep every factual "
+            f"statement cited to its source, follow {self._config.brief} (its length included), and change "
+            "only what these findings need."
         )
         return self._artifacts.create(task, self.NAME).id
 
