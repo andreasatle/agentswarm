@@ -1,6 +1,13 @@
-# Where we are (2026-11-09)
+# Where we are (2026-11-09, with what is current on 2026-11-20 first)
 
 Details live in the docs named.
+
+## Now (2026-11-20)
+
+- **Self-correction benchmark (docs/design/self-correction.md):** the typed writer (structured output, numbered references) measured in round 2: no quality gain over round 0, about 1.6 times the cost. Its causes were fixed on 2026-11-17 (f67254b): the length is a target with 20% slack (the user: "a guideline"), a reviewer's findings on a section go to one revision, a revision that loses most of a section is refused, OpenAI-style models keep no connections between event loops ("Event loop is closed"), unfinished benchmark runs are marked. **Next: round 3 on the three cases, about $4-5, waiting for the user's yes.**
+- **Reasoning referee:** reader findings are ruled by `referee-fast` (DeepSeek V4 Pro with reasoning off through OpenRouter); cited statements keep the reasoning referee.
+- **The data-governance essay** (~/agentswarm-runs/data-governance) was stopped with its review unfinished (45% of citations fully supported); a rewrite waits until round 3 shows the writer is sound.
+- **Daily backstop** in ~/agentswarm-data/limits.yaml is 8.0, raised for 2026-11-14; the user is to set it back to 5.0.
 
 ## What works
 
