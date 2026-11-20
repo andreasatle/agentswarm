@@ -5,13 +5,14 @@ the three reviewers are reviewing analyzers, whose evidence is a verbatim quote 
 """
 
 import re
-from collections.abc import Sequence
-from typing import Annotated, ClassVar, Literal
+from collections.abc import Mapping, Sequence
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.core.domain import ArtifactContext, FindingKind, SectionAssigned, TeamName
 from agentswarm.llm.workers import Worker
+from agentswarm.retrieval.passages import PassageIndex
 from agentswarm.teams.analyzer import ReviewingAnalyzer
 from agentswarm.teams.decomposer import Decomposer
 from agentswarm.teams.executor import (
@@ -92,6 +93,30 @@ class SectionDraft(Frozen):
     """The section's text as blocks in reading order, under its heading (which plain code writes)."""
 
     blocks: list[Block] = Field(min_length=1)
+
+
+class PassageDraft(SectionDraft):
+    """A section written from passages of its sources, and whether they held what it needs."""
+
+    enough: bool = Field(
+        description="true if the passages held what the section must cover; false if something it needs is "
+        "missing from them, and it is then written again from the sources whole"
+    )
+
+
+class SectionPassages:
+    """Each source's passages that hybrid search ranks highest for what a section covers (docs/design/rag.md
+    step 4): a section's writer reads up to some 80k tokens of whole parts, mostly about other things."""
+
+    def __init__(self, index: PassageIndex, k: int) -> None:
+        self._index = index
+        self._k = k  # passages from each source
+
+    async def parts(self, query: str, sources: Mapping[str, str]) -> dict[str, str]:
+        await self._index.sync(sources)
+        return {
+            name: PassageIndex.excerpt(await self._index.search(query, [name], self._k)) for name in sources
+        }
 
 
 class SectionLayout:
@@ -229,6 +254,18 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
     # Rewrites to shorten, at most: one wasn't enough, Haiku's sections stayed 23-49% over after it and the
     # whole document over its cap, which a strong model was then paid to fix (2026-11-13, $0.40 of $1.31)
     SHORTEN: ClassVar[int] = 3
+    PASSAGES = (
+        SECTION
+        + """
+- The sources are given as passages: the parts of each source that search found for this section, gaps
+  marked [...]. If something the section must cover isn't in them, set `enough` to false: the section is
+  then written again from the sources whole."""
+    )
+
+    def __init__(self, *args: Any, passages: SectionPassages | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._passages = passages  # None: each source whole
+
     # A revision may shorten a section, not lose it: one cut a 300-word section to its first sentence, and the
     # checks passed it (benchmark r2, 2026-11-16). Below this share of what was there (or of its budget, if
     # that is less), the draft is refused.
@@ -266,13 +303,11 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
             if f.startswith("sources/") and f.endswith(".md")
         ]
         given = set(assigned.section.sources)
-        sources: list[SourcePart] = []
-        for name in assigned.section.sources:
-            own = toolbox.text(f"sources/{name}.md")
-            if own is None:
-                continue
+        texts = {n: t for n in assigned.section.sources if (t := toolbox.text(f"sources/{n}.md")) is not None}
+        whole: list[SourcePart] = []
+        for name, own in texts.items():
             before, after = Overlap.neighbours(name, names)
-            sources.append(
+            whole.append(
                 SourcePart(
                     name=name,
                     text=Overlap.text(
@@ -289,16 +324,30 @@ You are the writer of a document. Write or revise what `instruction.goal` asks f
             title=assigned.section.title,
             covers=assigned.section.covers,
             words=assigned.section.words,
-            sources=tuple(sources),
+            sources=tuple(whole),
             current=toolbox.text(assigned.path) or "",
             must_fix=tuple(f.detail for f in request.instruction.must_fix),
         )
-        draft = await worker.run(self.SECTION, section, SectionDraft)
+        draft: SectionDraft | None = None
+        if self._passages is not None and texts:
+            found = await self._passages.parts(f"{assigned.section.title}: {assigned.section.covers}", texts)
+            excerpted = section.model_copy(
+                update={
+                    "sources": tuple(
+                        SourcePart(name=n, text=t or "(no passage found)") for n, t in found.items()
+                    )
+                }
+            )
+            answer = await worker.run(self.PASSAGES, excerpted, PassageDraft)
+            if answer.enough:  # otherwise the sources whole, below (Self-Route)
+                draft, section = SectionDraft(blocks=answer.blocks), excerpted
+        if draft is None:
+            draft = await worker.run(self.SECTION, section, SectionDraft)
         unknown = SectionLayout.unknown(draft, names)
         if unknown:  # once: a citation naming no source fails the document check anyway
             wrong = (
                 f"The section cites {', '.join(unknown)}, which are not sources; cite only these: "
-                f"{', '.join(p.name for p in sources)}."
+                f"{', '.join(p.name for p in section.sources)}."
             )
             draft = await worker.run(
                 self.SECTION, self.again(section, draft, assigned.section.title, wrong), SectionDraft

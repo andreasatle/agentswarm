@@ -5,12 +5,13 @@ from pathlib import Path
 from typing import ClassVar, Self
 
 from agentswarm.board.artifacts import ArtifactFactory
-from agentswarm.core.config import LevelLadder, Price, TeamConfig, Threshold
+from agentswarm.core.config import LevelLadder, Price, RetrievalConfig, TeamConfig, Threshold
 from agentswarm.core.domain import CallKind, TeamName
 from agentswarm.gating.checks import CheckSet, CommandCheck, HardCheck
 from agentswarm.judging.judgement import Judgement, Judgements
 from agentswarm.judging.policy import Policy
 from agentswarm.llm.workers import Meter, Worker, WorkerProvider
+from agentswarm.retrieval.passages import PassageIndex
 from agentswarm.teams.acceptance import AcceptanceTester
 from agentswarm.teams.analyzer import (
     ContractTester,
@@ -22,7 +23,14 @@ from agentswarm.teams.analyzer import (
     TextTester,
 )
 from agentswarm.teams.decomposer import Decomposer
-from agentswarm.teams.documents import AudienceReviewer, ConsistencyChecker, FactChecker, Outliner, Writer
+from agentswarm.teams.documents import (
+    AudienceReviewer,
+    ConsistencyChecker,
+    FactChecker,
+    Outliner,
+    SectionPassages,
+    Writer,
+)
 from agentswarm.teams.executor import ExecutorTeam, FakeExecutor, Tier
 from agentswarm.teams.referee import Referee
 from agentswarm.teams.relevance import RelevanceFilter
@@ -46,7 +54,9 @@ class TeamResources:
         model_ids: Mapping[str, str] | None = None,  # model name -> "<provider>:<model>", for routing
         project: str = "",  # for the routing ledger's record of where an outcome came from
         prices: Mapping[str, Price | None] | None = None,  # model name -> its price, for routing estimates
+        indexes: Callable[[RetrievalConfig], PassageIndex] | None = None,  # the project's passage index
     ) -> None:
+        self._indexes = indexes
         self._prices = dict(prices or {})
         self._model_ids = dict(model_ids or {})
         self._meters = meters
@@ -71,6 +81,16 @@ class TeamResources:
 
     def judgement(self, judge: str, thresholds: Mapping[str, Threshold] | None = None) -> Judgement:
         return self._judgements.build(judge, thresholds)
+
+    def passages_for(self, team: TeamConfig) -> SectionPassages | None:
+        """A writer's passages, when its configuration asks for them."""
+        if team.retrieval is None:
+            return None
+        if self._indexes is None:
+            raise ValueError(
+                f"team {team.use!r} asks for retrieval, but this project builds no passage index"
+            )
+        return SectionPassages(self._indexes(team.retrieval), team.retrieval.k)
 
     def tiers_for(self, team: TeamConfig) -> list[Tier]:
         """The team's model tiers, cheapest first; a single `model` is one tier."""
@@ -230,6 +250,7 @@ class TeamCatalog:
                 repairs=team.repairs,
                 partial=team.partial,
                 step_budget=team.max_model_calls,
+                passages=resources.passages_for(team),
             ),
         )
         catalog.register(

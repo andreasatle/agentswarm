@@ -43,6 +43,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Referee: confirms a red team's report against the spec before it becomes work](#referee-confirms-a-red-teams-report-against-the-spec-before-it-becomes-work) | (`Referee`) | `ReportAnswer` |
 | [Specifier: drafts the specification from the goal, with the questions it had to assume](#specifier-drafts-the-specification-from-the-goal-with-the-questions-it-had-to-assume) | (`Specifier`) | `SpecDraft` |
 | [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionDraft` |
+| [Writer on passages (documents, when the writer's `retrieval` is set): the section from what search found in its sources, saying whether that was enough](#writer-on-passages-documents-when-the-writers-retrieval-is-set-the-section-from-what-search-found-in-its-sources-saying-whether-that-was-enough) | (`Writer`) | `PassageDraft` |
 | [Benchmark judge (not part of any run): reader-facing flaws in a finished document](#benchmark-judge-not-part-of-any-run-reader-facing-flaws-in-a-finished-document) | (`ReaderJudge`) | `JudgeReport` |
 | [Citation audit, and the referee of a claims finding: does the cited source support a document's statement?](#citation-audit-and-the-referee-of-a-claims-finding-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
 | [Claim checker (review, `claims` perspective): one cited statement against its source](#claim-checker-review-claims-perspective-one-cited-statement-against-its-source) | (`ClaimChecker`) | `ClaimVerdict` |
@@ -2103,6 +2104,299 @@ class Equation(Frozen):
     "blocks"
   ],
   "title": "SectionDraft",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`Writer`: 
+
+## Writer on passages (documents, when the writer's `retrieval` is set): the section from what search found in its sources, saying whether that was enough
+
+### Writer
+
+`agentswarm.teams.documents.Writer` Version `6ef854878560`.
+
+```text
+You write one section of a document. The data holds the document's brief (who it is for, what it must do,
+its rules), your task (write the section, or revise it), what the section covers and its length, and the
+full text of the sources it draws on: the only source of facts.
+
+- Give the section's text as blocks in reading order: paragraphs of sentences, a list where the content is a
+  list, a displayed formula where one is needed. The heading is written for you.
+- Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
+- Each sentence is one whole sentence. Give the sources its facts come from in its `cites`, by their names
+  in the data exactly, with the page where a source marks its pages ([page 121]); never write a citation into
+  the text. State only what a source says.
+- Write mathematics in LaTeX: inline as $...$ within a sentence, a displayed formula as an equation block.
+  The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the paper's own
+  notation, define every symbol, and cite where it appears in the sentence that introduces it.
+- Stay within the word count.
+- If `current` holds the section already, revise it as the task says and fix everything in `must_fix`;
+  keep what is right.
+- The sources are given as passages: the parts of each source that search found for this section, gaps
+  marked [...]. If something the section must cover isn't in them, set `enough` to false: the section is
+  then written again from the sources whole.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "brief": "# The brief: Challenger for engineers\n\n## Audience\n\nPracticing engineers ...",
+  "task": "Write section 3, The technical cause, of the outline in docs/brief.md.",
+  "file": "sections/03-the-technical-cause.md",
+  "title": "The technical cause",
+  "covers": "The field joint, its O-rings, and why cold mattered.",
+  "words": 400,
+  "sources": [
+    {
+      "name": "rogers-07",
+      "text": "# Rogers Commission Report, part 7 of 26\n\n..."
+    }
+  ],
+  "current": "",
+  "must_fix": []
+}
+</data>
+```
+
+### Payload types
+
+```python
+class SectionRequest(Frozen):
+    """The payload a section writer receives: everything it needs, read by plain code."""
+
+    brief: str  # who the document is for, what it must do, its rules
+    task: str  # what to do: write the section of the outline, or revise it for a reviewer's finding
+    file: str  # the section's file
+    title: str
+    covers: str
+    words: int  # at most
+    sources: tuple[SourcePart, ...]  # the only facts to use
+    current: str  # the section as it is now; empty when it is first written
+    must_fix: tuple[str, ...]  # what failed last time: the checks' report, a reviewer's finding
+
+
+class SourcePart(Frozen):
+    name: str  # as cited: [@name]
+    text: str
+```
+
+### Answer
+
+```python
+class PassageDraft(SectionDraft):
+    """A section written from passages of its sources, and whether they held what it needs."""
+
+    enough: bool = Field(
+        description="true if the passages held what the section must cover; false if something it needs is "
+        "missing from them, and it is then written again from the sources whole"
+    )
+
+
+class Paragraph(Frozen):
+    kind: Literal["paragraph"] = "paragraph"
+    sentences: list[Sentence] = Field(min_length=1)
+
+
+class Sentence(Frozen):
+    text: str = Field(description="one whole sentence with its final punctuation, and no citation in it")
+    cites: list[Cite] = Field(
+        default_factory=list[Cite],
+        description="the sources its facts come from; empty only for a sentence that states no fact",
+    )
+
+
+class Cite(Frozen):
+    source: str = Field(description="a source's name, exactly as given in `sources`")
+    page: int | None = Field(
+        default=None, description="the page, where the source marks its pages ([page 121])"
+    )
+
+
+class Bullets(Frozen):
+    kind: Literal["list"] = "list"
+    items: list[Sentence] = Field(min_length=1)
+
+
+class Equation(Frozen):
+    kind: Literal["equation"] = "equation"
+    latex: str = Field(
+        description="a displayed formula in LaTeX, without the $$; cite it in the sentence before"
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "Bullets": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/Sentence"
+          },
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Bullets",
+      "type": "object"
+    },
+    "Cite": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "a source's name, exactly as given in `sources`",
+          "title": "Source",
+          "type": "string"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the page, where the source marks its pages ([page 121])",
+          "title": "Page"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "title": "Cite",
+      "type": "object"
+    },
+    "Equation": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "equation",
+          "default": "equation",
+          "title": "Kind",
+          "type": "string"
+        },
+        "latex": {
+          "description": "a displayed formula in LaTeX, without the $$; cite it in the sentence before",
+          "title": "Latex",
+          "type": "string"
+        }
+      },
+      "required": [
+        "latex"
+      ],
+      "title": "Equation",
+      "type": "object"
+    },
+    "Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sentences": {
+          "items": {
+            "$ref": "#/$defs/Sentence"
+          },
+          "minItems": 1,
+          "title": "Sentences",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sentences"
+      ],
+      "title": "Paragraph",
+      "type": "object"
+    },
+    "Sentence": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "description": "one whole sentence with its final punctuation, and no citation in it",
+          "title": "Text",
+          "type": "string"
+        },
+        "cites": {
+          "description": "the sources its facts come from; empty only for a sentence that states no fact",
+          "items": {
+            "$ref": "#/$defs/Cite"
+          },
+          "title": "Cites",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Sentence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A section written from passages of its sources, and whether they held what it needs.",
+  "properties": {
+    "blocks": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "equation": "#/$defs/Equation",
+            "list": "#/$defs/Bullets",
+            "paragraph": "#/$defs/Paragraph"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Paragraph"
+          },
+          {
+            "$ref": "#/$defs/Bullets"
+          },
+          {
+            "$ref": "#/$defs/Equation"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Blocks",
+      "type": "array"
+    },
+    "enough": {
+      "description": "true if the passages held what the section must cover; false if something it needs is missing from them, and it is then written again from the sources whole",
+      "title": "Enough",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "blocks",
+    "enough"
+  ],
+  "title": "PassageDraft",
   "type": "object"
 }
 ```

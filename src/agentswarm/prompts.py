@@ -89,6 +89,7 @@ from agentswarm.teams.documents import (
     ConsistencyChecker,
     FactChecker,
     Outliner,
+    PassageDraft,
     SectionDraft,
     SectionRequest,
     SourcePart,
@@ -604,6 +605,15 @@ class PromptCatalogue:
                 Writer,
                 SampleData.section(),
                 SectionDraft,
+                None,
+            ),
+            CallFamily(
+                "Writer on passages (documents, when the writer's `retrieval` is set): the section from what "
+                "search found in its sources, saying whether that was enough",
+                (Caller("", Writer, Writer.PASSAGES),),
+                Writer,
+                SampleData.section(),
+                PassageDraft,
                 None,
             ),
             CallFamily(

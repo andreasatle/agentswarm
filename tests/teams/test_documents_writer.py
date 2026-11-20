@@ -2,22 +2,26 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from agentswarm.core.domain import Instruction, OutlineEntry, SectionAssigned
+from agentswarm.core.domain import ArtifactId, Instruction, OutlineEntry, SectionAssigned
 from agentswarm.llm.workers import FakeWorker, Toolbox
+from agentswarm.retrieval.passages import Chunker, PassageIndex
 from agentswarm.teams.documents import (
     Bullets,
     Cite,
     Equation,
     Overlap,
     Paragraph,
+    PassageDraft,
     SectionDraft,
     SectionLayout,
+    SectionPassages,
     SectionRequest,
     SectionWriting,
     Sentence,
     Writer,
 )
 from agentswarm.teams.executor import WorktreeToolbox
+from tests.support.fakes import HashingEmbedder
 from tests.support.harness import Harness
 
 
@@ -111,6 +115,65 @@ class TestSectionWriter:
         report = await writer.work(worker, request, WorktreeToolbox(worktree, []))
         assert not report.complete and "from 36 words to 4" in report.summary  # counted as the checker does
         assert worktree.read("sections/03-cause.md") == current
+        worktree.remove()
+
+
+class TestPassages:
+    SOURCE = (
+        "# Rogers, part 7\n\n[page 40]\nThe O-rings lost resilience below 53 F.\n\n"
+        "[page 41]\nThe commission met in Washington.\n\n[page 42]\nThe budget was approved in March.\n"
+    )
+
+    @staticmethod
+    def request(artifact: ArtifactId) -> SectionWriting:
+        entry = OutlineEntry(
+            title="Cause", covers="why the O-rings failed", sources=("rogers-07",), words=300
+        )
+        return SectionWriting(
+            north_star="a report",
+            instruction=Instruction(goal="Write sections/03-cause.md", must_fix=(), constraints=()),
+            files=(),
+            diff_summary="",
+            assignment=SectionAssigned(artifact=artifact, path="sections/03-cause.md", section=entry),
+        )
+
+    async def test_a_section_is_written_from_the_passages_search_finds_for_it(self, tmp_path: Path) -> None:
+        h = Harness(tmp_path)
+        artifact = h.create(task="Write sections/03-cause.md")
+        worktree = h.repository.checkout_artifact(artifact)
+        worktree.write("sources/rogers-07.md", self.SOURCE)
+        answer = PassageDraft(blocks=draft(said("The O-rings failed.", "rogers-07")).blocks, enough=True)
+        worker = FakeWorker([lambda _: answer])
+        passages = SectionPassages(PassageIndex(HashingEmbedder(), chunker=Chunker(size=60)), k=1)
+        writer = Writer(worker, [], Harness.LADDER.lowest, passages=passages)
+        report = await writer.work(worker, self.request(artifact.id), WorktreeToolbox(worktree, []))
+        assert report.complete and len(worker.calls) == 1
+        instructions, sent = worker.calls[0][0], worker.calls[0][1]
+        assert instructions == Writer.PASSAGES and isinstance(sent, SectionRequest)
+        (part,) = sent.sources
+        assert "O-rings lost resilience" in part.text and "budget" not in part.text  # only what it covers
+        assert worktree.read("sections/03-cause.md") == "## Cause\n\nThe O-rings failed [@rogers-07].\n"
+        worktree.remove()
+
+    async def test_when_the_passages_are_not_enough_it_is_written_from_the_sources_whole(
+        self, tmp_path: Path
+    ) -> None:
+        h = Harness(tmp_path)
+        artifact = h.create(task="Write sections/03-cause.md")
+        worktree = h.repository.checkout_artifact(artifact)
+        worktree.write("sources/rogers-07.md", self.SOURCE)
+        short = PassageDraft(blocks=draft(said("Unknown.", "rogers-07")).blocks, enough=False)
+        worker = FakeWorker([lambda _: short, section])
+        passages = SectionPassages(PassageIndex(HashingEmbedder(), chunker=Chunker(size=60)), k=1)
+        writer = Writer(worker, [], Harness.LADDER.lowest, passages=passages)
+        await writer.work(worker, self.request(artifact.id), WorktreeToolbox(worktree, []))
+        whole = worker.calls[1][1]
+        assert worker.calls[1][0] == Writer.SECTION and isinstance(whole, SectionRequest)
+        assert "budget was approved" in whole.sources[0].text  # the source whole
+        assert (
+            worktree.read("sections/03-cause.md")
+            == "## Cause\n\nThe joint failed in the cold [@rogers-07].\n"
+        )
         worktree.remove()
 
 

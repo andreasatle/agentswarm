@@ -100,9 +100,7 @@ class Retrieved:
                 cited.append(CitedSource(name=c.name, page=c.page, text="(no such source)"))
                 continue
             passages = await self._index.search(statement.claim(), [c.name], self._k)
-            text = "\n\n[...]\n\n".join(
-                (f"[page {p.page}]\n" if p.page is not None else "") + p.text for p in passages
-            )
+            text = PassageIndex.excerpt(passages)
             cited.append(CitedSource(name=c.name, page=c.page, text=text or "(no passage found)"))
         return tuple(cited)
 

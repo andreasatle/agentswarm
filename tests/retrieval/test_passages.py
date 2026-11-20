@@ -1,3 +1,5 @@
+import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -70,6 +72,16 @@ class TestPassageIndex:
         found = await index.search("dreams fragments", ["paper"], k=1)
         assert found[0].page == 6
         assert len(await index.search("sleep", ["paper"], k=50)) == 6  # the old passages were replaced
+
+    async def test_writers_indexing_the_same_source_at_once_store_it_once(self) -> None:
+        class Slow(HashingEmbedder):  # a real model's call gives the other writer its turn
+            async def documents(self, texts: Sequence[str]) -> list[list[float]]:
+                await asyncio.sleep(0)
+                return await super().documents(texts)
+
+        index = PassageIndex(Slow(), chunker=Chunker(size=100))
+        await asyncio.gather(index.sync({"paper": PAPER}), index.sync({"paper": PAPER}))
+        assert len(await index.search("sleep", ["paper"], k=50)) == 5
 
     async def test_a_saved_index_opens_again_but_never_with_another_model(self, tmp_path: Path) -> None:
         path = tmp_path / "retrieval.sqlite"

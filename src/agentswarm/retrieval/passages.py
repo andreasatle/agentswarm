@@ -159,6 +159,13 @@ class PassageIndex:
             if known.get(name) != digest:
                 await self._index(name, text, digest)
 
+    @staticmethod
+    def excerpt(passages: Sequence[Passage]) -> str:
+        """Passages as one text for a model: each with the page it starts on, gaps marked [...]."""
+        return "\n\n[...]\n\n".join(
+            (f"[page {p.page}]\n" if p.page is not None else "") + p.text for p in passages
+        )
+
     async def search(self, query: str, sources: Sequence[str], k: int) -> list[Passage]:
         """The k passages of the named sources ranked highest by keywords, meaning, or both."""
         named = list(dict.fromkeys(sources))
@@ -173,6 +180,13 @@ class PassageIndex:
         return [self._passage(id) for id in best]
 
     async def _index(self, name: str, text: str, digest: str) -> None:
+        """Embed first, then replace the source's passages in one step with no await inside, so writers
+        indexing the same source at once (they run in parallel) can't interleave and store it twice."""
+        passages = self._chunker.passages(name, text)
+        vectors = await self._vectors([p.text for p in passages])
+        known = self._db.execute("SELECT hash FROM sources WHERE name = ?", (name,)).fetchone()
+        if known is not None and known[0] == digest:
+            return  # another caller indexed this text while we embedded it
         old = [row[0] for row in self._db.execute("SELECT id FROM passages WHERE source = ?", (name,))]
         for id in old:  # an external-content FTS table is told what leaves, with the text it had
             row = self._db.execute("SELECT text, source FROM passages WHERE id = ?", (id,)).fetchone()
@@ -183,8 +197,6 @@ class PassageIndex:
             self._db.execute("DELETE FROM passages WHERE id = ?", (id,))
             if self._dimensions is not None:
                 self._db.execute("DELETE FROM passage_vectors WHERE id = ?", (id,))
-        passages = self._chunker.passages(name, text)
-        vectors = await self._vectors([p.text for p in passages])
         if vectors and self._dimensions is None:
             self._dimensions = len(vectors[0])
             self._db.execute(

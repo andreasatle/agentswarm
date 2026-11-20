@@ -228,6 +228,16 @@ class RoutingConfig(Strict):
     explore_usd: float | None = Field(default=None, gt=0)
 
 
+class RetrievalConfig(Strict):
+    """Hybrid search over the sources (retrieval/passages.py): a claim checked, or a section written, on a few
+    passages instead of whole sources."""
+
+    embeddings: str = Field(pattern=r"^[A-Za-z0-9_\-]+:.+$")  # e.g. "ollama:nomic-embed-text" (local, free)
+    k: int = Field(default=6, gt=0)  # passages from each source: a claim's cited part, a section's sources
+    query_prefix: str = ""  # a task prefix the embedding model was trained with, e.g. "search_query: "
+    document_prefix: str = ""  # e.g. "search_document: "
+
+
 class TeamConfig(Strict):
     use: str  # name in the team catalog
     watches: Level
@@ -273,6 +283,11 @@ class TeamConfig(Strict):
     # acceptance testers, projects without labels: checks that need no hand-computed answers (round trips,
     # equivalent inputs, rules the spec states) instead of exact expected values
     derived: bool = False
+    # writers: each assigned source's passages for what the section covers, not the source whole; the writer
+    # says when they don't suffice, and the section is written again from the whole sources (Self-Route).
+    # Not a per-run choice: the benchmark compares both, and the better one becomes the document default
+    # (docs/design/rag.md step 4; due 2026-12-04, removed if unused by then, goal 15)
+    retrieval: RetrievalConfig | None = None
 
     @model_validator(mode="after")
     def referee_needs_spec(self) -> Self:
@@ -324,15 +339,6 @@ class BriefConfig(Strict):
     sources: str = "sources"  # the folder of the documents to work from
     words: int = Field(default=3000, gt=0)  # the document's length cap (tools/check_doc.py holds the same)
     approve: bool = True  # pause after the brief, for the user to read it and `agentswarm resume`
-
-
-class RetrievalConfig(Strict):
-    """Hybrid search over the sources (retrieval/passages.py), for checking a claim on a few passages."""
-
-    embeddings: str = Field(pattern=r"^[A-Za-z0-9_\-]+:.+$")  # e.g. "ollama:nomic-embed-text" (local, free)
-    k: int = Field(default=6, gt=0)  # passages given with each claim
-    query_prefix: str = ""  # a task prefix the embedding model was trained with, e.g. "search_query: "
-    document_prefix: str = ""  # e.g. "search_document: "
 
 
 class ClaimsConfig(Strict):

@@ -21,7 +21,7 @@ from agentswarm.control.scheduler import Scheduler
 from agentswarm.control.supervisor import Supervisor
 from agentswarm.control.worklist import Worklist
 from agentswarm.core.clock import Clock, SystemClock
-from agentswarm.core.config import ClaimsConfig, ProjectConfig, ReviewConfig, SpendLimits
+from agentswarm.core.config import ClaimsConfig, ProjectConfig, RetrievalConfig, ReviewConfig, SpendLimits
 from agentswarm.core.domain import Artifact, Level, OverBudget, ProjectId, TeamName, Usage
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionProgress, QuestionScore
 from agentswarm.evaluation.score import Measure, Progress
@@ -215,6 +215,7 @@ class Project:
         )
 
         artifacts = ArtifactFactory(board, config.levels)
+        indexes = cls.indexes(root, owned)
         resources = TeamResources(
             workers,
             checks,
@@ -226,6 +227,7 @@ class Project:
             {name: model.model for name, model in config.models.items()},
             config.project,
             {name: model.usd_per_million for name, model in config.models.items()},
+            indexes,
         )
         runners = [
             TeamRunner(
@@ -362,7 +364,7 @@ class Project:
                     Referee(judge, config.models[reviewing.referee].model, ()),
                     budget,
                     progress,
-                    cls.claim_checker(reviewing.claims, root, workers.worker, metered, owned),
+                    cls.claim_checker(reviewing.claims, indexes, workers.worker, metered),
                     cls.finding_referee(reviewing, config, workers.worker, metered),
                 )
             )
@@ -399,25 +401,34 @@ class Project:
         return Referee(worker(name, 3, metered("referee", name)), config.models[name].model, ())
 
     @staticmethod
+    def indexes(root: Path, owned: list[Closeable]) -> Callable[[RetrievalConfig], PassageIndex]:
+        """The project's passage index (retrieval.sqlite in its root, keeping passages and embeddings), opened
+        once for whichever of the claim checker and the writers asks for it first."""
+        opened: dict[tuple[str, str, str], PassageIndex] = {}
+
+        def index(config: RetrievalConfig) -> PassageIndex:
+            key = (config.embeddings, config.query_prefix, config.document_prefix)
+            if key not in opened:
+                opened[key] = PassageIndex(LangChainEmbedder(*key), root / "retrieval.sqlite")
+                owned.append(opened[key])
+            return opened[key]
+
+        return index
+
+    @staticmethod
     def claim_checker(
         config: ClaimsConfig | None,
-        root: Path,
+        indexes: Callable[[RetrievalConfig], PassageIndex],
         worker: Callable[[str, int, Meter], Worker],
         metered: Callable[[str, str], Meter],
-        owned: list[Closeable],
     ) -> ClaimChecker | None:
         """The `claims` perspective's checker: a cheap model, on each claim's cited part whole or on the
-        passages hybrid search finds (retrieval.sqlite in the project root keeps the index and embeddings)."""
+        passages hybrid search finds."""
         if config is None:
             return None
         source_text: SourceText = WholeParts()
         if config.retrieval is not None:
-            embedder = LangChainEmbedder(
-                config.retrieval.embeddings, config.retrieval.query_prefix, config.retrieval.document_prefix
-            )
-            index = PassageIndex(embedder, root / "retrieval.sqlite")
-            owned.append(index)
-            source_text = Retrieved(index, config.retrieval.k)
+            source_text = Retrieved(indexes(config.retrieval), config.retrieval.k)
         return ClaimChecker(
             worker(config.model, 3, metered(ReviewCampaign.CLAIM_CHECKER, config.model)), source_text
         )
