@@ -737,14 +737,17 @@ class ReadingFolder(Frozen):
         named = next((f for f in self.papers if f.file is not None and name == f.file), None)
         if named is not None:
             return named
+        # A record kept for another file is that file's: a page that links to it near its top is not it (the
+        # Lean community homepage, added by hand, took the record of the textbook it links to, 2026-11-21)
+        free = [f for f in self.papers if f.file is None or f.file == name]
         start = text[: self.OPENING]
         opening = self.letters(start)
-        for found in self.papers:
+        for found in free:
             doi = self.doi(found.paper.page)
             if (doi and doi in start.lower()) or self.letters(found.paper.title) in opening:
                 return found
         words = set(re.findall(r"[a-z0-9]+", start.lower()))
-        scored = [(self.covered(f.paper.title, words), f) for f in self.papers]
+        scored = [(self.covered(f.paper.title, words), f) for f in free]
         best = max(scored, key=lambda pair: pair[0], default=(0.0, None))
         return best[1] if best[0] >= self.COVERED else None
 
@@ -762,12 +765,20 @@ class ReadingFolder(Frozen):
         return sum(w in words for w in wanted) / len(wanted) if len(wanted) >= 4 else 0.0
 
     def refreshed(self, files: Sequence[tuple[str, str]]) -> "ReadingFolder":
-        """With each paper's file as found among (name, text) of the folder's documents."""
+        """With each paper's file as found among (name, text) of the folder's documents: files known by name
+        first, so a page that names another file's paper near its top can't take it by coming first
+        alphabetically (the Lean community homepage took the textbook's record, 2026-11-21)."""
         held: dict[str, str] = {}
+        names = {name for name, _ in files}
+        for f in self.papers:
+            if f.file is not None and f.file in names and f.file not in held.values():
+                held[f.paper.id] = f.file
         for name, text in files:
+            if name in held.values():
+                continue
             found = self.match(name, text)
-            if found is not None:
-                held.setdefault(found.paper.id, name)
+            if found is not None and found.paper.id not in held:
+                held[found.paper.id] = name
         papers = tuple(f.model_copy(update={"file": held.get(f.paper.id)}) for f in self.papers)
         return self.model_copy(update={"papers": papers})
 

@@ -268,6 +268,22 @@ class TestReadingFolder:
         planned = rem.download_name  # a name the finder would have given it, on some other document
         assert folder.match(planned, "An unrelated document") is None
 
+    def test_a_page_that_names_another_files_paper_is_not_that_paper(self) -> None:
+        book = paper("W1", "Theorem Proving in Lean 4")
+        folder = ReadingFolder(topic="t", papers=(Found(paper=book, why="", file="book.txt"),))
+        homepage = "Lean community\nRead Theorem Proving in Lean 4 to get started with mathlib."
+        assert folder.match("community.html", homepage) is None
+        assert folder.match("book.txt", homepage) == folder.papers[0]
+
+    def test_a_refresh_keeps_each_paper_with_its_own_file_whatever_comes_first(self) -> None:
+        book = paper("W1", "Theorem Proving in Lean 4")
+        folder = ReadingFolder(topic="t", papers=(Found(paper=book, why="", file="zz-book.txt"),))
+        homepage = "Lean community\nRead Theorem Proving in Lean 4 to get started with mathlib."
+        refreshed = folder.refreshed(
+            [("aa-community.html", homepage), ("zz-book.txt", "Theorem Proving in Lean 4")]
+        )
+        assert refreshed.papers[0].file == "zz-book.txt"
+
 
 class TestDocumentFiles:
     def test_a_folder_stands_for_its_documents_without_the_reading_list(self, tmp_path: Path) -> None:
