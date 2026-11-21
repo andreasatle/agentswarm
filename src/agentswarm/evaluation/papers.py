@@ -550,6 +550,9 @@ class WebPage(Fetching):
     its title, its site and a link."""
 
     TITLE: ClassVar[re.Pattern[str]] = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+    JOINING: ClassVar[frozenset[str]] = frozenset(
+        {"and", "of", "for", "the", "in", "on", "with", "to", "a", "an"}
+    )
 
     def record(self, url: str, year: int) -> tuple[Candidate, bytes]:
         data = self.fetch(url)
@@ -592,7 +595,13 @@ class WebPage(Fetching):
                 text=True,
                 check=False,
             ).stdout
-            return next((" ".join(line.split()) for line in first.splitlines() if line.strip()), "")
+            lines = [" ".join(line.split()) for line in first.splitlines() if line.strip()][:3]
+            title = lines[0] if lines else ""
+            for line in lines[1:]:  # a title broken after "and", "of"...: "The Lean 4 Theorem Prover and"
+                if title.rsplit(" ", 1)[-1].lower() not in WebPage.JOINING:
+                    break
+                title += " " + line
+            return title
 
 
 class PaperSource(StrEnum):

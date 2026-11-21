@@ -396,14 +396,16 @@ class TestWebPage:
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
             b"<< /Title (The Lean 4 Theorem Prover) >>",
         ]
-        body, offsets = b"%PDF-1.4\n", []
+        body = b"%PDF-1.4\n"
+        offsets: list[int] = []
         for n, obj in enumerate(objects, 1):
             offsets.append(len(body))
             body += f"{n} 0 obj\n".encode() + obj + b"\nendobj\n"
         xref = len(body)
         body += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
         body += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
-        body += f"trailer << /Size {len(objects) + 1} /Root 1 0 R /Info 4 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+        trailer = f"trailer << /Size {len(objects) + 1} /Root 1 0 R /Info 4 0 R >>\n"
+        body += (trailer + f"startxref\n{xref}\n%%EOF\n").encode()
 
         class Paper(WebPage):
             def fetch(self, url: str) -> bytes:
