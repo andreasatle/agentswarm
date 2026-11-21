@@ -389,6 +389,29 @@ class TestWebPage:
         assert page.site == "whc.unesco.org" and page.download_name.endswith(".html")
         assert page.reference("x").url == "https://whc.unesco.org/en/list/394/"
 
+    def test_a_named_pdf_is_kept_as_a_pdf_under_its_title(self) -> None:
+        objects = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+            b"<< /Title (The Lean 4 Theorem Prover) >>",
+        ]
+        body, offsets = b"%PDF-1.4\n", []
+        for n, obj in enumerate(objects, 1):
+            offsets.append(len(body))
+            body += f"{n} 0 obj\n".encode() + obj + b"\nendobj\n"
+        xref = len(body)
+        body += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+        body += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+        body += f"trailer << /Size {len(objects) + 1} /Root 1 0 R /Info 4 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+
+        class Paper(WebPage):
+            def fetch(self, url: str) -> bytes:
+                return body
+
+        page, _ = Paper().record("https://lean-lang.org/papers/lean4.pdf", 2026)
+        assert page.title == "The Lean 4 Theorem Prover" and page.download_name.endswith(".pdf")
+
 
 class Answering(TavilySearch):
     """Tavily with canned answers: what it was asked, and no network."""

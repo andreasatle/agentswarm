@@ -13,6 +13,8 @@ import asyncio
 import html
 import os
 import re
+import subprocess
+import tempfile
 import time
 import unicodedata
 import urllib.parse
@@ -551,21 +553,46 @@ class WebPage(Fetching):
 
     def record(self, url: str, year: int) -> tuple[Candidate, bytes]:
         data = self.fetch(url)
-        found = self.TITLE.search(data.decode("utf-8", "replace"))
-        title = html.unescape(" ".join(found.group(1).split())) if found else url
+        pdf = data.startswith(
+            b"%PDF"
+        )  # a named paper, not a page (lean-lang.org/papers/lean4.pdf, 2026-11-21)
+        found = None if pdf else self.TITLE.search(data.decode("utf-8", "replace"))
+        title = (
+            self.pdf_title(data) if pdf else html.unescape(" ".join(found.group(1).split())) if found else ""
+        )
         host = urllib.parse.urlparse(url).hostname or url
         site = host.removeprefix("www.")
         candidate = Candidate(
             id=f"web:{url}",
-            title=title,
+            title=title or url,
             authors=(site,),
             year=year,
             abstract="",
             site=site,
-            kind="html",
+            kind="pdf" if pdf else "html",
             page=url,
         )
         return candidate, data
+
+    @staticmethod
+    def pdf_title(data: bytes) -> str:
+        """A PDF's title: its metadata's, else its first line of text (the Lean 4 paper has no metadata)."""
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "named.pdf"
+            path.write_bytes(data)
+            info = subprocess.run(["pdfinfo", str(path)], capture_output=True, text=True, check=False).stdout
+            meta = next(
+                (line.split(":", 1)[1].strip() for line in info.splitlines() if line.startswith("Title:")), ""
+            )
+            if meta:
+                return meta
+            first = subprocess.run(
+                ["pdftotext", "-l", "1", "-enc", "UTF-8", str(path), "-"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).stdout
+            return next((" ".join(line.split()) for line in first.splitlines() if line.strip()), "")
 
 
 class PaperSource(StrEnum):

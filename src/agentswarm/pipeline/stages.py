@@ -129,7 +129,10 @@ class SourceStage:
         )
         found = asyncio.run(finder.find(request.topic, request.reader, policy.papers, run.sources))
         named: list[Found] = []
+        searched = {f.paper.page.rstrip("/") for f in found.papers}
         for url in request.urls:
+            if url.rstrip("/") in searched:  # the search found it too: one copy (lean-agents-why, 2026-11-21)
+                continue
             try:
                 page, data = WebPage().record(url, date.today().year)
             except OSError:
