@@ -583,7 +583,8 @@ class TestTavilySearch:
             def fetch(self, url: str) -> bytes:
                 if "refused" in url:
                     raise OSError("403")
-                author = b'<meta name="citation_author" content="Zach, Richard">'
+                author = b'<meta property="og:title" content="Hilbert\'s Program | SEP" />'
+                author += b'<meta name="citation_author" content="Zach, Richard">'
                 return author + b'<meta name="citation_publication_date" content="2003/07/31">'
 
         search = Pages({})

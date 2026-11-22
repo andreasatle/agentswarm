@@ -583,7 +583,9 @@ class TavilySearch(Fetching):
         said = WebPage.metadata(url, data)
         return paper.model_copy(
             update={
-                "title": said.title or paper.title,
+                "title": Candidate.web_title(said.title)
+                if said.title
+                else paper.title,  # "... - PyTorch" too
                 "authors": said.authors or paper.authors,
                 "year": paper.year or said.year,
             }
