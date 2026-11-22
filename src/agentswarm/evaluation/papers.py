@@ -10,6 +10,7 @@ keeps only works with an open PDF); those the user adds by hand.
 """
 
 import asyncio
+import contextlib
 import html
 import os
 import re
@@ -574,11 +575,12 @@ class TavilySearch(Fetching):
         record where the page says nothing or can't be fetched. Searched sources were cited by their site,
         undated, under the search's title (principia-to-lean, 2026-11-22: seven Stanford Encyclopedia
         entries, each naming its author and date)."""
+        url = WebPage.landing(paper.page) or paper.page  # an arXiv PDF: its abstract page
         try:
-            data = self.fetch(paper.page)
+            data = self.fetch(url)
         except OSError:
             return paper
-        said = WebPage.metadata(paper.page, data)
+        said = WebPage.metadata(url, data)
         return paper.model_copy(
             update={
                 "title": said.title or paper.title,
@@ -594,6 +596,14 @@ class PageMetadata(Frozen):
     title: str = ""
     authors: tuple[str, ...] = ()  # forename first, as the catalogues give them
     year: int = 0
+
+    def over(self, other: "PageMetadata") -> "PageMetadata":
+        """These fields, and the other's where these are empty."""
+        return PageMetadata(
+            title=self.title or other.title,
+            authors=self.authors or other.authors,
+            year=self.year or other.year,
+        )
 
 
 class WebPage(Fetching):
@@ -624,6 +634,10 @@ class WebPage(Fetching):
             b"%PDF"
         )  # a named paper, not a page (lean-lang.org/papers/lean4.pdf, 2026-11-21)
         said = self.metadata(url, data)
+        landing = self.landing(url)
+        if pdf and landing:  # an arXiv PDF names no authors; its abstract page does
+            with contextlib.suppress(OSError):
+                said = self.metadata(landing, self.fetch(landing)).over(said)
         found = None if pdf else self.TITLE.search(data.decode("utf-8", "replace"))
         title = said.title or (html.unescape(" ".join(found.group(1).split())) if found else "")
         site = (urllib.parse.urlparse(url).hostname or url).removeprefix("www.")
@@ -680,7 +694,16 @@ class WebPage(Fetching):
     )
     JSON_DATE: ClassVar[re.Pattern[str]] = re.compile(r'"datePublished"\s*:\s*"(\d{4})')
     ARXIV: ClassVar[re.Pattern[str]] = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{2})(\d{2})\.\d{4,5}")
+    ARXIV_ID: ClassVar[re.Pattern[str]] = re.compile(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})")
     YEAR: ClassVar[re.Pattern[str]] = re.compile(r"\b(?:19|20)\d{2}\b")
+
+    @classmethod
+    def landing(cls, url: str) -> str | None:
+        """An arXiv paper's abstract page, whose citation tags name its title, authors and date: its PDF
+        names none, so Branch-Train-MiX was cited as "arxiv.org" (moe-systems-2, 2026-11-22). None for other
+        addresses."""
+        found = cls.ARXIV_ID.search(url)
+        return f"https://arxiv.org/abs/{found.group(1)}" if found else None
 
     @classmethod
     def published(cls, url: str, page: bytes) -> int:

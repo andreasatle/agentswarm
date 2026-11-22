@@ -433,6 +433,31 @@ class TestWebPage:
         assert page.title == "The Lean 4 Theorem Prover" and page.download_name.endswith(".pdf")
         assert page.year == 2021  # the file's creation date: the paper names none
 
+    def test_a_named_arxiv_pdf_is_cited_by_its_abstract_pages_authors(self) -> None:
+        body = self.pdf(b"/CreationDate (D:20240312)")
+        abstract = (
+            b'<meta name="citation_title" content="Branch-Train-MiX: Mixing Expert LLMs" />'
+            b'<meta name="citation_author" content="Sukhbaatar, Sainbayar" />'
+            b'<meta name="citation_author" content="Golovneva, Olga" />'
+        )
+
+        class Arxiv(WebPage):
+            asked: ClassVar[list[str]] = []
+
+            def fetch(self, url: str) -> bytes:
+                self.asked.append(url)
+                return abstract if "/abs/" in url else body
+
+        page, data = Arxiv().record("https://arxiv.org/pdf/2403.07816")
+        assert data == body and page.kind == "pdf" and Arxiv.asked[-1] == "https://arxiv.org/abs/2403.07816"
+        assert (page.title, page.authors, page.year) == (
+            "Branch-Train-MiX: Mixing Expert LLMs",
+            ("Sainbayar Sukhbaatar", "Olga Golovneva"),
+            2024,
+        )
+        assert page.reference("btx").authors == "Sukhbaatar, S., Golovneva, O."
+        assert WebPage.landing("https://lean-lang.org/papers/lean4.pdf") is None
+
     def test_a_pdf_title_that_is_a_file_name_gives_way_to_its_first_lines(self) -> None:
         word = self.pdf(b"/Title (Microsoft Word - A computer-checked proof.doc) /Author (gonthier)")
         assert WebPage.pdf_described("https://x.se/4col.pdf", word) == PageMetadata()  # no text: nothing said
