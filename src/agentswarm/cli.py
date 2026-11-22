@@ -673,7 +673,7 @@ class Cli:
         named: list[Found] = []
         for url in args.url:  # pages the user names: fetched as they are, cited by link
             try:
-                page, data = WebPage().record(url, date.today().year)
+                page, data = WebPage().record(url)
             except OSError as error:
                 self._show(f"can't fetch {url}: {error}")
                 continue

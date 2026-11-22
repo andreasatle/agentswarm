@@ -554,7 +554,7 @@ class WebPage(Fetching):
         {"and", "of", "for", "the", "in", "on", "with", "to", "a", "an"}
     )
 
-    def record(self, url: str, year: int) -> tuple[Candidate, bytes]:
+    def record(self, url: str) -> tuple[Candidate, bytes]:
         data = self.fetch(url)
         pdf = data.startswith(
             b"%PDF"
@@ -569,13 +569,40 @@ class WebPage(Fetching):
             id=f"web:{url}",
             title=title or url,
             authors=(site,),
-            year=year,
+            year=self.published(url, b"" if pdf else data),
             abstract="",
             site=site,
             kind="pdf" if pdf else "html",
             page=url,
         )
         return candidate, data
+
+    DATES: ClassVar[tuple[re.Pattern[str], ...]] = tuple(
+        re.compile(p, re.I)
+        for p in (
+            r'name="citation_publication_date"\s+content="(\d{4})',  # a journal's own citation year first
+            r'name="dc\.date"\s+content="(\d{4})',
+            r'property="article:published_time"\s+content="(\d{4})',
+            r'"datePublished"\s*:\s*"(\d{4})',
+            r'itemprop="datePublished"\s+content="(\d{4})',
+        )
+    )
+    ARXIV: ClassVar[re.Pattern[str]] = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{2})(\d{2})\.\d{4,5}")
+
+    @classmethod
+    def published(cls, url: str, page: bytes) -> int:
+        """The year a named page or paper came out, from its address (arXiv's yymm number) or its metadata; 0
+        when neither says, shown as "n.d." (the fetch year was used before, so FunSearch, 2023, was cited as
+        2026; lean-agents-why, 2026-11-21)."""
+        arxiv = cls.ARXIV.search(url)
+        if arxiv:
+            return 2000 + int(arxiv.group(1))
+        text = page.decode("utf-8", "replace")
+        for pattern in cls.DATES:
+            found = pattern.search(text)
+            if found:
+                return int(found.group(1))
+        return 0
 
     @staticmethod
     def pdf_title(data: bytes) -> str:

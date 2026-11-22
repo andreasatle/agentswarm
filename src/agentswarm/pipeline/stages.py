@@ -134,7 +134,7 @@ class SourceStage:
             if url.rstrip("/") in searched:  # the search found it too: one copy (lean-agents-why, 2026-11-21)
                 continue
             try:
-                page, data = WebPage().record(url, date.today().year)
+                page, data = WebPage().record(url)
             except OSError:
                 continue
             (run.sources / page.download_name).write_bytes(data)

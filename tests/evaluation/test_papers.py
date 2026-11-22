@@ -384,7 +384,7 @@ class TestWebPage:
                 title = b"<title>Venice and its Lagoon - UNESCO\n World Heritage</title>"
                 return b"<html><head>" + title + b"</head></html>"
 
-        page, data = Answering().record("https://whc.unesco.org/en/list/394/", 2026)
+        page, data = Answering().record("https://whc.unesco.org/en/list/394/")
         assert page.title == "Venice and its Lagoon - UNESCO World Heritage" and data.startswith(b"<html>")
         assert page.site == "whc.unesco.org" and page.download_name.endswith(".html")
         assert page.reference("x").url == "https://whc.unesco.org/en/list/394/"
@@ -411,8 +411,19 @@ class TestWebPage:
             def fetch(self, url: str) -> bytes:
                 return body
 
-        page, _ = Paper().record("https://lean-lang.org/papers/lean4.pdf", 2026)
+        page, _ = Paper().record("https://lean-lang.org/papers/lean4.pdf")
         assert page.title == "The Lean 4 Theorem Prover" and page.download_name.endswith(".pdf")
+
+    def test_a_named_source_is_dated_by_its_own_metadata_not_the_day_it_was_fetched(self) -> None:
+        nature = b'<meta name="dc.date" content="2023-12-14"/>'
+        nature += b'<meta name="citation_publication_date" content="2024/01"/>'
+        assert WebPage.published("https://www.nature.com/articles/x", nature) == 2024
+        assert (
+            WebPage.published("https://x.net/post", b'<meta itemprop="datePublished" content="2025-07-15"/>')
+            == 2025
+        )
+        assert WebPage.published("https://arxiv.org/pdf/2310.06770", b"") == 2023
+        assert WebPage.published("https://lean-lang.org/papers/lean4.pdf", b"") == 0
 
 
 class Answering(TavilySearch):
