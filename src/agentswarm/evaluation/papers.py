@@ -1047,7 +1047,12 @@ than a first search, that would find a source that does."""
     PER_GAP = 2  # follow-up queries searched for each uncovered thread
     FOLLOW_UPS = 8  # follow-up queries in a round at most
     MORE = 4  # sources added in a round at most: one for each uncovered thread
-    EXCERPT = 4000  # characters of each source the check reads
+    # characters of each source the check reads, after its navigation: 4,000 showed web pages' share buttons
+    # and PDFs' abstracts, so threads their sources answer counted as open and the search stalled
+    # (principia-to-lean, moe-systems, 2026-11-22)
+    EXCERPT = 12000
+    # a line that is only links or images: a page's navigation, kept by the extract ("* [Twitter](...)")
+    NAVIGATION: ClassVar[re.Pattern[str]] = re.compile(r"^[\s*#>|-]*(?:!?\[[^\]]*\]\([^)]*\)[\s|*,-]*)+$")
     MIN_QUOTE = 20  # characters; a shorter passage matches too easily to show a thread is answered
 
     def __init__(
@@ -1102,6 +1107,12 @@ than a first search, that would find a source that does."""
             c.model_copy(update={"abstract": c.abstract[: self.ABSTRACT], "pdfs": (), "page": "", "free": ""})
             for c in candidates
         )
+
+    @classmethod
+    def readable(cls, text: str) -> str:
+        """A source's text without its navigation lines, its whitespace collapsed."""
+        kept = (line for line in text.splitlines() if not cls.NAVIGATION.match(line))
+        return " ".join(" ".join(kept).split())
 
     def numbered(self) -> tuple[Thread, ...]:
         return tuple(Thread(number=n, question=t) for n, t in enumerate(self._threads, 1))
@@ -1163,7 +1174,7 @@ than a first search, that would find a source that does."""
             brief=self._brief,
             threads=self.numbered(),
             sources=tuple(
-                SourceExcerpt(file=file, title=titles[file], text=" ".join(text.split())[: self.EXCERPT])
+                SourceExcerpt(file=file, title=titles[file], text=self.readable(text)[: self.EXCERPT])
                 for file, text in texts.items()
             ),
         )

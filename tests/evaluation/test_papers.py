@@ -255,6 +255,15 @@ class TestPaperFinder:
         picked = await found.find("topic", "ML", 2, tmp_path)
         assert [f.paper.id for f in picked.papers] == ["1", "2"]
 
+    def test_the_coverage_check_reads_a_page_without_its_navigation(self) -> None:
+        page = (
+            "Wide expert parallelism\n* [L](https://linkedin.com/share?u=x)\n[Technical Blog](https://n.com/blog)\n"
+            "![](https://n.com/image.webp)\nDispatch sends each token to its experts' GPUs; see [DeepEP](https://x).\n"
+        )
+        assert PaperFinder.readable(page) == (
+            "Wide expert parallelism Dispatch sends each token to its experts' GPUs; see [DeepEP](https://x)."
+        )
+
 
 class TestReadingFolder:
     def test_a_paper_fetched_by_hand_is_known_by_its_doi_or_most_of_its_title(self) -> None:
