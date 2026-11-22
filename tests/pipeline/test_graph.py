@@ -266,6 +266,24 @@ class TestDocumentPipeline:
         run = again.answer("sleep", Answer(choice=Choice.YES))
         assert run.stage is Stage.PUBLISHING
 
+    def test_a_run_started_with_its_own_policy_keeps_it_after_a_restart(self, tmp_path: Path) -> None:
+        own = tmp_path / "policy.yaml"
+        own.write_text(Policy.DEFAULT.read_text() + "review_rounds: 0\n")
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[19])
+        path = tmp_path / "runs.sqlite"
+        first = DocumentPipeline.open(
+            Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(own), path
+        )
+        first.start(request().model_copy(update={"policy": own}), tmp_path / "run")
+        first.close()
+        again = DocumentPipeline.open(  # `approve` opens the pipeline with the default policy
+            Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(), path
+        )
+        run = again.answer("sleep", Answer(choice=Choice.YES))
+        assert run.stage is Stage.PUBLISHING and project.writes == 1
+        assert project.reviews == 0  # the run's policy: no review rounds; the default would review once
+
     def test_a_writing_that_leaves_no_document_stops_the_run_before_any_check(self, tmp_path: Path) -> None:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19], empty=True)

@@ -528,6 +528,7 @@ class Cli:
             urls=tuple(args.url),
             files=tuple(Path(f).expanduser() for f in args.files),
             goal=args.goal,
+            policy=Path(args.policy).expanduser().resolve() if args.policy else None,
         )
         words = request.words or policy.words
         expected = policy.expected(words)

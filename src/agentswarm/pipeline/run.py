@@ -27,6 +27,7 @@ class RunRequest(Frozen):
     urls: tuple[str, ...] = ()  # pages to include as they are
     files: tuple[Path, ...] = ()  # the user's own documents; given, no search is made
     goal: str | None = None  # the whole brief in the user's words; None: the policy's template
+    policy: Path | None = None  # a policy file instead of the default, kept for the run's later stages
 
     @staticmethod
     def slug(topic: str) -> str:

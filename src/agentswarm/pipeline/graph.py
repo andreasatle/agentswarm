@@ -54,6 +54,11 @@ class DocumentPipeline:
         self._saver = SqliteSaver(checkpoints, serde=JsonPlusSerializer(allowed_msgpack_modules=self.SAVED))
         self._graph = self.build().compile(checkpointer=self._saver)
 
+    def policy(self, run: DocumentRun) -> Policy:
+        """The run's own policy file when it was started with one, else the default: `approve` reloaded the
+        default, so a comparison's policy was dropped after the first pause (moe-systems-3, 2026-11-22)."""
+        return Policy.load(run.request.policy) if run.request.policy is not None else self._policy
+
     @classmethod
     def open(cls, stages: Stages, policy: Policy, path: Path) -> "DocumentPipeline":
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,10 +99,10 @@ class DocumentPipeline:
     # Stages (plain work, no pause)
 
     def find(self, run: DocumentRun) -> Update:
-        blocked = self.over(run, self._policy.estimates.find, "find")
+        blocked = self.over(run, self.policy(run).estimates.find, "find")
         if blocked is not None:
             return blocked
-        listing = self.apart(self._stages.sources.find, run, self._policy)
+        listing = self.apart(self._stages.sources.find, run, self.policy(run))
         return {
             "stage": Stage.SOURCES,
             "blocked": None,
@@ -106,11 +111,11 @@ class DocumentPipeline:
         }
 
     def write(self, run: DocumentRun) -> Update:
-        words = run.request.words or self._policy.words
-        blocked = self.over(run, self._policy.estimates.write(words), "write")
+        words = run.request.words or self.policy(run).words
+        blocked = self.over(run, self.policy(run).estimates.write(words), "write")
         if blocked is not None:
             return blocked
-        written = self.apart(self._stages.writing.write, run, self._policy, self.left(run))
+        written = self.apart(self._stages.writing.write, run, self.policy(run), self.left(run))
         if written.held is not None:
             return self.cut_short(run, "write", written.held)
         if written.document is None:
@@ -128,10 +133,10 @@ class DocumentPipeline:
         }
 
     def audit(self, run: DocumentRun) -> Update:
-        blocked = self.over(run, self._policy.estimates.audit, "audit")
+        blocked = self.over(run, self.policy(run).estimates.audit, "audit")
         if blocked is not None:
             return blocked
-        result = self.apart(self._stages.checking.audit, run, self._policy)
+        result = self.apart(self._stages.checking.audit, run, self.policy(run))
         if result.total == 0:
             raise RuntimeError("the audit found no cited statements; a review would have nothing to go on")
         return {
@@ -142,11 +147,11 @@ class DocumentPipeline:
         }
 
     def review(self, run: DocumentRun) -> Update:
-        need = self._policy.review_rounds * self._policy.estimates.review(run.sections)
+        need = self.policy(run).review_rounds * self.policy(run).estimates.review(run.sections)
         blocked = self.over(run, need, "review")
         if blocked is not None:
             return blocked
-        written = self.apart(self._stages.checking.review, run, self._policy, self.left(run))
+        written = self.apart(self._stages.checking.review, run, self.policy(run), self.left(run))
         if written.held is not None:
             return self.cut_short(run, "review", written.held)
         if written.document is None:
@@ -177,7 +182,7 @@ class DocumentPipeline:
         return {"stage": Stage.PUBLISHING}
 
     def publish(self, run: DocumentRun) -> Update:
-        page = self.apart(self._stages.publishing.publish, run, self._policy)
+        page = self.apart(self._stages.publishing.publish, run, self.policy(run))
         return {"stage": Stage.PUBLISHED, "page": page, "notes": (*run.notes, f"page written: {page}")}
 
     @staticmethod
@@ -193,8 +198,8 @@ class DocumentPipeline:
 
     def approve_sources(self, run: DocumentRun) -> Update:
         spent = self._stages.spending.spent(run)
-        words = run.request.words or self._policy.words
-        rest = self._policy.expected(words) - self._policy.estimates.find
+        words = run.request.words or self.policy(run).words
+        rest = self.policy(run).expected(words) - self.policy(run).estimates.find
         answer = self.ask(
             Question(
                 title=self.SOURCES_QUESTION,
@@ -296,7 +301,7 @@ class DocumentPipeline:
         # Every document is reviewed once, whatever its citations score: the reader review finds what no
         # citation check can, and a document with well-supported citations skipped all review before
         # (2026-11-13, docs/design/self-correction.md). Claims are checked too when the audit falls short.
-        if self._policy.review_rounds and not run.reviews:
+        if self.policy(run).review_rounds and not run.reviews:
             return "review"
         return "checked"
 
