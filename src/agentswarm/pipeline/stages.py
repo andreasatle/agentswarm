@@ -173,6 +173,7 @@ class ProjectStage:
                 budget_left,
                 "project",
                 Names.project(run),
+                policy.passages,
             ).write()
         return path
 

@@ -1837,7 +1837,7 @@ class OpenQuestion(Frozen):
 
 ### Writer
 
-`agentswarm.teams.documents.Writer` Version `43afc199001f`.
+`agentswarm.teams.documents.Writer` Version `12fb92f4cc19`.
 
 ```text
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
@@ -1845,7 +1845,8 @@ its rules), your task (write the section, or revise it), what the section covers
 full text of the sources it draws on: the only source of facts.
 
 - Give the section's text as blocks in reading order: paragraphs of sentences, a list where the content is a
-  list, a displayed formula where one is needed. The heading is written for you.
+  list, a table where several things are compared along the same attributes, a displayed formula where one
+  is needed. The heading is written for you.
 - Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
 - Each sentence is one whole sentence. Give the sources its facts come from in its `cites`, by their names
   in the data exactly, with the page where a source marks its pages ([page 121]); never write a citation into
@@ -1944,6 +1945,20 @@ class Equation(Frozen):
     latex: str = Field(
         description="a displayed formula in LaTeX, without the $$; cite it in the sentence before"
     )
+
+
+class Table(Frozen):
+    """Items compared along the same attributes: the brief's side-by-side comparison had no form but a list,
+    and a writer that announced a table of five columns gave one row of it (moe-systems-2, 2026-11-22)."""
+
+    kind: Literal["table"] = "table"
+    header: list[str] = Field(min_length=2, description="the columns' names")
+    rows: list[TableRow] = Field(min_length=1)
+
+
+class TableRow(Frozen):
+    cells: list[str] = Field(min_length=1, description="one cell per column, short plain text, no citation")
+    cites: list[Cite] = Field(default_factory=list[Cite], description="the sources the row's facts come from")
 ```
 
 <details><summary>JSON schema</summary>
@@ -2070,6 +2085,68 @@ class Equation(Frozen):
       ],
       "title": "Sentence",
       "type": "object"
+    },
+    "Table": {
+      "additionalProperties": false,
+      "description": "Items compared along the same attributes: the brief's side-by-side comparison had no form but a list,\nand a writer that announced a table of five columns gave one row of it (moe-systems-2, 2026-11-22).",
+      "properties": {
+        "kind": {
+          "const": "table",
+          "default": "table",
+          "title": "Kind",
+          "type": "string"
+        },
+        "header": {
+          "description": "the columns' names",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Header",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TableRow"
+          },
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "header",
+        "rows"
+      ],
+      "title": "Table",
+      "type": "object"
+    },
+    "TableRow": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "one cell per column, short plain text, no citation",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Cells",
+          "type": "array"
+        },
+        "cites": {
+          "description": "the sources the row's facts come from",
+          "items": {
+            "$ref": "#/$defs/Cite"
+          },
+          "title": "Cites",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cells"
+      ],
+      "title": "TableRow",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -2081,7 +2158,8 @@ class Equation(Frozen):
           "mapping": {
             "equation": "#/$defs/Equation",
             "list": "#/$defs/Bullets",
-            "paragraph": "#/$defs/Paragraph"
+            "paragraph": "#/$defs/Paragraph",
+            "table": "#/$defs/Table"
           },
           "propertyName": "kind"
         },
@@ -2094,6 +2172,9 @@ class Equation(Frozen):
           },
           {
             "$ref": "#/$defs/Equation"
+          },
+          {
+            "$ref": "#/$defs/Table"
           }
         ]
       },
@@ -2120,7 +2201,7 @@ class Equation(Frozen):
 
 ### Writer
 
-`agentswarm.teams.documents.Writer` Version `95e39fcad99b`.
+`agentswarm.teams.documents.Writer` Version `9f9a42af2e7f`.
 
 ```text
 You write one section of a document. The data holds the document's brief (who it is for, what it must do,
@@ -2128,7 +2209,8 @@ its rules), your task (write the section, or revise it), what the section covers
 full text of the sources it draws on: the only source of facts.
 
 - Give the section's text as blocks in reading order: paragraphs of sentences, a list where the content is a
-  list, a displayed formula where one is needed. The heading is written for you.
+  list, a table where several things are compared along the same attributes, a displayed formula where one
+  is needed. The heading is written for you.
 - Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
 - Each sentence is one whole sentence. Give the sources its facts come from in its `cites`, by their names
   in the data exactly, with the page where a source marks its pages ([page 121]); never write a citation into
@@ -2233,6 +2315,20 @@ class Equation(Frozen):
     latex: str = Field(
         description="a displayed formula in LaTeX, without the $$; cite it in the sentence before"
     )
+
+
+class Table(Frozen):
+    """Items compared along the same attributes: the brief's side-by-side comparison had no form but a list,
+    and a writer that announced a table of five columns gave one row of it (moe-systems-2, 2026-11-22)."""
+
+    kind: Literal["table"] = "table"
+    header: list[str] = Field(min_length=2, description="the columns' names")
+    rows: list[TableRow] = Field(min_length=1)
+
+
+class TableRow(Frozen):
+    cells: list[str] = Field(min_length=1, description="one cell per column, short plain text, no citation")
+    cites: list[Cite] = Field(default_factory=list[Cite], description="the sources the row's facts come from")
 ```
 
 <details><summary>JSON schema</summary>
@@ -2359,6 +2455,68 @@ class Equation(Frozen):
       ],
       "title": "Sentence",
       "type": "object"
+    },
+    "Table": {
+      "additionalProperties": false,
+      "description": "Items compared along the same attributes: the brief's side-by-side comparison had no form but a list,\nand a writer that announced a table of five columns gave one row of it (moe-systems-2, 2026-11-22).",
+      "properties": {
+        "kind": {
+          "const": "table",
+          "default": "table",
+          "title": "Kind",
+          "type": "string"
+        },
+        "header": {
+          "description": "the columns' names",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Header",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/TableRow"
+          },
+          "minItems": 1,
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "header",
+        "rows"
+      ],
+      "title": "Table",
+      "type": "object"
+    },
+    "TableRow": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "description": "one cell per column, short plain text, no citation",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Cells",
+          "type": "array"
+        },
+        "cites": {
+          "description": "the sources the row's facts come from",
+          "items": {
+            "$ref": "#/$defs/Cite"
+          },
+          "title": "Cites",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cells"
+      ],
+      "title": "TableRow",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -2370,7 +2528,8 @@ class Equation(Frozen):
           "mapping": {
             "equation": "#/$defs/Equation",
             "list": "#/$defs/Bullets",
-            "paragraph": "#/$defs/Paragraph"
+            "paragraph": "#/$defs/Paragraph",
+            "table": "#/$defs/Table"
           },
           "propertyName": "kind"
         },
@@ -2383,6 +2542,9 @@ class Equation(Frozen):
           },
           {
             "$ref": "#/$defs/Equation"
+          },
+          {
+            "$ref": "#/$defs/Table"
           }
         ]
       },

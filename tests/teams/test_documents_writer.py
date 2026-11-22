@@ -18,6 +18,8 @@ from agentswarm.teams.documents import (
     SectionRequest,
     SectionWriting,
     Sentence,
+    Table,
+    TableRow,
     Writer,
 )
 from agentswarm.teams.executor import WorktreeToolbox
@@ -228,6 +230,28 @@ class TestSectionLayout:
         # as the document checker counts the Markdown: a cited sentence's full stop and a bullet's dash count
         assert SectionLayout.words(typed) == 1 + 9 + 5 + 5 + 4
         assert SectionLayout.unknown(typed, ["p"]) == ["q"]
+
+    def test_a_comparison_is_a_table_with_each_rows_citations_in_its_last_cell(self) -> None:
+        typed = SectionDraft(
+            blocks=[
+                Table(
+                    header=["Approach", "Unit", "Shares"],
+                    rows=[
+                        TableRow(
+                            cells=["MoE", "an expert FFN", "a router | a seed"], cites=[Cite(source="s")]
+                        ),
+                        TableRow(cells=["S-LoRA"], cites=[Cite(source="l"), Cite(source="m")]),
+                    ],
+                )
+            ]
+        )
+        assert SectionLayout.markdown("Compared", typed) == (
+            "## Compared\n\n| Approach | Unit | Shares |\n|---|---|---|\n"
+            "| MoE | an expert FFN | a router \\| a seed [@s] |\n| S-LoRA |  | [@l] [@m] |\n"
+        )
+        rows = SectionLayout.sentences(typed)
+        assert [r.text for r in rows] == ["MoE; an expert FFN; a router | a seed", "S-LoRA"]
+        assert SectionLayout.unknown(typed, ["s", "l"]) == ["m"]
 
 
 class TestOverlap:

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from agentswarm.core.config import ProjectConfig
+from agentswarm.core.config import ProjectConfig, RetrievalConfig
 from agentswarm.core.domain import Reference
 from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceParts, SourceText
 
@@ -71,6 +71,20 @@ class TestOptions:
         assert config.review is None and config.brief is not None and not config.brief.approve
         assert config.budgets.usd_per_day == 0.8
 
+    def test_writers_read_passages_when_the_policy_asks(self, tmp_path: Path) -> None:
+        (tmp_path / "paper.txt").write_text("text\n")
+        passages = RetrievalConfig(embeddings="ollama:nomic-embed-text", k=6, query_prefix="search_query: ")
+        summary = DocumentImport(
+            [tmp_path / "paper.txt"], tmp_path / "out", "A tutorial.", passages=passages
+        ).write()
+        writer = next(t for t in ProjectConfig.load(summary.projects[0]).teams if t.use == "writer")
+        assert writer.retrieval == passages
+        whole = DocumentImport([tmp_path / "paper.txt"], tmp_path / "whole", "A tutorial.").write()
+        assert (
+            next(t for t in ProjectConfig.load(whole.projects[0]).teams if t.use == "writer").retrieval
+            is None
+        )
+
     def test_reviews_by_the_perspectives_asked_for(self, tmp_path: Path) -> None:
         (tmp_path / "paper.txt").write_text("text\n")
         summary = DocumentImport(
@@ -91,6 +105,7 @@ class TestDocumentAssembly:
             "## A\n\nGlass is made there [@wikipedia-murano-01].\n"
             "Furnaces moved [@history-p010, page 12] [@history-p010, page 14] [@wikipedia-murano-02].\n"
             "- Boats come too [@history-p010, page 12].\n"
+            "Glass and boats [@wikipedia-murano-01] [@history-p010] [@wikipedia-murano-02] [@history-p010].\n"
         )
         murano = Reference(
             document="wikipedia-murano",
@@ -111,6 +126,7 @@ class TestDocumentAssembly:
         assert "Glass is made there[^1].\n" in text
         assert "Furnaces moved[^2][^1].\n" in text  # one number per source in a sentence
         assert "- Boats come too[^2].\n" in text
+        assert "Glass and boats[^1][^2].\n" in text  # apart, each source still once
         assert "[^1]: Wikipedia (2026). [*Murano*](https://en.wikipedia.org/wiki/Murano).\n" in text
         assert "[^2]: Lane (1973). *Venice*. Cited at pages 12, 14.\n" in text
         assert text.index("## References") < text.index("[^1]: ")

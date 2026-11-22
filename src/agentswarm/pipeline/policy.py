@@ -8,6 +8,8 @@ from typing import ClassVar, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentswarm.core.config import RetrievalConfig
+
 
 class Estimates(BaseModel):
     """Expected costs, from the runs of 2026-10-18/19, to plan a run and to stop before a stage that wouldn't
@@ -40,6 +42,9 @@ class Policy(BaseModel):
     audit_seed: int = 1
     estimates: Estimates = Estimates()
     goal: str  # the brief's template: {topic} and {reader}
+    # writers on passages (docs/design/rag.md step 4): each section's passages of its sources, not the sources
+    # whole; None: whole. Set only by the comparison's policy file, which decides the default (due 2026-12-04)
+    passages: RetrievalConfig | None = None
 
     DEFAULT: ClassVar[Path] = Path(__file__).with_name("policy.yaml")
 

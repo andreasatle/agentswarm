@@ -18,7 +18,7 @@ from typing import ClassVar
 import yaml
 from pydantic import BaseModel, ConfigDict
 
-from agentswarm.core.config import ModelConfig
+from agentswarm.core.config import ModelConfig, RetrievalConfig
 from agentswarm.core.domain import Reference
 from agentswarm.evaluation.papers import Candidate, ReadingFolder
 from agentswarm.evaluation.qasper import GuideImport
@@ -164,6 +164,8 @@ review:
         budget: float = 2.0,  # the run's cap in dollars
         folder: str | None = None,  # the project's folder under `out`; default: the audience, or "document"
         project: str | None = None,  # the project's name (its board and its spend); default: docs-<folder>
+        passages: RetrievalConfig
+        | None = None,  # writers on passages (docs/design/rag.md step 4); None: whole
     ) -> None:
         self._files = tuple(files)
         self._out = out
@@ -175,6 +177,7 @@ review:
         self._budget = budget
         self._folder = folder
         self._project = project
+        self._passages = passages
 
     class Blank(dict[str, str]):
         def __missing__(self, key: str) -> str:
@@ -184,7 +187,7 @@ review:
     def models(cls) -> dict[str, ModelConfig]:
         """The models a document project uses, from its template (the paper finder uses them before any
         project exists)."""
-        config = yaml.safe_load(cls.PROJECT.read_text().format_map(cls.Blank(review="")))
+        config = yaml.safe_load(cls.PROJECT.read_text().format_map(cls.Blank(review="", passages="")))
         return {name: ModelConfig.model_validate(m) for name, m in config["models"].items()}
 
     @staticmethod
@@ -268,6 +271,7 @@ review:
                     if self._perspectives
                     else "",
                     budget=self._budget,
+                    passages=f"    retrieval: {self._passages.model_dump_json()}\n" if self._passages else "",
                 )
             )
             projects.append(config)
@@ -285,6 +289,12 @@ class DocumentAssembly:
 
     CITATION: ClassVar[re.Pattern[str]] = re.compile(r" ?\[@([^\],\s]+)(?:,\s*page\s+(\d+))?[^\]]*\]")
     REFERENCES = "docs/references.json"
+
+    @staticmethod
+    def once(markers: re.Match[str]) -> str:
+        """A run of citation markers as footnotes, each source once, in the order first cited."""
+        numbers = dict.fromkeys(re.findall(r"@@CITE(\d+)@@", markers.group(0)))
+        return "".join(f"[^{n}]" for n in numbers)
 
     @classmethod
     def write(cls, level: Path, out: Path) -> Path | None:
@@ -315,9 +325,9 @@ class DocumentAssembly:
             return f"@@CITE{numbers[key]}@@"
 
         body = cls.CITATION.sub(cited, body)
-        # one marker per source in a sentence: [@a, page 3] [@a, page 5] is [^1] once
-        body = re.sub(r"(@@CITE(\d+)@@)(?:@@CITE\2@@)+", r"\1", body)
-        body = re.sub(r"@@CITE(\d+)@@", r"[^\1]", body)
+        # one marker per source in a sentence: [@a, page 3] [@b] [@a, page 5] is [^1][^2], each once in its
+        # order (moe-systems-2 showed "[^2][^3][^2][^3]": only neighbours were merged)
+        body = re.sub(r"(?:@@CITE\d+@@)+", cls.once, body)
         notes: list[str] = []
         for key, number in sorted(numbers.items(), key=lambda kv: kv[1]):
             cited_pages = sorted(set(pages.get(key, [])))

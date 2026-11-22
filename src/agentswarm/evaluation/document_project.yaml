@@ -31,7 +31,7 @@ teams:
     attempts: 3  # Haiku twice (the second told that nothing changed), then Sol
     climb: true
     repairs: 2
-    constraints:
+{passages}    constraints:
       - "docs/brief.md says who the document is for, what it must do, its outline and its rules; sources/ holds the only source of facts."
       - "Cite every factual statement with the source it comes from, like [@{example}], naming a file in sources/ without its extension."
 gates:

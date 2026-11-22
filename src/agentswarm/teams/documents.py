@@ -86,7 +86,21 @@ class Equation(Frozen):
     )
 
 
-Block = Annotated[Paragraph | Bullets | Equation, Field(discriminator="kind")]
+class TableRow(Frozen):
+    cells: list[str] = Field(min_length=1, description="one cell per column, short plain text, no citation")
+    cites: list[Cite] = Field(default_factory=list[Cite], description="the sources the row's facts come from")
+
+
+class Table(Frozen):
+    """Items compared along the same attributes: the brief's side-by-side comparison had no form but a list,
+    and a writer that announced a table of five columns gave one row of it (moe-systems-2, 2026-11-22)."""
+
+    kind: Literal["table"] = "table"
+    header: list[str] = Field(min_length=2, description="the columns' names")
+    rows: list[TableRow] = Field(min_length=1)
+
+
+Block = Annotated[Paragraph | Bullets | Equation | Table, Field(discriminator="kind")]
 
 
 class SectionDraft(Frozen):
@@ -141,7 +155,25 @@ class SectionLayout:
                     parts.append("\n".join(f"- {cls.sentence(s)}" for s in block.items))
                 case Equation():
                     parts.append(f"$$\n{block.latex.strip().strip('$').strip()}\n$$")
+                case Table():
+                    parts.append(cls.table(block))
         return "\n\n".join(parts) + "\n"
+
+    @classmethod
+    def table(cls, table: Table) -> str:
+        """A Markdown table, a row's citations in its last cell; a row short of cells is padded, a long one
+        cut, so every row has the header's columns."""
+        width = len(table.header)
+
+        def row(cells: Sequence[str]) -> str:
+            return "| " + " | ".join(" ".join(c.split()).replace("|", "\\|") for c in cells) + " |"
+
+        lines = [row(table.header), "|" + "---|" * width]
+        for r in table.rows:
+            cells = [*r.cells[:width], *[""] * (width - len(r.cells))]
+            cells[-1] = cls.sentence(Sentence(text=cells[-1], cites=r.cites)) if r.cites else cells[-1]
+            lines.append(row(cells))
+        return "\n".join(lines)
 
     @classmethod
     def sentence(cls, sentence: Sentence) -> str:
@@ -158,11 +190,19 @@ class SectionLayout:
 
     @staticmethod
     def sentences(draft: SectionDraft) -> list[Sentence]:
-        return [
-            s
-            for b in draft.blocks
-            for s in (b.sentences if isinstance(b, Paragraph) else b.items if isinstance(b, Bullets) else [])
-        ]
+        """Every cited statement: a paragraph's sentences, a list's items, a table's rows."""
+        found: list[Sentence] = []
+        for b in draft.blocks:
+            match b:
+                case Paragraph():
+                    found += b.sentences
+                case Bullets():
+                    found += b.items
+                case Table():
+                    found += [Sentence(text="; ".join(r.cells), cites=r.cites) for r in b.rows]
+                case Equation():
+                    pass
+        return found
 
     # A citation as the document checker (evaluation/qasper.py CHECK) finds it, to leave it out of the count.
     CITATION: ClassVar[re.Pattern[str]] = re.compile(r"\[@([^\],\s]+)(?:,[^\]]*)?\]")
@@ -226,7 +266,8 @@ its rules), your task (write the section, or revise it), what the section covers
 full text of the sources it draws on: the only source of facts.
 
 - Give the section's text as blocks in reading order: paragraphs of sentences, a list where the content is a
-  list, a displayed formula where one is needed. The heading is written for you.
+  list, a table where several things are compared along the same attributes, a displayed formula where one
+  is needed. The heading is written for you.
 - Serve the brief's reader: what the section covers, specifically, with the facts and numbers that matter.
 - Each sentence is one whole sentence. Give the sources its facts come from in its `cites`, by their names
   in the data exactly, with the page where a source marks its pages ([page 121]); never write a citation into
