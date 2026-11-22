@@ -440,6 +440,9 @@ class TestWebPage:
             "History of Interactive Theorem Proving"
         )
         assert WebPage.first_title("Propositions as Types \u2217\nPhilip Wadler") == "Propositions as Types"
+        assert WebPage.first_title("Branch-Train-MiX:\nMixing Expert LLMs\nSainbayar Sukhbaatar") == (
+            "Branch-Train-MiX: Mixing Expert LLMs"
+        )
 
     def test_a_page_names_its_authors_year_and_title_in_its_citation_metadata(self) -> None:
         page = (

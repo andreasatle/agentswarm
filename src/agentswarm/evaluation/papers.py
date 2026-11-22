@@ -725,12 +725,16 @@ class WebPage(Fetching):
     @classmethod
     def first_title(cls, text: str) -> str:
         """A title from a PDF's first lines, joined where it breaks: after "and", "of"... ("The Lean 4 Theorem
-        Prover and / Programming Language") or between capitals ("HISTORY OF INTERACTIVE THEOREM / PROVING"),
-        and an all-capitals title in title case."""
+        Prover and / Programming Language"), after a colon, or between capitals ("HISTORY OF INTERACTIVE
+        THEOREM / PROVING"), and an all-capitals title in title case."""
         lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()][:3]
         title = lines[0].rstrip(cls.MARKS) if lines else ""
         for line in lines[1:]:
-            joins = title.rsplit(" ", 1)[-1].lower() in cls.JOINING or (title.isupper() and line.isupper())
+            joins = (
+                title.rsplit(" ", 1)[-1].lower() in cls.JOINING
+                or title.endswith(":")  # "Branch-Train-MiX: / Mixing Expert LLMs into ..." (moe-systems-2)
+                or (title.isupper() and line.isupper())
+            )
             if not joins:
                 break
             title += " " + line.rstrip(cls.MARKS)
