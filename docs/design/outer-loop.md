@@ -10,7 +10,7 @@ Goal 13 (COLLABORATION.md) made concrete: the user types once (what, for whom, h
 | --- | --- | --- |
 | Writes the topic line, with its list of subjects (it shapes the finder's questions and so the whole document) | every run | **Scope proposal:** the planner expands the user's short topic into the questions the document must answer; the user approves or unticks |
 | Adds sources the search missed (mathlib, AlphaEvolve, FunSearch, SWE-bench, Branch-Train-MiX, Anthropic's agents post) | lean-agents, lean-agents-why, moe-systems-2 | **Gap filling:** the finder asks for each uncovered question's best-known works by name and searches their titles; what it still can't get becomes a fetch request |
-| Notices a stalled search, a coverage undercount | principia-to-lean, moe-systems | The search's own report (coverage per question), and the run reviewer below |
+| Notices a stalled search, a coverage undercount | principia-to-lean, moe-systems | The search's own report (coverage per question), and the red team below |
 | Reads the draft and judges it (choppy prose, a table with one row, repetition, "Section 5", trivia) | every run | **The document's red team:** an agent of another model family attacks the finished document and the board and reports flaws with evidence |
 | Fixes flaws in the run's output (references rebuilt) | principia-to-lean, moe-systems-2, lean-agents-why | Flaws the swarm can fix go back to its writers before publishing; flaws in the framework go to the issue queue |
 | Fixes the framework's code | most runs | Unchanged in kind, but driven by the issue queue, between runs, never during one |
