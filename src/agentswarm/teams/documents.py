@@ -235,6 +235,8 @@ full text of the sources it draws on: the only source of facts.
   The sources come from PDFs, so their formulas may be garbled: reconstruct the formula in the paper's own
   notation, define every symbol, and cite where it appears in the sentence that introduces it.
 - Stay within the word count.
+- Refer to another section by its subject ("the section on decidability"), never by a number: the reader
+  sees headings without numbers.
 - If `current` holds the section already, revise it as the task says and fix everything in `must_fix`;
   keep what is right."""
     INSTRUCTIONS = """\
