@@ -86,10 +86,10 @@ class Candidate(Frozen):
 
     def reference(self, document: str) -> Reference:
         """The paper as a bibliography gives it, from the service's record rather than a model's reading."""
-        if self.site:  # a web page: its publisher is its author; in the text, "(Wikipedia: Murano)"
+        if self.site:  # a web page: its authors if it names them, else its publisher; "(Wikipedia: Murano)"
             return Reference(
                 document=document,
-                authors=self.site,
+                authors=self.listed() if self.authors and self.authors != (self.site,) else self.site,
                 title=self.title,
                 year=str(self.year) if self.year else "n.d.",  # a page with no date says so
                 venue=f"{self.site} ({self.standing})" if self.standing else self.site,
@@ -97,8 +97,7 @@ class Candidate(Frozen):
                 url=self.page,
             )
         surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
-        listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
-        authors = listed + (", et al." if len(self.authors) > self.LISTED else "")
+        authors = self.listed()
         if len(surnames) == 1:
             short = f"{surnames[0]}, {self.year}"
         elif len(surnames) == 2:
@@ -115,7 +114,26 @@ class Candidate(Frozen):
             url=self.page if not self.venue.startswith("arXiv") else "",
         )
 
+    def listed(self) -> str:
+        """The authors as a bibliography lists them: "Assran, M., Duval, Q., ..., et al." after ten."""
+        listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
+        return listed + (", et al." if len(self.authors) > self.LISTED else "")
+
     SHORT_WORDS: ClassVar[int] = 4  # words of a web page's title in its in-text citation
+    LABEL_WORDS: ClassVar[int] = 4  # words of a site's label after a title: " - Informatics Homepages Server"
+    SEPARATOR: ClassVar[re.Pattern[str]] = re.compile(r"\s+[|\u2013\u2014-]\s+")
+
+    @classmethod
+    def web_title(cls, title: str) -> str:
+        """A search result's title without what the site adds to it: leading tags ("[PDF] ...") and a short
+        trailing label of the site (" - SciSpace", " | Intercom Help"). The references showed both
+        (principia-to-lean, 2026-11-22). A cut title keeps its ellipsis: it is all the search gave."""
+        own = " ".join(title.split())
+        own = re.sub(r"^(?:\[[^\]]*\]\s*)+", "", own) or own
+        separators = list(cls.SEPARATOR.finditer(own))
+        if separators and len(own[separators[-1].end() :].split()) <= cls.LABEL_WORDS:
+            own = own[: separators[-1].start()]
+        return own.strip() or title
 
     @classmethod
     def web_short(cls, site: str, title: str) -> str:
@@ -164,6 +182,10 @@ class PaperSearch(Protocol):
         """Its PDF, or OSError."""
         ...
 
+    def described(self, paper: Candidate) -> Candidate:
+        """Its record with what the source says about itself (a web page's authors, year and title)."""
+        ...
+
 
 class Fetching:
     """HTTP for a search service: a user agent, a timeout and a pause after each request."""
@@ -191,6 +213,9 @@ class Fetching:
                 path.write_bytes(data)
                 return
         raise OSError(f"no PDF of {paper.id} could be downloaded")
+
+    def described(self, paper: Candidate) -> Candidate:
+        return paper  # a catalogue's record (arXiv, OpenAlex, Wikipedia) is already the source's own
 
     @staticmethod
     def words(title: str) -> list[str]:
@@ -520,7 +545,7 @@ class TavilySearch(Fetching):
             dated = re.match(r"\d{4}", f"20{arxiv.group(2)}")
         return Candidate(
             id=f"web:{result.url}",
-            title=" ".join(result.title.split()) or result.url,
+            title=Candidate.web_title(result.title) if result.title.strip() else result.url,
             authors=(site,),
             year=int(dated.group(0)) if dated else 0,  # no date: not the year it was read (2026-11-13)
             abstract=" ".join(result.content.split()),
@@ -544,14 +569,53 @@ class TavilySearch(Fetching):
             raise OSError(f"no text could be taken from {paper.page}")
         path.write_text(f"{paper.title}\n{paper.page}\n\n{text.strip()}\n")
 
+    def described(self, paper: Candidate) -> Candidate:
+        """The page's own authors, year and title, from its citation metadata or its PDF; the search's
+        record where the page says nothing or can't be fetched. Searched sources were cited by their site,
+        undated, under the search's title (principia-to-lean, 2026-11-22: seven Stanford Encyclopedia
+        entries, each naming its author and date)."""
+        try:
+            data = self.fetch(paper.page)
+        except OSError:
+            return paper
+        said = WebPage.metadata(paper.page, data)
+        return paper.model_copy(
+            update={
+                "title": said.title or paper.title,
+                "authors": said.authors or paper.authors,
+                "year": paper.year or said.year,
+            }
+        )
+
+
+class PageMetadata(Frozen):
+    """What a page or PDF says about itself; each field empty where it says nothing."""
+
+    title: str = ""
+    authors: tuple[str, ...] = ()  # forename first, as the catalogues give them
+    year: int = 0
+
 
 class WebPage(Fetching):
     """A page the user names (an official site: UNESCO, a city's tourism office), kept as HTML and cited by
-    its title, its site and a link."""
+    its title, its site and a link; and what any page or PDF says about itself (its citation metadata)."""
 
     TITLE: ClassVar[re.Pattern[str]] = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
+    META: ClassVar[re.Pattern[str]] = re.compile(r"<meta\s[^>]*>", re.I)
+    ATTRIBUTE: ClassVar[re.Pattern[str]] = re.compile(r"""([\w:.-]+)\s*=\s*(["'])(.*?)\2""", re.S)
+    TITLES: ClassVar[tuple[str, ...]] = ("citation_title", "dc.title", "og:title")
+    AUTHORS: ClassVar[tuple[str, ...]] = (
+        "citation_author",
+        "dc.creator",
+        "author",
+    )  # the first that names any
     JOINING: ClassVar[frozenset[str]] = frozenset(
         {"and", "of", "for", "the", "in", "on", "with", "to", "a", "an"}
+    )
+    # a PDF's Title that is its file's name, not its title ("Microsoft Word - A computer-checked proof...doc")
+    FILE_TITLE: ClassVar[re.Pattern[str]] = re.compile(r"^Microsoft \w+ - |\.(?:docx?|tex|dvi|pdf)$", re.I)
+    MARKS: ClassVar[str] = (
+        " *\u2217\u2020\u2021"  # footnote marks after a title (Wadler: an asterisk operator)
     )
 
     def record(self, url: str) -> tuple[Candidate, bytes]:
@@ -559,17 +623,15 @@ class WebPage(Fetching):
         pdf = data.startswith(
             b"%PDF"
         )  # a named paper, not a page (lean-lang.org/papers/lean4.pdf, 2026-11-21)
+        said = self.metadata(url, data)
         found = None if pdf else self.TITLE.search(data.decode("utf-8", "replace"))
-        title = (
-            self.pdf_title(data) if pdf else html.unescape(" ".join(found.group(1).split())) if found else ""
-        )
-        host = urllib.parse.urlparse(url).hostname or url
-        site = host.removeprefix("www.")
+        title = said.title or (html.unescape(" ".join(found.group(1).split())) if found else "")
+        site = (urllib.parse.urlparse(url).hostname or url).removeprefix("www.")
         candidate = Candidate(
             id=f"web:{url}",
             title=title or url,
-            authors=(site,),
-            year=self.published(url, b"" if pdf else data),
+            authors=said.authors or (site,),
+            year=said.year,
             abstract="",
             site=site,
             kind="pdf" if pdf else "html",
@@ -577,17 +639,48 @@ class WebPage(Fetching):
         )
         return candidate, data
 
-    DATES: ClassVar[tuple[re.Pattern[str], ...]] = tuple(
-        re.compile(p, re.I)
-        for p in (
-            r'name="citation_publication_date"\s+content="(\d{4})',  # a journal's own citation year first
-            r'name="dc\.date"\s+content="(\d{4})',
-            r'property="article:published_time"\s+content="(\d{4})',
-            r'"datePublished"\s*:\s*"(\d{4})',
-            r'itemprop="datePublished"\s+content="(\d{4})',
-        )
+    @classmethod
+    def metadata(cls, url: str, data: bytes) -> PageMetadata:
+        """A page's title and authors from its citation metadata (citation_*, Dublin Core, Open Graph), its
+        year from that or its address; a PDF's from its own properties and first lines."""
+        if data.startswith(b"%PDF"):
+            return cls.pdf_described(url, data)
+        metas = cls.metas(data.decode("utf-8", "replace"))
+        title = next((v for key in cls.TITLES for k, v in metas if k == key and v), "")
+        authors: tuple[str, ...] = ()
+        for key in cls.AUTHORS:
+            authors = tuple(cls.forename_first(v) for k, v in metas if k == key and v)
+            if authors:
+                break
+        return PageMetadata(title=title, authors=authors, year=cls.published(url, data))
+
+    @classmethod
+    def metas(cls, page: str) -> list[tuple[str, str]]:
+        """Each <meta> tag's name (or property, or itemprop), lower case, and its content, in order."""
+        found: list[tuple[str, str]] = []
+        for tag in cls.META.findall(page):
+            attributes = {k.lower(): html.unescape(v) for k, _, v in cls.ATTRIBUTE.findall(tag)}
+            name = attributes.get("name") or attributes.get("property") or attributes.get("itemprop")
+            if name and "content" in attributes:
+                found.append((name.lower(), " ".join(attributes["content"].split())))
+        return found
+
+    @staticmethod
+    def forename_first(author: str) -> str:
+        """ "Irvine, Andrew David" as "Andrew David Irvine"; a name without one comma as it is."""
+        parts = [p.strip() for p in author.split(",")]
+        return f"{parts[1]} {parts[0]}" if len(parts) == 2 and all(parts) else author
+
+    # a journal's own citation year first; then Dublin Core, Open Graph, schema.org
+    DATED: ClassVar[tuple[str, ...]] = (
+        "citation_publication_date",
+        "dc.date",
+        "article:published_time",
+        "datepublished",
     )
+    JSON_DATE: ClassVar[re.Pattern[str]] = re.compile(r'"datePublished"\s*:\s*"(\d{4})')
     ARXIV: ClassVar[re.Pattern[str]] = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{2})(\d{2})\.\d{4,5}")
+    YEAR: ClassVar[re.Pattern[str]] = re.compile(r"\b(?:19|20)\d{2}\b")
 
     @classmethod
     def published(cls, url: str, page: bytes) -> int:
@@ -598,37 +691,53 @@ class WebPage(Fetching):
         if arxiv:
             return 2000 + int(arxiv.group(1))
         text = page.decode("utf-8", "replace")
-        for pattern in cls.DATES:
-            found = pattern.search(text)
-            if found:
-                return int(found.group(1))
-        return 0
+        metas = cls.metas(text)
+        for key in cls.DATED:
+            year = next((re.match(r"\d{4}", v) for k, v in metas if k == key and re.match(r"\d{4}", v)), None)
+            if year:
+                return int(year.group(0))
+        found = cls.JSON_DATE.search(text)
+        return int(found.group(1)) if found else 0
 
-    @staticmethod
-    def pdf_title(data: bytes) -> str:
-        """A PDF's title: its metadata's, else its first line of text (the Lean 4 paper has no metadata)."""
+    @classmethod
+    def pdf_described(cls, url: str, data: bytes) -> PageMetadata:
+        """A PDF's title (its Title property unless that is a file name, else its first lines) and year (an
+        arXiv number, else the file's creation date: Wadler 2015, Gonthier 2005, Lean 4 2021 in
+        principia-to-lean). No authors: the Author property is often a login ("gonthier")."""
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "named.pdf"
             path.write_bytes(data)
             info = subprocess.run(["pdfinfo", str(path)], capture_output=True, text=True, check=False).stdout
-            meta = next(
-                (line.split(":", 1)[1].strip() for line in info.splitlines() if line.startswith("Title:")), ""
-            )
-            if meta:
-                return meta
             first = subprocess.run(
                 ["pdftotext", "-l", "1", "-enc", "UTF-8", str(path), "-"],
                 capture_output=True,
                 text=True,
                 check=False,
             ).stdout
-            lines = [" ".join(line.split()) for line in first.splitlines() if line.strip()][:3]
-            title = lines[0] if lines else ""
-            for line in lines[1:]:  # a title broken after "and", "of"...: "The Lean 4 Theorem Prover and"
-                if title.rsplit(" ", 1)[-1].lower() not in WebPage.JOINING:
-                    break
-                title += " " + line
-            return title
+        fields = {k.strip(): v.strip() for k, _, v in (line.partition(":") for line in info.splitlines())}
+        meta = fields.get("Title", "")
+        title = meta if meta and not cls.FILE_TITLE.search(meta) else cls.first_title(first)
+        arxiv = cls.ARXIV.search(url)
+        created = cls.YEAR.search(fields.get("CreationDate", ""))
+        year = 2000 + int(arxiv.group(1)) if arxiv else int(created.group(0)) if created else 0
+        return PageMetadata(title=title, year=year)
+
+    @classmethod
+    def first_title(cls, text: str) -> str:
+        """A title from a PDF's first lines, joined where it breaks: after "and", "of"... ("The Lean 4 Theorem
+        Prover and / Programming Language") or between capitals ("HISTORY OF INTERACTIVE THEOREM / PROVING"),
+        and an all-capitals title in title case."""
+        lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()][:3]
+        title = lines[0].rstrip(cls.MARKS) if lines else ""
+        for line in lines[1:]:
+            joins = title.rsplit(" ", 1)[-1].lower() in cls.JOINING or (title.isupper() and line.isupper())
+            if not joins:
+                break
+            title += " " + line.rstrip(cls.MARKS)
+        if title.isupper():
+            words = title.lower().split()
+            title = " ".join(w if i and w in cls.JOINING else w.capitalize() for i, w in enumerate(words))
+        return title
 
 
 class PaperSource(StrEnum):
@@ -1085,7 +1194,8 @@ than a first search, that would find a source that does."""
             except OSError:
                 done.append(found)  # the user fetches it by hand
                 continue
-            done.append(found.model_copy(update={"file": found.paper.download_name}))
+            described = await asyncio.to_thread(self._search.described, found.paper)
+            done.append(found.model_copy(update={"paper": described, "file": found.paper.download_name}))
         return done
 
     async def find(self, topic: str, know: str, papers: int, out: Path) -> ReadingFolder:

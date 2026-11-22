@@ -3012,10 +3012,10 @@ class Candidate(Frozen):
 
     def reference(self, document: str) -> Reference:
         """The paper as a bibliography gives it, from the service's record rather than a model's reading."""
-        if self.site:  # a web page: its publisher is its author; in the text, "(Wikipedia: Murano)"
+        if self.site:  # a web page: its authors if it names them, else its publisher; "(Wikipedia: Murano)"
             return Reference(
                 document=document,
-                authors=self.site,
+                authors=self.listed() if self.authors and self.authors != (self.site,) else self.site,
                 title=self.title,
                 year=str(self.year) if self.year else "n.d.",  # a page with no date says so
                 venue=f"{self.site} ({self.standing})" if self.standing else self.site,
@@ -3023,8 +3023,7 @@ class Candidate(Frozen):
                 url=self.page,
             )
         surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
-        listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
-        authors = listed + (", et al." if len(self.authors) > self.LISTED else "")
+        authors = self.listed()
         if len(surnames) == 1:
             short = f"{surnames[0]}, {self.year}"
         elif len(surnames) == 2:
@@ -3041,7 +3040,26 @@ class Candidate(Frozen):
             url=self.page if not self.venue.startswith("arXiv") else "",
         )
 
+    def listed(self) -> str:
+        """The authors as a bibliography lists them: "Assran, M., Duval, Q., ..., et al." after ten."""
+        listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
+        return listed + (", et al." if len(self.authors) > self.LISTED else "")
+
     SHORT_WORDS: ClassVar[int] = 4  # words of a web page's title in its in-text citation
+    LABEL_WORDS: ClassVar[int] = 4  # words of a site's label after a title: " - Informatics Homepages Server"
+    SEPARATOR: ClassVar[re.Pattern[str]] = re.compile(r"\s+[|\u2013\u2014-]\s+")
+
+    @classmethod
+    def web_title(cls, title: str) -> str:
+        """A search result's title without what the site adds to it: leading tags ("[PDF] ...") and a short
+        trailing label of the site (" - SciSpace", " | Intercom Help"). The references showed both
+        (principia-to-lean, 2026-11-22). A cut title keeps its ellipsis: it is all the search gave."""
+        own = " ".join(title.split())
+        own = re.sub(r"^(?:\[[^\]]*\]\s*)+", "", own) or own
+        separators = list(cls.SEPARATOR.finditer(own))
+        if separators and len(own[separators[-1].end() :].split()) <= cls.LABEL_WORDS:
+            own = own[: separators[-1].start()]
+        return own.strip() or title
 
     @classmethod
     def web_short(cls, site: str, title: str) -> str:

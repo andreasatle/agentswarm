@@ -14,6 +14,7 @@ from agentswarm.evaluation.papers import (
     Found,
     OpenAlexSearch,
     OpenAlexWork,
+    PageMetadata,
     PaperFinder,
     PickedPaper,
     PickRequest,
@@ -73,6 +74,9 @@ class FakeSearch:
             raise OSError("no such PDF")
         self.downloaded.append(paper.id)
         path.write_bytes(b"%PDF")
+
+    def described(self, paper: Candidate) -> Candidate:
+        return paper
 
 
 class FakeReader:
@@ -389,12 +393,14 @@ class TestWebPage:
         assert page.site == "whc.unesco.org" and page.download_name.endswith(".html")
         assert page.reference("x").url == "https://whc.unesco.org/en/list/394/"
 
-    def test_a_named_pdf_is_kept_as_a_pdf_under_its_title(self) -> None:
+    @staticmethod
+    def pdf(info: bytes) -> bytes:
+        """A one-page PDF with no text and these document properties."""
         objects = [
             b"<< /Type /Catalog /Pages 2 0 R >>",
             b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
-            b"<< /Title (The Lean 4 Theorem Prover) >>",
+            b"<< " + info + b" >>",
         ]
         body = b"%PDF-1.4\n"
         offsets: list[int] = []
@@ -405,7 +411,10 @@ class TestWebPage:
         body += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
         body += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
         trailer = f"trailer << /Size {len(objects) + 1} /Root 1 0 R /Info 4 0 R >>\n"
-        body += (trailer + f"startxref\n{xref}\n%%EOF\n").encode()
+        return body + (trailer + f"startxref\n{xref}\n%%EOF\n").encode()
+
+    def test_a_named_pdf_is_kept_as_a_pdf_under_its_title(self) -> None:
+        body = self.pdf(b"/Title (The Lean 4 Theorem Prover) /CreationDate (D:20210810122917)")
 
         class Paper(WebPage):
             def fetch(self, url: str) -> bytes:
@@ -413,6 +422,31 @@ class TestWebPage:
 
         page, _ = Paper().record("https://lean-lang.org/papers/lean4.pdf")
         assert page.title == "The Lean 4 Theorem Prover" and page.download_name.endswith(".pdf")
+        assert page.year == 2021  # the file's creation date: the paper names none
+
+    def test_a_pdf_title_that_is_a_file_name_gives_way_to_its_first_lines(self) -> None:
+        word = self.pdf(b"/Title (Microsoft Word - A computer-checked proof.doc) /Author (gonthier)")
+        assert WebPage.pdf_described("https://x.se/4col.pdf", word) == PageMetadata()  # no text: nothing said
+        assert WebPage.first_title("HISTORY OF INTERACTIVE THEOREM\nPROVING\nJohn Harrison") == (
+            "History of Interactive Theorem Proving"
+        )
+        assert WebPage.first_title("Propositions as Types \u2217\nPhilip Wadler") == "Propositions as Types"
+
+    def test_a_page_names_its_authors_year_and_title_in_its_citation_metadata(self) -> None:
+        page = (
+            b"<html><head><title>Principia Mathematica (Stanford Encyclopedia of Philosophy)</title>"
+            b'<meta name="citation_title" content="Principia Mathematica" />'
+            b'<meta name="citation_author" content="Irvine, Andrew David" />'
+            b'<meta content="1996/05/21" name="citation_publication_date" />'
+            b'<meta name="DC.creator" content="Someone Else" /></head></html>'
+        )
+        said = WebPage.metadata("https://plato.stanford.edu/entries/principia-mathematica", page)
+        assert said == PageMetadata(
+            title="Principia Mathematica", authors=("Andrew David Irvine",), year=1996
+        )
+        assert WebPage.metadata(
+            "https://x.net", b'<meta name="DC.creator" content="Irvine, A. D.">'
+        ).authors == ("A. D. Irvine",)
 
     def test_a_named_source_is_dated_by_its_own_metadata_not_the_day_it_was_fetched(self) -> None:
         nature = b'<meta name="dc.date" content="2023-12-14"/>'
@@ -506,6 +540,45 @@ class TestTavilySearch:
         assert kaplan.kind == "pdf" and kaplan.pdfs == (
             "https://arxiv.org/pdf/2001.08361",
         )  # the paper itself
+
+    def test_a_kept_page_is_described_by_its_own_metadata_when_it_has_any(self) -> None:
+        class Pages(Answering):
+            def fetch(self, url: str) -> bytes:
+                if "refused" in url:
+                    raise OSError("403")
+                author = b'<meta name="citation_author" content="Zach, Richard">'
+                return author + b'<meta name="citation_publication_date" content="2003/07/31">'
+
+        search = Pages({})
+        page = Candidate(
+            id="web:x",
+            title="Hilbert's Program",
+            authors=("plato.stanford.edu",),
+            year=0,
+            abstract="",
+            site="plato.stanford.edu",
+            page="https://plato.stanford.edu/entries/hilbert-program",
+        )
+        zach = search.described(page)
+        assert (zach.title, zach.authors, zach.year) == ("Hilbert's Program", ("Richard Zach",), 2003)
+        reference = zach.reference("hilbert")
+        assert (reference.authors, reference.year) == ("Zach, R.", "2003")
+        assert reference.short == "plato.stanford.edu: Hilbert's Program"
+        refused = page.model_copy(update={"page": "https://refused.org/x"})
+        assert search.described(refused) == refused
+
+    def test_a_title_loses_the_tags_and_site_label_the_search_gives_it(self) -> None:
+        assert Candidate.web_title("Propositions as Types - Informatics Homepages Server") == (
+            "Propositions as Types"
+        )
+        assert Candidate.web_title(
+            "[PDF] A computer-checked proof of the Four Colour Theorem 1 The story"
+        ) == ("A computer-checked proof of the Four Colour Theorem 1 The story")
+        assert Candidate.web_title(
+            "N.G. de Bruijn (1918\u20132012) and his Road to Automath ... - SciSpace"
+        ) == ("N.G. de Bruijn (1918\u20132012) and his Road to Automath ...")
+        long = "Gödel and the limits of logic - what the incompleteness theorems mean for mathematics"
+        assert Candidate.web_title(long) == long  # a long tail is the title's own
 
     def test_without_a_key_it_says_which_one_is_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(TavilySearch.KEY, raising=False)
