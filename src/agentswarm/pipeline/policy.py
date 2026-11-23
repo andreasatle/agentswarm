@@ -23,6 +23,7 @@ class Estimates(BaseModel):
     write_per_1000_words: float = 0.05  # 0.19-0.29 for 6,000-9,000 words
     audit: float = 0.15  # 20 statements on the referee (2026-11-10: $0.16)
     review_per_section: float = 0.07  # one claims round: the sleep tutorial, $0.97 for 8 sections x 2 rounds
+    attack: float = 0.05  # the red team on the finished document (2026-11-23: about $0.04)
 
     def write(self, words: int) -> float:
         return self.write_per_1000_words * words / 1000
@@ -70,7 +71,7 @@ class Policy(BaseModel):
             f"questions ${e.scope:.2f}, sources ${e.find:.2f}, writing ${e.write(words):.2f}, "
             f"citation audit ${e.audit:.2f}; "
             f"a review of {self.review_rounds} rounds ${review:.2f} (for the reader; citations too if fewer "
-            f"than {self.review_threshold:.0%} hold up)"
+            f"than {self.review_threshold:.0%} hold up); the red team's last look ${e.attack:.2f}"
         )
 
     def expected(self, words: int, sections: int = 10) -> float:
@@ -78,4 +79,4 @@ class Policy(BaseModel):
         after them."""
         e = self.estimates
         review = self.review_rounds * e.review(sections) + e.audit if self.review_rounds else 0.0
-        return e.scope + e.find + e.write(words) + e.audit + review
+        return e.scope + e.find + e.write(words) + e.audit + review + e.attack

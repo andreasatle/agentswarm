@@ -41,6 +41,7 @@ class Studio:
         Choice.RETRY: "Try again",
         Choice.ACCEPT: "Accept as they are",
         Choice.DROP: "Leave them out",
+        Choice.REVISE: "Make these changes",
         Choice.STOP: "Stop the run",
     }
     STAGES: ClassVar[dict[Stage, str]] = {
@@ -333,7 +334,7 @@ class Studio:
         if view.run.stage is Stage.SOURCES:
             return "writing"
         if view.run.stage is Stage.PUBLISHING:
-            return "making the page"
+            return "making your changes" if answer.choice is Choice.REVISE else "making the page"
         if answer.choice is Choice.BUDGET and view.run.blocked is not None:
             return {
                 "scope": "planning the questions",
@@ -341,6 +342,8 @@ class Studio:
                 "write": "writing",
                 "audit": "auditing",
                 "review": "reviewing",
+                "checked": "the red team's look",
+                "revise": "making your changes",
             }[view.run.blocked]
         return "working"
 

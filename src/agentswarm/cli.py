@@ -1136,10 +1136,17 @@ class Cli:
         approve.add_argument("--choice", choices=[c.value for c in Choice], default=Choice.YES.value)
         approve.add_argument("--budget", type=float, help="with --choice budget: the new total")
         approve.add_argument(
-            "--drop", type=int, nargs="+", default=[], help="at the questions: the numbers to leave out"
+            "--drop",
+            type=int,
+            nargs="+",
+            default=[],
+            help="the numbers to leave out: questions, or (with revise) findings not to fix",
         )
         approve.add_argument(
-            "--add", action="append", default=[], help="at the questions: one of your own (repeatable)"
+            "--add",
+            action="append",
+            default=[],
+            help="one of your own questions, or (with revise) instructions (repeatable)",
         )
         red = commands.add_parser("red-team", help="attack a finished run's document and show its flaws")
         red.add_argument("name")

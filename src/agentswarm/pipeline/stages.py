@@ -4,6 +4,7 @@ has a Protocol so the graph can be tested with fakes."""
 
 import asyncio
 import shutil
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any, Protocol
@@ -24,9 +25,10 @@ from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, Worker
 from agentswarm.pipeline.page import PageRenderer
 from agentswarm.pipeline.policy import Policy
-from agentswarm.pipeline.run import AuditResult, Choice, DocumentRun
+from agentswarm.pipeline.run import AuditResult, Choice, DocumentRun, Revision
 from agentswarm.project import Project, ProjectServices
 from agentswarm.teams.catalog import TeamCatalog
+from agentswarm.teams.revisions import UserRevisions
 from agentswarm.workspace.view import LevelFolders
 
 
@@ -41,6 +43,9 @@ class Written(Frozen):
     sections: int
     failed: tuple[str, ...]  # one line per failed section: its task and why
     held: str | None = None  # why it stopped short: a budget or a machine-wide limit refused more work
+    unplaced: tuple[
+        str, ...
+    ] = ()  # the user's changes no section holds (a finding on the references): not made
 
 
 class Sources(Protocol):
@@ -65,6 +70,14 @@ class Checking(Protocol):
     def audit(self, run: DocumentRun, policy: Policy) -> AuditResult: ...
 
     def review(self, run: DocumentRun, policy: Policy, budget_left: float) -> Written: ...
+
+    def attack(self, run: DocumentRun, policy: Policy) -> RedTeamReport:
+        """The red team on the finished document, for the user at the publishing pause."""
+        ...
+
+    def revise(self, run: DocumentRun, policy: Policy, budget_left: float, revision: Revision) -> Written:
+        """One round of the changes the user asked for, by the section writers."""
+        ...
 
 
 class Publishing(Protocol):
@@ -222,6 +235,29 @@ class ProjectStage:
         path.write_text(yaml.safe_dump(config, sort_keys=False))
         return path
 
+    def attack(self, run: DocumentRun, policy: Policy) -> RedTeamReport:
+        return RedTeamStage().attack(run, policy)
+
+    def revise(self, run: DocumentRun, policy: Policy, budget_left: float, revision: Revision) -> Written:
+        """The user's changes as revision tasks, one a section, made by the writers on the same board; the
+        review's configuration when there was a review, its rounds done, so no reviewer starts again."""
+        reviewed = run.project / self.REVIEW
+        path = reviewed if reviewed.is_file() else self.config(run, policy, budget_left)
+        unplaced: list[str] = []
+
+        def ask(project: Project) -> None:
+            config = project.config
+            folder = config.review.sections if config.review is not None else "sections"
+            brief = config.review.brief if config.review is not None else "docs/brief.md"
+            level = self.level(run, config)
+            texts = {f"{folder}/{p.name}": p.read_text() for p in sorted((level / folder).glob("*.md"))}
+            placement = UserRevisions.place(revision.instructions, revision.findings, texts)
+            UserRevisions(project.board, project.create_artifact, brief).create(placement)
+            unplaced.extend(f"{f.where}: {f.flaw}" for f in placement.unplaced)
+
+        written = self.run(run, self.capped(path, run, budget_left), ask)
+        return written.model_copy(update={"unplaced": tuple(unplaced)})
+
     def capped(self, path: Path, run: DocumentRun, budget_left: float) -> Path:
         """The project's own budget set to what the run has left: the project counts its spend per day, so
         its cap is what it spent today plus the rest of the run's budget."""
@@ -252,10 +288,12 @@ class ProjectStage:
         """Every team and judge the configuration names is one this stage can build."""
         Project.validate(ProjectConfig.load(path), ProjectServices(teams=self._catalog))
 
-    def run(self, run: DocumentRun, path: Path) -> Written:
+    def run(self, run: DocumentRun, path: Path, before: Callable[[Project], None] | None = None) -> Written:
         config = ProjectConfig.load(path)
         project = Project.open(config, run.board, ProjectServices(teams=self._catalog))
         try:
+            if before is not None:
+                before(project)
             asyncio.run(project.run_until_idle(self.MAX_ROUNDS))
             level = self.level(run, config)
             document = DocumentAssembly.write(level, run.board / "document.md")
@@ -346,7 +384,8 @@ class PageStage:
 
 class RedTeamStage:
     """The document's red team on a finished run (docs/design/outer-loop.md, step 1); its spend is the run's.
-    For now run by hand (`agentswarm red-team`) to measure it on finished runs before the pipeline uses it."""
+    Its findings are shown at the publishing pause, for the user to keep or untick; `agentswarm red-team`
+    runs it by hand on any run."""
 
     MODEL = "redteam"
 

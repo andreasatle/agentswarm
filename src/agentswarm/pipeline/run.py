@@ -9,6 +9,7 @@ from typing import ClassVar, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentswarm.evaluation.papers import PaperSource
+from agentswarm.evaluation.redteam import Finding
 
 
 class Frozen(BaseModel):
@@ -54,6 +55,7 @@ class Choice(StrEnum):
     ACCEPT = "accept"  # a failed section: take it as it is
     DROP = "drop"  # a failed section: leave it out
     BUDGET = "budget"  # raise the budget (with the new amount) and go on
+    REVISE = "revise"  # at the publishing: one round of the ticked findings and the user's instructions
 
 
 class Question(Frozen):
@@ -62,7 +64,8 @@ class Question(Frozen):
     title: str
     details: str
     choices: tuple[Choice, ...]
-    items: tuple[str, ...] = ()  # what the user may untick, numbered from 1 (the scope's questions)
+    items: tuple[str, ...] = ()  # what the user may untick, numbered from 1 (questions, or findings to fix)
+    instructions: bool = False  # it takes the user's own instructions for the writers (the publishing)
 
 
 class AuditResult(Frozen):
@@ -93,8 +96,20 @@ class Answer(Frozen):
 
     choice: Choice
     budget: float | None = None  # with Choice.BUDGET: the new total
-    drop: tuple[int, ...] = ()  # with Choice.YES at the scope: the questions left out, by number
-    add: tuple[str, ...] = ()  # with Choice.YES at the scope: the user's own questions, one each
+    drop: tuple[int, ...] = ()  # the items unticked, by number: questions left out, findings not to fix
+    add: tuple[
+        str, ...
+    ] = ()  # the user's own questions (at the scope) or instructions (with revise), one each
+
+
+class Revision(Frozen):
+    """One round of changes the user asked for at the publishing pause, after reading the document: the red
+    team's findings they kept ticked, and their own instructions, each about a place (a quoted passage or a
+    section's title in it) or, naming none, the whole document (docs/design/outer-loop.md: inspect, then act;
+    the user, 2026-11-23: "some things are taste rather than correct or not")."""
+
+    findings: tuple[Finding, ...] = ()
+    instructions: tuple[str, ...] = ()
 
 
 class DocumentRun(BaseModel):
@@ -115,13 +130,18 @@ class DocumentRun(BaseModel):
     listing: str = ""  # the sources found, as the user is shown them
     sections: int = 0
     failed: tuple[str, ...] = ()  # sections that failed their checks, one line each
-    blocked: Literal["scope", "find", "write", "audit", "review"] | None = (
+    blocked: Literal["scope", "find", "write", "audit", "review", "checked", "revise"] | None = (
         None  # a stage the budget wouldn't fit
     )
     need: float = 0.0  # what that stage is expected to cost
     held: str | None = None  # why that stage stopped short, when a limit refused it partway
     notes: tuple[str, ...] = ()  # what happened, for the user, in order
     answer: Answer | None = None  # the last answer given at a pause
+    flaws: tuple[
+        Finding, ...
+    ] = ()  # the red team's findings on the finished document, shown at the publishing
+    revision: Revision | None = None  # the changes the user asked for, until they are made
+    revisions: int = 0  # rounds of the user's changes made
 
     @property
     def sources(self) -> Path:

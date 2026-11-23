@@ -7,6 +7,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from agentswarm.evaluation.papers import Candidate, Found, ReadingFolder
+from agentswarm.evaluation.redteam import Finding, FlawKind
 from agentswarm.monitor.boards import Watched
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
@@ -54,7 +55,7 @@ class HostileSources(FakeSources):
 class Fixture:
     def __init__(self, tmp_path: Path, sources: FakeSources | None = None, **projects: Watched) -> None:
         self.ledger = Ledger()
-        self.project = FakeProject(self.ledger, shares=[19, 19])
+        self.project = FakeProject(self.ledger, shares=[19, 19, 19])  # the third: after the changes
         self.page = FakePage()
         stages = Stages(
             sources or FakeSources(self.ledger), self.project, self.project, self.page, self.ledger
@@ -117,6 +118,27 @@ class TestStudio:
             "Who studied it first?",
             "Why do we dream?",
         )
+
+    def test_at_the_publishing_the_user_keeps_findings_and_writes_changes(self, tmp_path: Path) -> None:
+        f = Fixture(tmp_path)
+        f.project.flaws = [
+            Finding(
+                where="Naps", evidence="A nap helps", flaw="Overstated.", fix="Hedge.", kind=FlawKind.REVISE
+            ),
+            Finding(
+                where="Naps", evidence="Sleep helps", flaw="Vague.", fix="Say how.", kind=FlawKind.REVISE
+            ),
+        ]
+        f.start()
+        (f.runs / "sleep-and-memory" / "document.md").write_text("# Sleep\n\nA nap helps. Sleep helps.\n")
+        page = f.answer("yes")
+        assert "Approve publishing" in page and page.count('type="checkbox" name="keep"') == 2
+        assert "Make these changes" in page and "Read the document" in page
+        page = f.answer("revise", ticks="2", keep="2", own="No 'first', 'second' in bullets\n")
+        (revision,) = f.project.revisions
+        assert [x.flaw for x in revision.findings] == ["Vague."]
+        assert revision.instructions == ("No 'first', 'second' in bullets",)
+        assert "Approve publishing" in page and "your rounds of changes: 1" in page
 
     def test_unticking_every_question_is_refused(self, tmp_path: Path) -> None:
         f = Fixture(tmp_path)

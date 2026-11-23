@@ -8,9 +8,20 @@ import pytest
 from langgraph.graph import END, START, StateGraph
 
 from agentswarm.evaluation.papers import Candidate, Found, ReadingFolder
+from agentswarm.evaluation.redteam import Finding, FlawKind, RedTeamReport
+from agentswarm.llm.workers import WorkerError
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
-from agentswarm.pipeline.run import Answer, AuditResult, Choice, DocumentRun, RunRequest, Stage, Working
+from agentswarm.pipeline.run import (
+    Answer,
+    AuditResult,
+    Choice,
+    DocumentRun,
+    Revision,
+    RunRequest,
+    Stage,
+    Working,
+)
 from agentswarm.pipeline.stages import Stages, Written
 
 
@@ -88,6 +99,10 @@ class FakeProject:
         self.writes = 0
         self.reviews = 0
         self.settled: list[Choice] = []
+        self.flaws: list[Finding] = []  # what the red team finds at each look
+        self.attacks = 0
+        self.revisions: list[Revision] = []
+        self.broken = False  # the red team's model fails
 
     def write(self, run: DocumentRun, policy: Policy, budget_left: float) -> Written:
         self.writes += 1
@@ -114,6 +129,21 @@ class FakeProject:
         self.reviews += 1
         self._ledger.usd += 1.5
         return Written(document=run.folder / "document.md", sections=10, failed=())
+
+    def attack(self, run: DocumentRun, policy: Policy) -> RedTeamReport:
+        self.attacks += 1
+        self._ledger.usd += 0.04
+        if self.broken:
+            raise WorkerError("the provider answered 503")
+        return RedTeamReport(shown=tuple(self.flaws), unshown=())
+
+    def revise(self, run: DocumentRun, policy: Policy, budget_left: float, revision: Revision) -> Written:
+        self.revisions.append(revision)
+        self._ledger.usd += 0.3
+        self.flaws = []  # fixed
+        return Written(
+            document=run.folder / "document.md", sections=10, failed=(), unplaced=("References: a flaw",)
+        )
 
 
 class FakePage:
@@ -395,3 +425,97 @@ class TestRunning:
     def test_a_marker_left_by_a_dead_process_is_not_running(self, tmp_path: Path) -> None:
         (tmp_path / Working.NAME).write_text("999999999")
         assert not Working(tmp_path).active()
+
+
+def flaw(evidence: str, kind: FlawKind = FlawKind.REVISE) -> Finding:
+    return Finding(
+        where="Batching", evidence=evidence, flaw="The average is wrong.", fix="Recompute it.", kind=kind
+    )
+
+
+class TestTheUsersChanges:
+    """The publishing pause: the red team's findings to keep or untick, the user's own instructions, one
+    round of changes, and back to the pause."""
+
+    def ready(self, tmp_path: Path, project: FakeProject, ledger: Ledger) -> DocumentPipeline:
+        runs = pipeline(project, ledger)
+        begin(runs, request(), tmp_path)
+        (tmp_path / "document.md").write_text("## Batching\n\nEach expert receives Bk/E tokens on average.\n")
+        runs.answer("sleep", Answer(choice=Choice.YES))
+        return runs
+
+    def test_the_red_team_looks_last_and_its_findings_wait_for_the_user(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[12, 17])
+        project.flaws = [
+            flaw("Each expert receives Bk/E tokens"),
+            flaw("[^3]: plato.stanford.edu", FlawKind.FRAMEWORK),
+        ]
+        runs = self.ready(tmp_path, project, ledger)
+        question = runs.waiting("sleep")
+        assert project.attacks == 1 and question is not None and question.instructions
+        assert question.items == ('Batching: The average is wrong. ("Each expert receives Bk/E tokens")',)
+        assert "other remarks" in question.details and Choice.REVISE in question.choices
+        assert "--choice revise" in runs.report("sleep")
+
+    def test_revise_makes_the_ticked_findings_and_the_instructions_then_comes_back(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[12, 17, 18])
+        project.flaws = [flaw("Each expert receives Bk/E tokens"), flaw("tokens on average")]
+        runs = self.ready(tmp_path, project, ledger)
+        run = runs.answer(
+            "sleep", Answer(choice=Choice.REVISE, drop=(2,), add=(" No  'first', 'second' in bullets ",))
+        )
+        assert (
+            project.revisions
+            == [
+                Revision(
+                    findings=(project_flaw := flaw("Each expert receives Bk/E tokens"),),
+                    instructions=("No 'first', 'second' in bullets",),
+                )
+            ]
+            and project_flaw.kind is FlawKind.REVISE
+        )
+        assert run.stage is Stage.PUBLISHING and run.revisions == 1 and run.revision is None
+        assert [a.supported for a in run.audits] == [
+            12,
+            17,
+            18,
+        ] and project.attacks == 2  # audited, looked at again
+        assert any("not made, no section holds it: References" in n for n in run.notes)
+        question = runs.waiting("sleep")
+        assert (
+            question is not None and question.items == () and "your rounds of changes: 1" in question.details
+        )
+        assert runs.answer("sleep", Answer(choice=Choice.YES)).stage is Stage.PUBLISHED
+
+    def test_answers_that_cant_be_made_are_refused(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[12, 17])
+        project.flaws = [flaw("Each expert receives Bk/E tokens")]
+        runs = self.ready(tmp_path, project, ledger)
+        with pytest.raises(ValueError, match="nothing to revise"):
+            runs.answer("sleep", Answer(choice=Choice.REVISE, drop=(1,)))
+        with pytest.raises(ValueError, match="go with revise"):
+            runs.answer("sleep", Answer(choice=Choice.YES, add=("Shorter, please",)))
+        with pytest.raises(ValueError, match="isn't in the document word for word"):
+            runs.answer(
+                "sleep", Answer(choice=Choice.REVISE, add=('Fix "the experts are idle most of the time"',))
+            )
+        with pytest.raises(ValueError, match="no finding numbered 2"):
+            runs.answer("sleep", Answer(choice=Choice.REVISE, drop=(2,)))
+        assert project.revisions == []
+        # unticked findings sent with yes (as the studio's form does) are only ignored
+        assert runs.answer("sleep", Answer(choice=Choice.YES, drop=(1,))).stage is Stage.PUBLISHED
+
+    def test_a_red_team_that_fails_leaves_the_pause_without_findings(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        project = FakeProject(ledger, shares=[12, 17])
+        project.broken = True
+        runs = self.ready(tmp_path, project, ledger)
+        run = runs.run("sleep")
+        question = runs.waiting("sleep")
+        assert run.stage is Stage.PUBLISHING and question is not None and question.items == ()
+        assert any(n.startswith("the red team failed") for n in run.notes)

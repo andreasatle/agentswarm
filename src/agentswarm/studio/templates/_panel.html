@@ -38,7 +38,21 @@
     <section class="card now waiting">
       <p class="eyebrow">Waiting for you</p>
       <h2>{{ view.question.title }}</h2>
-      {% if view.question.items %}
+      {% if view.question.instructions %}
+      <p><a href="/runs/{{ name }}/document">Read the document</a>, then publish it, or ask for changes.</p>
+      <div class="prose">{{ view.question.details|prose }}</div>
+      <form id="scope" method="post" action="/runs/{{ name }}/answer" class="questions">
+        {% if view.question.items %}
+        <p>The red team's findings: untick any you disagree with.</p>
+        {% endif %}
+        <input type="hidden" name="ticks" value="{{ view.question.items|length }}">
+        {% for item in view.question.items %}
+        <label class="tick"><input type="checkbox" name="keep" value="{{ loop.index }}" checked> {{ item }}</label>
+        {% endfor %}
+        <label class="own"><span>Your changes, one per line (optional). Quote a passage in double quotes, or name a section, for a change there; anything else is a rule for the whole document.</span>
+          <textarea name="own" rows="4" placeholder='In "Why batching helps", drop the enumeration "first", "second" in the bullets'></textarea></label>
+      </form>
+      {% elif view.question.items %}
       <form id="scope" method="post" action="/runs/{{ name }}/answer" class="questions">
         <p>The document will answer these questions. Untick any to leave out, add your own; if they miss what you meant, stop and start again in other words.</p>
         <input type="hidden" name="ticks" value="{{ view.question.items|length }}">
@@ -64,8 +78,10 @@
             <label class="money"><span>$</span><input name="budget" type="number" step="0.05" min="{{ '%.2f'|format(view.spent) }}" value="{{ '%.2f'|format(view.spent + view.run.need + 0.05) }}" aria-label="The new budget"></label>
             <button class="button primary" name="choice" value="budget">{{ choices[c] }}</button>
           </form>
-          {% elif view.question.items and c.value == "yes" %}
+          {% elif view.question.items and c.value == "yes" and not view.question.instructions %}
           <button form="scope" class="button primary" name="choice" value="yes">{{ choices[c] }}</button>
+          {% elif view.question.instructions and c.value == "revise" %}
+          <button form="scope" class="button" name="choice" value="revise">{{ choices[c] }}</button>
           {% else %}
           <form method="post" action="/runs/{{ name }}/answer" class="inline">
             <button class="button {{ 'quiet' if c.value == 'stop' else 'primary' if loop.first else '' }}" name="choice" value="{{ c.value }}"{% if c.value == "stop" %} data-confirm="Stop this run? It can't be resumed."{% endif %}>{{ choices[c] }}</button>

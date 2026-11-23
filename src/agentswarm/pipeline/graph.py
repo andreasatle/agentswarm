@@ -5,8 +5,9 @@ for a fixed workflow that pauses for a person). The graph only orders the stages
 plain class in stages.py. Its checkpointer keeps each run in SQLite between the user's commands, so a run
 waits for an approval for as long as it takes and survives a restart.
 
-    find -> approve sources -> write -> (decide on failed sections) -> audit -> (review -> audit) ->
-    checked -> approve publishing -> publish
+    scope -> approve questions -> find -> approve sources -> write -> (decide on failed sections) -> audit ->
+    (review -> audit) -> checked (the red team's look) -> approve publishing -> (revise -> audit -> checked
+    -> approve publishing ...) -> publish
 
 Before a paid stage, the run's spend so far and the stage's expected cost are checked against the budget; a
 stage that wouldn't fit pauses the run for the user to raise the budget or stop.
@@ -24,10 +25,22 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from agentswarm.evaluation.documents import DocumentImport
-from agentswarm.evaluation.redteam import ReferenceCheck
+from agentswarm.evaluation.redteam import Finding, FlawKind, ReferenceCheck
+from agentswarm.llm.workers import WorkerError
 from agentswarm.pipeline.policy import Policy
-from agentswarm.pipeline.run import Answer, Choice, DocumentRun, Question, RunRequest, RunView, Stage, Working
+from agentswarm.pipeline.run import (
+    Answer,
+    Choice,
+    DocumentRun,
+    Question,
+    Revision,
+    RunRequest,
+    RunView,
+    Stage,
+    Working,
+)
 from agentswarm.pipeline.stages import Stages
+from agentswarm.teams.revisions import UserRevisions
 
 type Update = dict[str, Any]
 
@@ -36,16 +49,28 @@ class DocumentPipeline:
     THREADS = "SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id"
     SOURCES_QUESTION = "Approve the sources"
     SCOPE_QUESTION = "Approve the questions"
+    PUBLISHING_QUESTION = "Approve publishing"
     # Our types in a saved run, named for the checkpointer's serializer (it warns about, and will refuse,
     # types it wasn't told about)
     SAVED: ClassVar[list[tuple[str, str]]] = [
         ("agentswarm.evaluation.papers", "PaperSource"),
+        ("agentswarm.evaluation.redteam", "Finding"),
+        ("agentswarm.evaluation.redteam", "FlawKind"),
         *(
             (
                 "agentswarm.pipeline.run",
                 name,
             )
-            for name in ("RunRequest", "Stage", "Choice", "Answer", "AuditResult", "DocumentRun", "Question")
+            for name in (
+                "RunRequest",
+                "Stage",
+                "Choice",
+                "Answer",
+                "AuditResult",
+                "DocumentRun",
+                "Question",
+                "Revision",
+            )
         ),
     ]
 
@@ -79,6 +104,7 @@ class DocumentPipeline:
         "review",
         "checked",
         "approve_publishing",
+        "revise",
         "publish",
         "budget",
     )
@@ -96,8 +122,9 @@ class DocumentPipeline:
         graph.add_conditional_edges("decide", self.after_decision)
         graph.add_conditional_edges("audit", self.after_audit)
         graph.add_conditional_edges("review", self.after_paid("audit"))
-        graph.add_edge("checked", "approve_publishing")
-        graph.add_conditional_edges("approve_publishing", self.after_approval("publish"))
+        graph.add_conditional_edges("checked", self.after_paid("approve_publishing"))
+        graph.add_conditional_edges("approve_publishing", self.after_publishing)
+        graph.add_conditional_edges("revise", self.after_paid("audit"))
         graph.add_edge("publish", END)
         graph.add_conditional_edges("budget", self.after_budget)
         return graph
@@ -184,8 +211,36 @@ class DocumentPipeline:
             "notes": (*run.notes, note),
         }
 
+    def revise(self, run: DocumentRun) -> Update:
+        """The changes the user asked for at the publishing pause, made by the section writers in one round;
+        then audited again, looked at by the red team again, and back to the user."""
+        revision = run.revision
+        if revision is None:
+            raise RuntimeError("nothing to revise: the run has no changes waiting")
+        blocked = self.over(run, self.policy(run).estimates.review(run.sections), "revise")
+        if blocked is not None:
+            return blocked
+        written = self.apart(self._stages.checking.revise, run, self.policy(run), self.left(run), revision)
+        if written.held is not None:
+            return self.cut_short(run, "revise", written.held)
+        if written.document is None:
+            raise RuntimeError("the revision left no sections; nothing to check or publish")
+        notes = [
+            f"your changes made: {len(revision.instructions)} instructions, {len(revision.findings)} findings"
+            + (f"; {len(written.failed)} revisions left unfinished" if written.failed else "")
+        ]
+        notes += [f"not made, no section holds it: {u}" for u in written.unplaced]
+        return {
+            "stage": Stage.CHECKING,
+            "blocked": None,
+            "document": written.document,
+            "revision": None,
+            "revisions": run.revisions + 1,
+            "notes": (*run.notes, *notes),
+        }
+
     @staticmethod
-    def cut_short(run: DocumentRun, step: Literal["write", "review"], held: str) -> Update:
+    def cut_short(run: DocumentRun, step: Literal["write", "review", "revise"], held: str) -> Update:
         """A step a limit refused partway: the run waits at the budget question, to be retried once the
         limit allows (a machine-wide limit resets at midnight UTC), not carried on as if it were done."""
         return {
@@ -196,8 +251,30 @@ class DocumentPipeline:
         }
 
     def checked(self, run: DocumentRun) -> Update:
-        """Written and checked: the run now waits to be published (its stage says so while it waits)."""
-        return {"stage": Stage.PUBLISHING}
+        """Written and checked: the red team looks at the finished document, and the run waits to be published
+        (its stage says so while it waits). A red team that fails doesn't stop the run: its findings are
+        advice for the user, not a gate."""
+        blocked = self.over(run, self.policy(run).estimates.attack, "checked")
+        if blocked is not None:
+            return blocked
+        try:
+            report = self.apart(self._stages.checking.attack, run, self.policy(run))
+        except WorkerError as error:
+            return {
+                "stage": Stage.PUBLISHING,
+                "blocked": None,
+                "flaws": (),
+                "notes": (*run.notes, f"the red team failed: {str(error)[:200]}"),
+            }
+        return {
+            "stage": Stage.PUBLISHING,
+            "blocked": None,
+            "flaws": report.shown,
+            "notes": (
+                *run.notes,
+                f"red team: {len(report.shown)} flaws shown, {len(report.unshown)} dropped",
+            ),
+        }
 
     def publish(self, run: DocumentRun) -> Update:
         page = self.apart(self._stages.publishing.publish, run, self.policy(run))
@@ -280,16 +357,51 @@ class DocumentPipeline:
         )
         flagged = "".join(f"\n- {i}" for i in issues)
         references = f"References to check ({len(issues)}):{flagged}\n" if issues else ""
+        fixable = self.fixable(run)
+        others = [f for f in run.flaws if f not in fixable]
+        found = "".join(f"\n{n}. {item}" for n, item in enumerate(self.items(fixable), 1))
+        listed = (
+            f"The red team's findings, to fix unless you untick them ({len(fixable)}):{found}\n"
+            if fixable
+            else ""
+        )
+        remarks = "".join(f"\n- [{f.kind}] {f.where}: {f.flaw}" for f in others)
+        noted = (
+            f"The red team's other remarks, not for the writers ({len(others)}):{remarks}\n" if others else ""
+        )
         answer = self.ask(
             Question(
-                title="Approve publishing",
-                details=f"The document: {run.document}\nCitations: {audit}; fact reviews: {run.reviews}.\n"
-                f"{references}Cost: ${spent:.2f} of ${run.request.budget:.2f}.\n"
-                "yes writes the page beside the run.",
-                choices=(Choice.YES, Choice.STOP),
+                title=self.PUBLISHING_QUESTION,
+                details=f"The document: {run.document}\nCitations: {audit}; fact reviews: {run.reviews}; "
+                f"your rounds of changes: {run.revisions}.\n{listed}{noted}{references}"
+                f"Cost: ${spent:.2f} of ${run.request.budget:.2f}.\n"
+                "yes writes the page beside the run. revise has the writers make the ticked findings and "
+                "your own instructions in one round (about "
+                f"${self.policy(run).estimates.review(run.sections):.2f}), audits again and comes back here. "
+                "An instruction quoting a passage in double quotes, or naming a section's title, is about "
+                "that place; one naming neither is a rule for the whole document.",
+                choices=(Choice.YES, Choice.REVISE, Choice.STOP),
+                items=self.items(fixable),
+                instructions=True,
             )
         )
-        return self.answered(run, answer)
+        update = self.answered(run, answer)
+        if answer.choice is Choice.REVISE:
+            update["revision"] = Revision(
+                findings=tuple(f for n, f in enumerate(fixable, 1) if n not in answer.drop),
+                instructions=tuple(" ".join(i.split()) for i in answer.add if i.strip()),
+            )
+            update["stage"] = Stage.CHECKING
+        return update
+
+    @staticmethod
+    def fixable(run: DocumentRun) -> tuple[Finding, ...]:
+        """The red team's findings the writers can make: those of the text, not of how documents are made."""
+        return tuple(f for f in run.flaws if f.kind is FlawKind.REVISE)
+
+    @staticmethod
+    def items(findings: tuple[Finding, ...]) -> tuple[str, ...]:
+        return tuple(f'{f.where}: {f.flaw} ("{f.evidence[:160]}")' for f in findings)
 
     def budget(self, run: DocumentRun) -> Update:
         spent = self._stages.spending.spent(run)
@@ -343,6 +455,11 @@ class DocumentPipeline:
             return "budget"
         return "decide" if run.failed else "audit"
 
+    def after_publishing(self, run: DocumentRun) -> str:
+        if run.stage is Stage.STOPPED:
+            return END
+        return "revise" if run.revision is not None else "publish"
+
     def after_decision(self, run: DocumentRun) -> str:
         if run.stage is Stage.STOPPED:
             return END
@@ -369,7 +486,10 @@ class DocumentPipeline:
         return max(run.request.budget - self._stages.spending.spent(run), 0.0)
 
     def over(
-        self, run: DocumentRun, need: float, step: Literal["scope", "find", "write", "audit", "review"]
+        self,
+        run: DocumentRun,
+        need: float,
+        step: Literal["scope", "find", "write", "audit", "review", "checked", "revise"],
     ) -> Update | None:
         if self.left(run) >= need:
             return None
@@ -403,16 +523,22 @@ class DocumentPipeline:
             raise ValueError(f"{name} can't take {answer.choice} now: {', '.join(question.choices)}")
         if answer.choice is Choice.BUDGET and answer.budget is None:
             raise ValueError("raising the budget needs the new total")
-        if answer.add and not question.items:
+        if question.instructions:
+            self.instructed(name, question, answer)
+        elif answer.add and not question.items:
             raise ValueError(f"{name} isn't asking for questions now")
-        if answer.drop:
+        # at the publishing, unticked findings matter only to revise (the studio sends them with any choice)
+        ignored = question.instructions and answer.choice is not Choice.REVISE
+        if answer.drop and not ignored:
             if not question.items:
                 raise ValueError(f"{name} has nothing to leave out now")
             wrong = [n for n in answer.drop if not 1 <= n <= len(question.items)]
+            item = "finding" if question.instructions else "question"
             if wrong:
-                raise ValueError(f"no question numbered {wrong[0]}: they run from 1 to {len(question.items)}")
+                raise ValueError(f"no {item} numbered {wrong[0]}: they run from 1 to {len(question.items)}")
             if (
                 answer.choice is Choice.YES
+                and not question.instructions
                 and len(set(answer.drop)) == len(question.items)
                 and not answer.add
             ):
@@ -421,6 +547,26 @@ class DocumentPipeline:
         sourcing = question.title == self.SOURCES_QUESTION
         if sourcing and answer.choice is Choice.YES and not DocumentImport.files([run.sources]):
             raise ValueError(f"no documents in {run.sources} yet: add at least one, then approve")
+
+    def instructed(self, name: str, question: Question, answer: Answer) -> None:
+        """The publishing pause's answer: instructions go with revise, and a passage one quotes must be in the
+        document word for word, or the writers couldn't find it either."""
+        if answer.choice is Choice.YES and answer.add:
+            raise ValueError("your instructions go with revise; yes publishes the document as it is")
+        if answer.choice is not Choice.REVISE:
+            return
+        kept = len(question.items) - len(set(answer.drop) & set(range(1, len(question.items) + 1)))
+        if not kept and not any(i.strip() for i in answer.add):
+            raise ValueError("nothing to revise: keep a finding ticked or write an instruction")
+        document = self.run(name).document
+        text = document.read_text() if document is not None and document.is_file() else ""
+        for instruction in answer.add:
+            missing = UserRevisions.missing(instruction, text)
+            if missing is not None:
+                raise ValueError(
+                    f'the passage "{missing[:80]}" isn\'t in the document word for word: copy it from the '
+                    "document, or leave out the quotes to make it a rule for the whole document"
+                )
 
     def answer(self, name: str, answer: Answer) -> DocumentRun:
         self.check(name, answer)
@@ -504,7 +650,12 @@ class DocumentPipeline:
             lines.append(
                 "answer: uv run agentswarm approve " + name + " --choice " + "|".join(question.choices)
             )
-            if question.items:
+            if question.instructions:
+                lines.append(
+                    '  (with --choice revise: --drop N [N ...] unticks those findings, --add "..." adds an '
+                    "instruction of yours)"
+                )
+            elif question.items:
                 lines.append(
                     '  (with --choice yes: --drop N [N ...] leaves those out, --add "..." adds your own)'
                 )
