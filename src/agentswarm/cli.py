@@ -78,7 +78,7 @@ from agentswarm.monitor.report import HardeningSummary, Report, RunVerdict
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, Choice, RunRequest
-from agentswarm.pipeline.stages import MeteredFinder, Stages
+from agentswarm.pipeline.stages import MeteredFinder, RedTeamStage, Stages
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.retrieval.passages import Chunker, PassageIndex
@@ -99,6 +99,7 @@ class Cli:
                                                    (sources, publishing); [--source --words --url --files]
         runs [NAME]                                every document run, or one in full with what it waits for
         approve NAME [--choice C] [--budget USD] [--drop N...]   answer a waiting run (yes, stop, retry...)
+        red-team NAME [--save FILE]   attack a finished run's document: its flaws, each shown by a quote
         studio [--port N]                          all of the above as a web page on localhost
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
@@ -219,6 +220,8 @@ class Cli:
                 return self.document_runs(args)
             case "approve":
                 return self.approve_run(args)
+            case "red-team":
+                return self.red_team(args)
             case "benchmark":
                 return self.benchmark(args)
             case "retrieval-benchmark":
@@ -565,6 +568,22 @@ class Cli:
             return 2
         finally:
             runs.close()
+        return 0
+
+    def red_team(self, args: argparse.Namespace) -> int:
+        """The document's red team on a finished run, to measure it before the pipeline uses it."""
+        runs = self.documents()
+        try:
+            run = runs.run(args.name)
+            report = RedTeamStage().attack(run, runs.policy(run))
+        except ValueError as error:
+            self._show(str(error))
+            return 2
+        finally:
+            runs.close()
+        self._show(report.render())
+        if args.save:
+            Path(args.save).expanduser().write_text(report.model_dump_json(indent=1))
         return 0
 
     def approve_run(self, args: argparse.Namespace) -> int:
@@ -1116,6 +1135,9 @@ class Cli:
         approve.add_argument(
             "--drop", type=int, nargs="+", default=[], help="at the questions: the numbers to leave out"
         )
+        red = commands.add_parser("red-team", help="attack a finished run's document and show its flaws")
+        red.add_argument("name")
+        red.add_argument("--save", help="also write the report as JSON to this file")
         bench = commands.add_parser(
             "benchmark", help="run the held-out document cases with the current code, measure and record them"
         )

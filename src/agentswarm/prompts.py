@@ -62,6 +62,7 @@ from agentswarm.evaluation.questions import (
     ReaderAnswer,
     ReadingRequest,
 )
+from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, Findings
 from agentswarm.jev.spec import QuestionSet
 from agentswarm.judging.deciders import LLMAnswers, LLMDecider, LLMQuestions
 from agentswarm.judging.judges import ChangeReadiness, Judge, JudgeCatalog, JudgeState
@@ -303,6 +304,17 @@ class SampleData:
         return JudgeRequest(
             reader="an engineer new to the topic",
             document="# Title\n\n## Section\n\nThe tool cut review time by 14% (Smith, 2024).\n...",
+        )
+
+    @classmethod
+    def attacked(cls) -> DocumentAttack:
+        return DocumentAttack(
+            reader="engineers with a background in HPC",
+            brief="A tutorial on serving one mixture-of-experts model to many users ...",
+            words=3000,
+            sources=("arxiv-org-deepseek-v3-technical-report.pdf", "lmsys-org-deploying-deepseek.txt"),
+            document="# Serving one MoE model\n\n## Prefill versus decode\n\nSection 5 showed ...\n\n"
+            "## References\n\n[^1]: lmsys.org (n.d.). [*Deploying DeepSeek ...*](https://www.lmsys.org/...).",
         )
 
     @classmethod
@@ -622,6 +634,14 @@ class PromptCatalogue:
                 ReaderJudge,
                 SampleData.judged(),
                 JudgeReport,
+                None,
+            ),
+            CallFamily(
+                "The document's red team: flaws in a finished document as a whole, each shown by a quote",
+                (Caller("", DocumentRedTeam, DocumentRedTeam.INSTRUCTIONS),),
+                DocumentRedTeam,
+                SampleData.attacked(),
+                Findings,
                 None,
             ),
             CallFamily(

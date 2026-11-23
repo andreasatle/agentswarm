@@ -18,6 +18,8 @@ models:
   gpt-sol: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 32768, model: 'openai:openai/gpt-6.1-sol', usd_per_million: {{input: 2.0, output: 10.0, cache_read: 0.1}}}}
   referee: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {{cache_read: 0.022, input: 0.66, output: 1.98}}}}
   referee-fast: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, thinking: false, model: 'openai:deepseek/deepseek-v4-pro-0813', usd_per_million: {{cache_read: 0.022, input: 0.66, output: 1.98}}}}
+  # the document's red team: a family neither the writers (Claude, GPT) nor the referee (DeepSeek) are in
+  redteam: {{api_key_env: OPENROUTER_API_KEY, base_url: 'https://openrouter.ai/api/v1', max_tokens: 16384, model: 'openai:google/gemini-3.8-flash', usd_per_million: {{input: 0.75, output: 3.75, cache_read: 0.75}}}}
 checks:
   check_doc: {{command: [python, tools/check_doc.py], kind: build_failure, timeout_s: 60}}
 teams:

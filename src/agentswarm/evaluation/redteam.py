@@ -1,0 +1,115 @@
+"""The document's red team (docs/design/outer-loop.md, step 1): an agent of another model family attacks a
+finished document as a whole, where the reviewers each look at one section from one perspective, and reports
+its flaws. Red teaming in the user's sense (2026-11-22): an agent attacking the product to find its flaws.
+
+Like every red team (goal 12) it must show each flaw, not argue it: every finding quotes the document word for
+word, and plain code drops a finding whose quote isn't there. Measured before it is trusted: on finished runs
+with flaws found by hand, how many it finds and how many it invents.
+"""
+
+import re
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from agentswarm.llm.workers import Worker
+
+
+class Frozen(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class FlawKind(StrEnum):
+    REVISE = "revise"  # the writers can fix it in this run's text
+    FRAMEWORK = "framework"  # it comes from how the document is made, and recurs: an issue for the code
+    NOTE = "note"  # for the user; no fix needed
+
+
+class DocumentAttack(Frozen):
+    """The payload the red team receives: what the document was asked to be, and the document."""
+
+    reader: str  # who it is for and what they know
+    brief: str  # what it was asked to do and cover
+    words: int  # its length cap
+    sources: tuple[str, ...]  # the sources it was written from, one line each
+    document: str  # the whole document, its references included
+
+
+class Finding(Frozen):
+    """One flaw, shown by a quote from the document."""
+
+    where: str = Field(description="the section's title, or 'References'")
+    evidence: str = Field(
+        description="the flaw's evidence copied word for word from the document: a sentence, a table row "
+        "or a reference line, short enough to be found by search"
+    )
+    flaw: str = Field(description="what is wrong, in one sentence")
+    fix: str = Field(description="how to repair it, in one sentence")
+    kind: FlawKind = Field(
+        description="revise (the writers can fix it in the text), framework (it comes from how the document "
+        "was assembled, such as the reference list or the layout, and would recur in every document), or note"
+    )
+
+
+class Findings(Frozen):
+    """Your report: the flaws you can show. An empty list is a valid answer."""
+
+    findings: list[Finding]
+
+
+class RedTeamReport(Frozen):
+    shown: tuple[Finding, ...]  # quoted from the document
+    unshown: tuple[Finding, ...]  # their quote isn't in the document: dropped, kept here to be counted
+
+    def render(self) -> str:
+        lines = [
+            f"{len(self.shown)} flaws shown, {len(self.unshown)} dropped (their quote isn't in the document)"
+        ]
+        for n, f in enumerate(self.shown, 1):
+            lines += [
+                f"{n}. [{f.kind}] {f.where}: {f.flaw}",
+                f"   evidence: {f.evidence}",
+                f"   fix: {f.fix}",
+            ]
+        return "\n".join(lines)
+
+
+class DocumentRedTeam:
+    INSTRUCTIONS = """\
+You are the red team for a document that other models wrote from the sources listed, for the reader
+described. Attack it as a whole: find the flaws that would let that reader down or embarrass the document,
+especially those no single section shows. Look at its structure (a reference to a part of the document that
+doesn't exist or is never introduced; something promised and not delivered; a table or list that is malformed
+or incomplete; the same point, example or sentence repeated across sections), at the brief (a part of it the
+document leaves out; a length far over the limit), at the references (a malformed entry: an author, date,
+title or venue that is wrong, missing or a leftover of a web page or file; a source listed twice), and at its
+claims (two statements that contradict each other; a number used inconsistently; the document going beyond
+its sources without saying so).
+
+Show every flaw: copy its evidence word for word from the document (a sentence, a table row or a reference
+line), so that it can be found by search; a flaw you cannot quote, don't report. Say in one sentence what is
+wrong and how to fix it, and whether the writers can fix it in the text (revise), it comes from how the
+document was assembled and would recur in every document (framework), or it needs no fix (note). Report only
+real flaws, not preferences of style; when you find none, say so with an empty list."""
+
+    def __init__(self, worker: Worker) -> None:
+        self._worker = worker
+
+    async def attack(self, request: DocumentAttack) -> RedTeamReport:
+        found = await self._worker.run(self.INSTRUCTIONS, request, Findings)
+        shown = tuple(f for f in found.findings if self.quoted(f.evidence, request.document))
+        unshown = tuple(f for f in found.findings if f not in shown)
+        return RedTeamReport(shown=shown, unshown=unshown)
+
+    @staticmethod
+    def flat(text: str) -> str:
+        """Whitespace collapsed and Markdown emphasis dropped: a quote needn't keep line breaks or stars."""
+        return " ".join(re.sub(r"[*_`]", "", text).split())
+
+    @classmethod
+    def quoted(cls, evidence: str, document: str) -> bool:
+        """Whether the evidence is in the document: whole, or each part an ellipsis in the quote joins."""
+        flat = cls.flat(document)
+        parts = [cls.flat(p) for p in re.split(r"\s*(?:\.\.\.|…)\s*", evidence)]
+        parts = [p.strip("\"' ") for p in parts if len(p.strip("\"' ")) >= 12]
+        return bool(parts) and all(p in flat for p in parts)

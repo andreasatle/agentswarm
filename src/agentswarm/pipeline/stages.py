@@ -19,6 +19,7 @@ from agentswarm.core.domain import ArtifactId, Resolution, Usage
 from agentswarm.evaluation.citations import CitationAudit, Support
 from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceText
 from agentswarm.evaluation.papers import Found, PaperFinder, WebPage
+from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, RedTeamReport
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, Worker
 from agentswarm.pipeline.page import PageRenderer
@@ -95,13 +96,14 @@ class MeteredFinder:
 
     MODEL = "planner"  # a strong model: the choice of sources shapes the whole document
 
-    def __init__(self, record_as: str) -> None:
+    def __init__(self, record_as: str, model: str | None = None) -> None:
         self._record_as = record_as
+        self._model = model or self.MODEL
         self.spent = 0.0
 
     def worker(self) -> Worker:
         models = DocumentImport.models()
-        model = models[self.MODEL]
+        model = models[self._model]
         limits = SpendLimits.load()
         shared = SharedSpend(limits, SystemClock()) if limits is not None else None
 
@@ -111,7 +113,7 @@ class MeteredFinder:
             if shared is not None:
                 shared.record(self._record_as, model.account, usd)
 
-        return LangChainWorkers(ChatModels(models)).worker(self.MODEL, 1, meter)
+        return LangChainWorkers(ChatModels(models)).worker(self._model, 1, meter)
 
 
 class SourceStage:
@@ -338,6 +340,26 @@ class PageStage:
             "read it as a guide to its sources, not a substitute for them. "
             '<a href="/work/agentswarm">About AgentSwarm</a>.'
         )
+
+
+class RedTeamStage:
+    """The document's red team on a finished run (docs/design/outer-loop.md, step 1); its spend is the run's.
+    For now run by hand (`agentswarm red-team`) to measure it on finished runs before the pipeline uses it."""
+
+    MODEL = "redteam"
+
+    def attack(self, run: DocumentRun, policy: Policy) -> RedTeamReport:
+        if run.document is None or not run.document.is_file():
+            raise ValueError(f"{run.request.name} has no document yet")
+        request = DocumentAttack(
+            reader=run.request.reader,
+            brief=policy.brief(run.request.topic, run.request.reader, run.request.goal, run.questions),
+            words=run.request.words or policy.words,
+            sources=tuple(p.name for p in DocumentImport.files([run.sources])),
+            document=run.document.read_text(),
+        )
+        worker = MeteredFinder(Names.project(run), self.MODEL).worker()
+        return asyncio.run(DocumentRedTeam(worker).attack(request))
 
 
 class Stages:

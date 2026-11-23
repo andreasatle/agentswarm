@@ -45,6 +45,7 @@ A worker (`llm/workers.py`) makes each call the same way:
 | [Writer (documents): one section of the outline in one answer, from its sources](#writer-documents-one-section-of-the-outline-in-one-answer-from-its-sources) | (`Writer`) | `SectionDraft` |
 | [Writer on passages (documents, when the writer's `retrieval` is set): the section from what search found in its sources, saying whether that was enough](#writer-on-passages-documents-when-the-writers-retrieval-is-set-the-section-from-what-search-found-in-its-sources-saying-whether-that-was-enough) | (`Writer`) | `PassageDraft` |
 | [Benchmark judge (not part of any run): reader-facing flaws in a finished document](#benchmark-judge-not-part-of-any-run-reader-facing-flaws-in-a-finished-document) | (`ReaderJudge`) | `JudgeReport` |
+| [The document's red team: flaws in a finished document as a whole, each shown by a quote](#the-documents-red-team-flaws-in-a-finished-document-as-a-whole-each-shown-by-a-quote) | (`DocumentRedTeam`) | `Findings` |
 | [Citation audit, and the referee of a claims finding: does the cited source support a document's statement?](#citation-audit-and-the-referee-of-a-claims-finding-does-the-cited-source-support-a-documents-statement) | (`CitationAudit`) | `CitationAnswer` |
 | [Claim checker (review, `claims` perspective): one cited statement against its source](#claim-checker-review-claims-perspective-one-cited-statement-against-its-source) | (`ClaimChecker`) | `ClaimVerdict` |
 | [Paper finder: search queries (and well-known titles) for a topic, run against arXiv](#paper-finder-search-queries-and-well-known-titles-for-a-topic-run-against-arxiv) | (`PaperFinder`) | `SearchQueries` |
@@ -2699,6 +2700,164 @@ class Flaw(Frozen):
 `ReaderJudge`: The benchmark's judge: reader-facing flaws in a finished document, each backed by a verbatim quote.
 
 Flaws whose quote isn't in the document are dropped. It judges form and clarity only; whether claims are true is the citation audit's job.
+
+## The document's red team: flaws in a finished document as a whole, each shown by a quote
+
+### DocumentRedTeam
+
+`agentswarm.evaluation.redteam.DocumentRedTeam` Version `ac4fb9e96233`.
+
+```text
+You are the red team for a document that other models wrote from the sources listed, for the reader
+described. Attack it as a whole: find the flaws that would let that reader down or embarrass the document,
+especially those no single section shows. Look at its structure (a reference to a part of the document that
+doesn't exist or is never introduced; something promised and not delivered; a table or list that is malformed
+or incomplete; the same point, example or sentence repeated across sections), at the brief (a part of it the
+document leaves out; a length far over the limit), at the references (a malformed entry: an author, date,
+title or venue that is wrong, missing or a leftover of a web page or file; a source listed twice), and at its
+claims (two statements that contradict each other; a number used inconsistently; the document going beyond
+its sources without saying so).
+
+Show every flaw: copy its evidence word for word from the document (a sentence, a table row or a reference
+line), so that it can be found by search; a flaw you cannot quote, don't report. Say in one sentence what is
+wrong and how to fix it, and whether the writers can fix it in the text (revise), it comes from how the
+document was assembled and would recur in every document (framework), or it needs no fix (note). Report only
+real flaws, not preferences of style; when you find none, say so with an empty list.
+```
+
+### User message (sample)
+
+```text
+<data>
+{
+  "reader": "engineers with a background in HPC",
+  "brief": "A tutorial on serving one mixture-of-experts model to many users ...",
+  "words": 3000,
+  "sources": [
+    "arxiv-org-deepseek-v3-technical-report.pdf",
+    "lmsys-org-deploying-deepseek.txt"
+  ],
+  "document": "# Serving one MoE model\n\n## Prefill versus decode\n\nSection 5 showed ...\n\n## References\n\n[^1]: lmsys.org (n.d.). [*Deploying DeepSeek ...*](https://www.lmsys.org/...)."
+}
+</data>
+```
+
+### Payload types
+
+```python
+class DocumentAttack(Frozen):
+    """The payload the red team receives: what the document was asked to be, and the document."""
+
+    reader: str  # who it is for and what they know
+    brief: str  # what it was asked to do and cover
+    words: int  # its length cap
+    sources: tuple[str, ...]  # the sources it was written from, one line each
+    document: str  # the whole document, its references included
+```
+
+### Answer
+
+```python
+class Findings(Frozen):
+    """Your report: the flaws you can show. An empty list is a valid answer."""
+
+    findings: list[Finding]
+
+
+class Finding(Frozen):
+    """One flaw, shown by a quote from the document."""
+
+    where: str = Field(description="the section's title, or 'References'")
+    evidence: str = Field(
+        description="the flaw's evidence copied word for word from the document: a sentence, a table row "
+        "or a reference line, short enough to be found by search"
+    )
+    flaw: str = Field(description="what is wrong, in one sentence")
+    fix: str = Field(description="how to repair it, in one sentence")
+    kind: FlawKind = Field(
+        description="revise (the writers can fix it in the text), framework (it comes from how the document "
+        "was assembled, such as the reference list or the layout, and would recur in every document), or note"
+    )
+```
+
+<details><summary>JSON schema</summary>
+
+```json
+{
+  "$defs": {
+    "Finding": {
+      "additionalProperties": false,
+      "description": "One flaw, shown by a quote from the document.",
+      "properties": {
+        "where": {
+          "description": "the section's title, or 'References'",
+          "title": "Where",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "the flaw's evidence copied word for word from the document: a sentence, a table row or a reference line, short enough to be found by search",
+          "title": "Evidence",
+          "type": "string"
+        },
+        "flaw": {
+          "description": "what is wrong, in one sentence",
+          "title": "Flaw",
+          "type": "string"
+        },
+        "fix": {
+          "description": "how to repair it, in one sentence",
+          "title": "Fix",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FlawKind",
+          "description": "revise (the writers can fix it in the text), framework (it comes from how the document was assembled, such as the reference list or the layout, and would recur in every document), or note"
+        }
+      },
+      "required": [
+        "where",
+        "evidence",
+        "flaw",
+        "fix",
+        "kind"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "FlawKind": {
+      "enum": [
+        "revise",
+        "framework",
+        "note"
+      ],
+      "title": "FlawKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Your report: the flaws you can show. An empty list is a valid answer.",
+  "properties": {
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "findings"
+  ],
+  "title": "Findings",
+  "type": "object"
+}
+```
+
+</details>
+
+### What happens to the answer
+
+`DocumentRedTeam`: 
 
 ## Citation audit, and the referee of a claims finding: does the cited source support a document's statement?
 
