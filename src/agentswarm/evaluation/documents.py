@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agentswarm.core.config import ModelConfig, RetrievalConfig
 from agentswarm.core.domain import Reference
-from agentswarm.evaluation.papers import Candidate, ReadingFolder
+from agentswarm.evaluation.papers import ArxivSearch, Candidate, Found, Numbered, ReadingFolder
 from agentswarm.evaluation.qasper import GuideImport
 
 
@@ -215,16 +215,44 @@ review:
         found = folder.match(path.name, text) if folder is not None else None
         return found.paper if found is not None else None
 
+    ARXIV_FILE: ClassVar[re.Pattern[str]] = re.compile(
+        r"^(\d{4}\.\d{4,5})(?:v\d+)?\.pdf$"
+    )  # 2312.09979v2.pdf
+
     @classmethod
-    def refresh(cls, folder: Path) -> ReadingFolder | None:
-        """The folder's reading list brought up to date with the documents actually there."""
+    def refresh(cls, folder: Path, arxiv: Numbered | None = None) -> ReadingFolder | None:
+        """The folder's reading list brought up to date with the documents actually there; a paper the user
+        added from arXiv under its own name (2312.09979v2.pdf) joins the list with arXiv's record, so it is
+        shown and cited by its authors (2026-11-23: two papers dropped in the studio showed nowhere)."""
         listed = ReadingFolder.load(folder)
         if listed is None:
             return None
         files = [(p.name, SourceText.read(p)) for p in cls.files([folder])]
         listed = listed.refreshed(files)
+        held = {f.file for f in listed.papers if f.file is not None}
+        known = {f.paper.id for f in listed.papers}
+        added: list[Found] = []
+        for name, _ in files:
+            number = cls.ARXIV_FILE.match(name)
+            if name in held or number is None or number.group(1) in known:
+                continue
+            try:
+                paper = (arxiv or ArxivSearch()).numbered(number.group(1))
+            except (OSError, ValueError):
+                continue  # tried again the next time the list is shown
+            if paper is not None:
+                added.append(Found(paper=paper, why="Added by the user.", covers="", file=name))
+        if added:
+            listed = listed.model_copy(update={"papers": (*listed.papers, *added)})
         listed.save(folder)
         return listed
+
+    @classmethod
+    def unlisted(cls, folder: Path) -> tuple[str, ...]:
+        """The folder's documents no paper of its reading list holds: the user's own, shown by name."""
+        listed = ReadingFolder.load(folder)
+        held = {f.file for f in listed.papers if f.file is not None} if listed is not None else set[str]()
+        return tuple(p.name for p in cls.files([folder]) if p.name not in held)
 
     def write(self) -> DocumentSummary:
         texts: dict[str, str] = {}

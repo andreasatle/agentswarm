@@ -4,6 +4,33 @@ from pathlib import Path
 from agentswarm.core.config import ProjectConfig, RetrievalConfig
 from agentswarm.core.domain import Reference
 from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceParts, SourceText
+from agentswarm.evaluation.papers import Candidate, Found, ReadingFolder
+
+
+def pdf(text: str) -> bytes:
+    """A two-page PDF holding the text on each page, readable by pdftotext (which reads a paper's first page
+    apart from the rest)."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+    ]
+    out = b"%PDF-1.4\n"
+    offsets: list[int] = []
+    for n, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return out
 
 
 class TestDocumentImport:
@@ -33,6 +60,36 @@ class TestDocumentImport:
         (tmp_path / "a.txt").write_text("text\n")
         summary = DocumentImport([tmp_path / "a.txt"], tmp_path / "out", "A summary.").write()
         assert [p.parent.name for p in summary.projects] == ["document"]
+
+    def test_a_paper_the_user_added_from_arxiv_joins_the_list_with_its_record(self, tmp_path: Path) -> None:
+        class Arxiv:
+            def __init__(self) -> None:
+                self.asked: list[str] = []
+
+            def numbered(self, id: str) -> Candidate | None:
+                self.asked.append(id)
+                return Candidate(id=id, title="LoRAMoE", authors=("S. Dou",), year=2023, abstract="")
+
+        listed = Candidate(id="W1", title="QLoRA", authors=("T. Dettmers",), year=2023, abstract="")
+        ReadingFolder(topic="t", papers=(Found(paper=listed, why="", file="qlora.txt"),)).save(tmp_path)
+        (tmp_path / "qlora.txt").write_text("QLoRA\n")
+        (tmp_path / "2312.09979v2.txt").write_text("not a pdf: not looked up\n")
+        (tmp_path / "notes.txt").write_text("my notes\n")
+        arxiv = Arxiv()
+        assert DocumentImport.refresh(tmp_path, arxiv) is not None and arxiv.asked == []
+        (tmp_path / "2312.09979v2.pdf").write_bytes(pdf("LoRAMoE"))
+        folder = DocumentImport.refresh(tmp_path, arxiv)
+        assert folder is not None and arxiv.asked == ["2312.09979"]
+        added = folder.papers[-1]
+        assert (added.paper.title, added.file, added.why) == (
+            "LoRAMoE",
+            "2312.09979v2.pdf",
+            "Added by the user.",
+        )
+        assert "LoRAMoE" in (tmp_path / "papers.md").read_text()
+        DocumentImport.refresh(tmp_path, arxiv)
+        assert arxiv.asked == ["2312.09979"]  # once listed, not looked up again
+        assert DocumentImport.unlisted(tmp_path) == ("2312.09979v2.txt", "notes.txt")
 
     def test_names_become_source_slugs(self) -> None:
         assert SourceText.slug("Annual Report 2025 (final)") == "annual-report-2025-final"

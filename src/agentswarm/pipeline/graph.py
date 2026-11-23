@@ -584,7 +584,9 @@ class DocumentPipeline:
         listed = DocumentImport.refresh(run.sources) if run.sources.is_dir() else None
         if listed is None or not run.listing or run.listing not in details:
             return details
-        return details.replace(run.listing, listed.render())
+        own = DocumentImport.unlisted(run.sources)
+        added = f"\nAlso in the folder, added by you: {', '.join(f'`{n}`' for n in own)}\n" if own else ""
+        return details.replace(run.listing, listed.render() + added)
 
     def failed(self, name: str) -> str | None:
         """Where and why a run stopped on an error (nothing is waiting, yet a step is still to run)."""

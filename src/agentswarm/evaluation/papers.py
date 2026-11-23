@@ -215,6 +215,12 @@ class PaperSearch(Protocol):
         ...
 
 
+class Numbered(Protocol):
+    def numbered(self, id: str) -> Candidate | None:
+        """The paper with this arXiv id, or None."""
+        ...
+
+
 class Catalogue(Protocol):
     def catalogued(self, title: str) -> Candidate | None:
         """The scholarly work with exactly this title, open or not: its authors, year and venue."""
@@ -282,6 +288,11 @@ class ArxivSearch(Fetching):
         url = self.API + "?" + urllib.parse.urlencode({"search_query": terms, "start": 0, "max_results": 5})
         wanted = self.words(title)
         return next((c for c in self.parse(self.fetch(url)) if self.words(c.title) == wanted), None)
+
+    def numbered(self, id: str) -> Candidate | None:
+        """The paper with this arXiv id (2312.09979), as arXiv lists it."""
+        url = self.API + "?" + urllib.parse.urlencode({"id_list": id, "max_results": 1})
+        return next(iter(self.parse(self.fetch(url))), None)
 
     @classmethod
     def parse(cls, feed: bytes) -> list[Candidate]:
