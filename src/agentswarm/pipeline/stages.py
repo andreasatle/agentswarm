@@ -18,7 +18,7 @@ from agentswarm.core.config import ProjectConfig, SpendLimits
 from agentswarm.core.domain import ArtifactId, Resolution, Usage
 from agentswarm.evaluation.citations import CitationAudit, Support
 from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceText
-from agentswarm.evaluation.papers import Found, PaperFinder, WebPage
+from agentswarm.evaluation.papers import Found, OpenAlexSearch, PaperFinder, WebPage
 from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, RedTeamReport
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, Worker
@@ -150,7 +150,7 @@ class SourceStage:
             if url.rstrip("/") in searched:  # the search found it too: one copy (lean-agents-why, 2026-11-21)
                 continue
             try:
-                page, data = WebPage().record(url)
+                page, data = WebPage(OpenAlexSearch()).record(url)
             except OSError:
                 continue
             (run.sources / page.download_name).write_bytes(data)

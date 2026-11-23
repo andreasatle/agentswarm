@@ -3276,7 +3276,8 @@ and say in one sentence what each adds.
       "access": "",
       "site": "",
       "kind": "pdf",
-      "standing": null
+      "standing": null,
+      "organisation": ""
     }
   ]
 }
@@ -3319,6 +3320,9 @@ class Candidate(Frozen):
     site: str = ""  # a web source's publisher (Wikipedia, UNESCO): its author and its in-text name
     kind: str = "pdf"  # its file's extension: pdf, txt (Wikipedia's text), html (a web page)
     standing: Standing | None = None  # a web source's kind of publisher, as the picker judged it
+    # a web source's author when it is a body, not people ("The SGLang Team", "NVIDIA Technical Blog",
+    # "deepseek-ai"): cited as it is, before its site's address (moe-serving, 2026-11-23: "lmsys.org")
+    organisation: str = ""
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
@@ -3344,10 +3348,12 @@ class Candidate(Frozen):
         if self.site:  # a web page: its authors if it names them, else its publisher; "(Wikipedia: Murano)"
             return Reference(
                 document=document,
-                authors=self.listed() if self.authors and self.authors != (self.site,) else self.site,
+                authors=self.listed()
+                if self.authors and self.authors != (self.site,)
+                else self.organisation or self.site,
                 title=self.title,
                 year=str(self.year) if self.year else "n.d.",  # a page with no date says so
-                venue=f"{self.site} ({self.standing})" if self.standing else self.site,
+                venue=self.venue or (f"{self.site} ({self.standing})" if self.standing else self.site),
                 short=self.web_short(self.site, self.title),
                 url=self.page,
             )
@@ -3377,6 +3383,8 @@ class Candidate(Frozen):
     SHORT_WORDS: ClassVar[int] = 4  # words of a web page's title in its in-text citation
     LABEL_WORDS: ClassVar[int] = 4  # words of a site's label after a title: " - Informatics Homepages Server"
     SEPARATOR: ClassVar[re.Pattern[str]] = re.compile(r"\s+[|\u2013\u2014-]\s+")
+    # a publisher's longer label naming its venue: " | Proceedings of the SC '25 Workshops ..." (dl.acm.org)
+    VENUE_LABEL: ClassVar[re.Pattern[str]] = re.compile(r"(?:Proceedings|Journal|Transactions)\b", re.I)
 
     @classmethod
     def web_title(cls, title: str) -> str:
@@ -3385,8 +3393,10 @@ class Candidate(Frozen):
         (principia-to-lean, 2026-11-22). A cut title keeps its ellipsis: it is all the search gave."""
         own = " ".join(title.split())
         own = re.sub(r"^(?:\[[^\]]*\]\s*)+", "", own) or own
+        own = re.sub(r"^GitHub - [\w.-]+/[\w.-]+:\s*", "", own) or own  # a repository's page (moe-systems-4)
         separators = list(cls.SEPARATOR.finditer(own))
-        if separators and len(own[separators[-1].end() :].split()) <= cls.LABEL_WORDS:
+        label = own[separators[-1].end() :] if separators else ""
+        if separators and (len(label.split()) <= cls.LABEL_WORDS or cls.VENUE_LABEL.match(label)):
             own = own[: separators[-1].start()]
         return own.strip() or title
 
@@ -3412,18 +3422,35 @@ class Candidate(Frozen):
             return names[:-1]
         return names
 
+    # words that belong to the surname after them: "Leonardo de Moura" is "de Moura, L." (principia-to-lean)
+    PARTICLES: ClassVar[frozenset[str]] = frozenset(
+        {"de", "da", "di", "du", "van", "von", "der", "den", "le"}
+    )
+
+    @classmethod
+    def split(cls, author: str) -> tuple[list[str], str]:
+        """The given names and the surname, its particles with it."""
+        names = cls.names(author)
+        if not names:
+            return [], author
+        start = len(names) - 1
+        while start > 1 and names[start - 1].lower() in cls.PARTICLES:
+            start -= 1
+        return names[:start], " ".join(names[start:])
+
     @classmethod
     def surname(cls, author: str) -> str:
-        names = cls.names(author)
-        return names[-1] if names else author
+        return cls.split(author)[1]
 
     @classmethod
     def initialled(cls, author: str) -> str:
-        """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") as it is."""
+        """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") or a group ("The SGLang
+        Team") as it is."""
         names = cls.names(author)
-        if len(names) < 2:
+        if len(names) < 2 or names[0].lower() == "the":
             return author
-        return f"{names[-1]}, " + " ".join(f"{n[0]}." for n in names[:-1])
+        given, surname = cls.split(author)
+        return f"{surname}, " + " ".join(f"{n[0]}." for n in given)
 ```
 
 ### Answer

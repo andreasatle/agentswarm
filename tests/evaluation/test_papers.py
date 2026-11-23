@@ -398,7 +398,7 @@ class TestWebPage:
                 return b"<html><head>" + title + b"</head></html>"
 
         page, data = Answering().record("https://whc.unesco.org/en/list/394/")
-        assert page.title == "Venice and its Lagoon - UNESCO World Heritage" and data.startswith(b"<html>")
+        assert page.title == "Venice and its Lagoon" and data.startswith(b"<html>")  # its site label dropped
         assert page.site == "whc.unesco.org" and page.download_name.endswith(".html")
         assert page.reference("x").url == "https://whc.unesco.org/en/list/394/"
 
@@ -457,6 +457,89 @@ class TestWebPage:
         )
         assert page.reference("btx").authors == "Sukhbaatar, S., Golovneva, O."
         assert WebPage.landing("https://lean-lang.org/papers/lean4.pdf") is None
+
+    def test_a_blogs_schema_org_data_names_its_people_or_its_body_and_its_date(self) -> None:
+        nvidia = (
+            b'<meta property="og:site_name" content="NVIDIA Technical Blog" />'
+            b'<script type="application/ld+json">{"@context":"https://schema.org","@graph":['
+            b'{"@type":"Organization","name":"NVIDIA"},'
+            b'{"@type":"Article","headline":"Dense vs. MoE Models",'
+            b'"datePublished":"2026-09-15T17:00:11+00:00",'
+            b'"author":{"@type":"Person","name":"Elizabeth Goodman"}}]}</script>'
+        )
+        said = WebPage.metadata("https://developer.nvidia.com/blog/dense-vs-moe", nvidia)
+        assert (said.authors, said.year, said.title) == (("Elizabeth Goodman",), 2026, "Dense vs. MoE Models")
+        honeyhive = (
+            b'<script type="application/ld+json">{"@type":"Article","datePublished":"2026-11-19",'
+            b'"author":{"@type":"Organization","name":"HoneyHive"}}</script>'
+        )
+        said = WebPage.metadata("https://www.honeyhive.ai/learn/moe", honeyhive)
+        assert (said.authors, said.organisation, said.year) == ((), "HoneyHive", 2026)
+        broken = b'<script type="application/ld+json">{not json</script><meta name="author" content="A. B" />'
+        assert WebPage.metadata("https://x.org/p", broken).authors == ("A. B",)
+
+    def test_a_team_named_by_open_graph_and_a_date_in_words_or_in_the_address(self) -> None:
+        lmsys = (
+            b'<meta property="article:published_time" content="May 5, 2025"/>'
+            b'<meta property="article:author" content="The SGLang Team"/>'
+            b'<meta property="article:author" content="https://facebook.com/someone"/>'
+        )
+        said = WebPage.metadata("https://www.lmsys.org/blog/large-scale-ep", lmsys)
+        assert (said.authors, said.year) == (("The SGLang Team",), 2025)
+        assert Candidate.initialled("The SGLang Team") == "The SGLang Team"  # a group, not "Team, T. S."
+        assert Candidate.initialled("Leonardo de Moura") == "de Moura, L."  # not "Moura, L. d."
+        assert Candidate.surname("Leonardo de Moura") == "de Moura"
+        assert (
+            Candidate.web_title(
+                "MoE-Inference-Bench: Performance Evaluation | Proceedings of the SC '25 Workshops of SC"
+            )
+            == "MoE-Inference-Bench: Performance Evaluation"
+        )
+        assert WebPage.published("https://www.lmsys.org/blog/2025-05-05-large-scale-ep", b"") == 2025
+        assert WebPage.published("https://x.org/posts/2024/03/a-post", b"") == 2024
+        assert WebPage.published("https://x.org/items/2024-99-a", b"") == 0
+
+    def test_a_repository_is_cited_by_its_owner_under_its_own_title(self) -> None:
+        github = b'<meta property="og:site_name" content="GitHub" /><meta property="og:title" content=' + (
+            b'"GitHub - deepseek-ai/DeepEP: DeepEP: an efficient expert-parallel communication library" />'
+        )
+
+        class Repository(WebPage):
+            def fetch(self, url: str) -> bytes:
+                return github
+
+        page, _ = Repository().record("https://github.com/deepseek-ai/DeepEP")
+        assert page.title == "DeepEP: an efficient expert-parallel communication library"
+        reference = page.reference("deepep")
+        assert reference.authors == "deepseek-ai" and reference.year == "n.d."
+
+    def test_a_paper_that_names_no_one_is_looked_up_in_the_catalogue_by_its_title(self) -> None:
+        body = self.pdf(
+            b"/Title (DeepSpeed-MoE: Advancing Mixture-of-Experts Inference) /CreationDate (D:2022)"
+        )
+        work = paper("W9").model_copy(
+            update={
+                "title": "DeepSpeed-MoE: Advancing Mixture-of-Experts Inference",
+                "authors": ("Samyam Rajbhandari", "Conglong Li"),
+                "year": 2022,
+                "venue": "International Conference on Machine Learning",
+            }
+        )
+
+        class Catalogue:
+            def catalogued(self, title: str) -> Candidate | None:
+                return work if title == work.title else None
+
+        class Paper(WebPage):
+            def fetch(self, url: str) -> bytes:
+                return body
+
+        page, _ = Paper(Catalogue()).record("https://proceedings.mlr.press/v162/rajbhandari22a.pdf")
+        reference = page.reference("deepspeed")
+        assert reference.authors == "Rajbhandari, S., Li, C." and reference.year == "2022"
+        assert reference.venue == "International Conference on Machine Learning"
+        page, _ = Paper().record("https://proceedings.mlr.press/v162/rajbhandari22a.pdf")  # no catalogue
+        assert page.reference("deepspeed").authors == "proceedings.mlr.press"
 
     def test_a_pdf_title_that_is_a_file_name_gives_way_to_its_first_lines(self) -> None:
         word = self.pdf(b"/Title (Microsoft Word - A computer-checked proof.doc) /Author (gonthier)")
@@ -604,6 +687,36 @@ class TestTavilySearch:
         assert reference.short == "plato.stanford.edu: Hilbert's Program"
         refused = page.model_copy(update={"page": "https://refused.org/x"})
         assert search.described(refused) == refused
+
+    def test_a_paper_whose_site_refuses_programs_is_found_in_the_catalogue_by_its_title(self) -> None:
+        work = paper("W1", "MoE-Inference-Bench: Performance Evaluation").model_copy(
+            update={"authors": ("Krishna Teja Chitty-Venkata",), "year": 2025, "venue": "SC"}
+        )
+
+        class Catalogue:
+            def catalogued(self, title: str) -> Candidate | None:
+                return work if title == work.title else None
+
+        class Refusing(Answering):
+            def __init__(self) -> None:
+                super().__init__({})
+                self._catalogue = Catalogue()
+
+            def fetch(self, url: str) -> bytes:
+                raise OSError("403")
+
+        found = Candidate(
+            id="web:acm",
+            title="MoE-Inference-Bench: Performance Evaluation | Proceedings of the SC '25 Workshops",
+            authors=("dl.acm.org",),
+            year=0,
+            abstract="",
+            site="dl.acm.org",
+            page="https://dl.acm.org/doi/10.1145/3731599.3767706",
+        )
+        reference = Refusing().described(found).reference("bench")
+        assert (reference.authors, reference.year, reference.venue) == ("Chitty-Venkata, K. T.", "2025", "SC")
+        assert reference.title == "MoE-Inference-Bench: Performance Evaluation"
 
     def test_a_title_loses_the_tags_and_site_label_the_search_gives_it(self) -> None:
         assert Candidate.web_title("Propositions as Types - Informatics Homepages Server") == (

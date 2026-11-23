@@ -12,6 +12,7 @@ keeps only works with an open PDF); those the user adds by hand.
 import asyncio
 import contextlib
 import html
+import json
 import os
 import re
 import subprocess
@@ -24,7 +25,7 @@ import xml.etree.ElementTree as ElementTree
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, Protocol
+from typing import ClassVar, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -65,6 +66,9 @@ class Candidate(Frozen):
     site: str = ""  # a web source's publisher (Wikipedia, UNESCO): its author and its in-text name
     kind: str = "pdf"  # its file's extension: pdf, txt (Wikipedia's text), html (a web page)
     standing: Standing | None = None  # a web source's kind of publisher, as the picker judged it
+    # a web source's author when it is a body, not people ("The SGLang Team", "NVIDIA Technical Blog",
+    # "deepseek-ai"): cited as it is, before its site's address (moe-serving, 2026-11-23: "lmsys.org")
+    organisation: str = ""
 
     LISTED: ClassVar[int] = 10  # authors named in a reference before "et al."
     NAME: ClassVar[int] = 70  # characters of a file name, about
@@ -90,10 +94,12 @@ class Candidate(Frozen):
         if self.site:  # a web page: its authors if it names them, else its publisher; "(Wikipedia: Murano)"
             return Reference(
                 document=document,
-                authors=self.listed() if self.authors and self.authors != (self.site,) else self.site,
+                authors=self.listed()
+                if self.authors and self.authors != (self.site,)
+                else self.organisation or self.site,
                 title=self.title,
                 year=str(self.year) if self.year else "n.d.",  # a page with no date says so
-                venue=f"{self.site} ({self.standing})" if self.standing else self.site,
+                venue=self.venue or (f"{self.site} ({self.standing})" if self.standing else self.site),
                 short=self.web_short(self.site, self.title),
                 url=self.page,
             )
@@ -123,6 +129,8 @@ class Candidate(Frozen):
     SHORT_WORDS: ClassVar[int] = 4  # words of a web page's title in its in-text citation
     LABEL_WORDS: ClassVar[int] = 4  # words of a site's label after a title: " - Informatics Homepages Server"
     SEPARATOR: ClassVar[re.Pattern[str]] = re.compile(r"\s+[|\u2013\u2014-]\s+")
+    # a publisher's longer label naming its venue: " | Proceedings of the SC '25 Workshops ..." (dl.acm.org)
+    VENUE_LABEL: ClassVar[re.Pattern[str]] = re.compile(r"(?:Proceedings|Journal|Transactions)\b", re.I)
 
     @classmethod
     def web_title(cls, title: str) -> str:
@@ -131,8 +139,10 @@ class Candidate(Frozen):
         (principia-to-lean, 2026-11-22). A cut title keeps its ellipsis: it is all the search gave."""
         own = " ".join(title.split())
         own = re.sub(r"^(?:\[[^\]]*\]\s*)+", "", own) or own
+        own = re.sub(r"^GitHub - [\w.-]+/[\w.-]+:\s*", "", own) or own  # a repository's page (moe-systems-4)
         separators = list(cls.SEPARATOR.finditer(own))
-        if separators and len(own[separators[-1].end() :].split()) <= cls.LABEL_WORDS:
+        label = own[separators[-1].end() :] if separators else ""
+        if separators and (len(label.split()) <= cls.LABEL_WORDS or cls.VENUE_LABEL.match(label)):
             own = own[: separators[-1].start()]
         return own.strip() or title
 
@@ -158,18 +168,35 @@ class Candidate(Frozen):
             return names[:-1]
         return names
 
+    # words that belong to the surname after them: "Leonardo de Moura" is "de Moura, L." (principia-to-lean)
+    PARTICLES: ClassVar[frozenset[str]] = frozenset(
+        {"de", "da", "di", "du", "van", "von", "der", "den", "le"}
+    )
+
+    @classmethod
+    def split(cls, author: str) -> tuple[list[str], str]:
+        """The given names and the surname, its particles with it."""
+        names = cls.names(author)
+        if not names:
+            return [], author
+        start = len(names) - 1
+        while start > 1 and names[start - 1].lower() in cls.PARTICLES:
+            start -= 1
+        return names[:start], " ".join(names[start:])
+
     @classmethod
     def surname(cls, author: str) -> str:
-        names = cls.names(author)
-        return names[-1] if names else author
+        return cls.split(author)[1]
 
     @classmethod
     def initialled(cls, author: str) -> str:
-        """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") as it is."""
+        """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") or a group ("The SGLang
+        Team") as it is."""
         names = cls.names(author)
-        if len(names) < 2:
+        if len(names) < 2 or names[0].lower() == "the":
             return author
-        return f"{names[-1]}, " + " ".join(f"{n[0]}." for n in names[:-1])
+        given, surname = cls.split(author)
+        return f"{surname}, " + " ".join(f"{n[0]}." for n in given)
 
 
 class PaperSearch(Protocol):
@@ -185,6 +212,12 @@ class PaperSearch(Protocol):
 
     def described(self, paper: Candidate) -> Candidate:
         """Its record with what the source says about itself (a web page's authors, year and title)."""
+        ...
+
+
+class Catalogue(Protocol):
+    def catalogued(self, title: str) -> Candidate | None:
+        """The scholarly work with exactly this title, open or not: its authors, year and venue."""
         ...
 
 
@@ -293,6 +326,16 @@ class OpenAlexSearch(Fetching):
     def titled(self, title: str) -> Candidate | None:
         wanted = self.words(title)
         found = self.works(f"title.search:{' '.join(wanted)},is_oa:true", 5)
+        return next((c for c in found if self.words(c.title) == wanted), None)
+
+    def catalogued(self, title: str) -> Candidate | None:
+        """A paper saved from a proceedings site or a personal page names no authors (DeepSpeed-MoE was cited
+        as "proceedings.mlr.press", Wadler's as "homepages.inf.ed.ac.uk"): the catalogue does. Open or not,
+        and only when the words of the title are the same."""
+        wanted = self.words(title)
+        if len(wanted) < 3:  # too short a title matches the wrong work
+            return None
+        found = self.works(f"title.search:{' '.join(wanted)}", 5)
         return next((c for c in found if self.words(c.title) == wanted), None)
 
     def works(self, filter: str, limit: int) -> list[Candidate]:
@@ -511,7 +554,8 @@ class TavilySearch(Fetching):
     KEY = "TAVILY_API_KEY"
     PAUSE_S = 0.2
 
-    def __init__(self, key: str | None = None) -> None:
+    def __init__(self, catalogue: Catalogue | None = None, key: str | None = None) -> None:
+        self._catalogue = catalogue  # where a found paper's authors are looked up by its title
         self._key = key
 
     def post(self, path: str, body: BaseModel) -> bytes:
@@ -577,27 +621,21 @@ class TavilySearch(Fetching):
         entries, each naming its author and date)."""
         url = WebPage.landing(paper.page) or paper.page  # an arXiv PDF: its abstract page
         try:
-            data = self.fetch(url)
-        except OSError:
-            return paper
-        said = WebPage.metadata(url, data)
-        return paper.model_copy(
-            update={
-                "title": Candidate.web_title(said.title)
-                if said.title
-                else paper.title,  # "... - PyTorch" too
-                "authors": said.authors or paper.authors,
-                "year": paper.year or said.year,
-            }
-        )
+            said = WebPage.metadata(url, self.fetch(url))
+        except OSError:  # a site that refuses programs (dl.acm.org): the catalogue may still know the paper
+            said = PageMetadata()
+        said = said.over(PageMetadata(title=Candidate.web_title(paper.title)))
+        return WebPage(self._catalogue).catalogued(said).onto(paper)  # its title without "... - PyTorch" too
 
 
 class PageMetadata(Frozen):
     """What a page or PDF says about itself; each field empty where it says nothing."""
 
     title: str = ""
-    authors: tuple[str, ...] = ()  # forename first, as the catalogues give them
+    authors: tuple[str, ...] = ()  # people, forename first, as the catalogues give them
     year: int = 0
+    organisation: str = ""  # the author when it is a body: a team, a company's blog, a repository's owner
+    venue: str = ""  # a catalogued paper's journal or proceedings
 
     def over(self, other: "PageMetadata") -> "PageMetadata":
         """These fields, and the other's where these are empty."""
@@ -605,6 +643,21 @@ class PageMetadata(Frozen):
             title=self.title or other.title,
             authors=self.authors or other.authors,
             year=self.year or other.year,
+            organisation=self.organisation or other.organisation,
+            venue=self.venue or other.venue,
+        )
+
+    def onto(self, paper: Candidate) -> Candidate:
+        """The paper with what this says about it: its own title, people, body and venue; a year only where
+        the paper has none (a search's date is the page's own)."""
+        return paper.model_copy(
+            update={
+                "title": Candidate.web_title(self.title) if self.title else paper.title,
+                "authors": self.authors or paper.authors,
+                "year": paper.year or self.year,
+                "organisation": self.organisation or paper.organisation,
+                "venue": self.venue or paper.venue,
+            }
         )
 
 
@@ -620,7 +673,20 @@ class WebPage(Fetching):
         "citation_author",
         "dc.creator",
         "author",
+        "article:author",  # Open Graph: a name, or a profile's address (skipped)
     )  # the first that names any
+    LINKED: ClassVar[re.Pattern[str]] = re.compile(
+        r"<script[^>]*application/ld\+json[^>]*>(.*?)</script>", re.I | re.S
+    )
+    # schema.org types whose author and date are the page's (a site's own Organization node is not)
+    ARTICLES: ClassVar[frozenset[str]] = frozenset(
+        {"Article", "BlogPosting", "NewsArticle", "TechArticle", "ScholarlyArticle", "Report", "WebPage"}
+    )
+    REPOSITORY: ClassVar[re.Pattern[str]] = re.compile(r"^https?://(?:www\.)?github\.com/([\w.-]+)/[\w.-]+")
+
+    def __init__(self, catalogue: Catalogue | None = None) -> None:
+        self._catalogue = catalogue  # where a paper's authors are looked up by its title; None: not looked up
+
     JOINING: ClassVar[frozenset[str]] = frozenset(
         {"and", "of", "for", "the", "in", "on", "with", "to", "a", "an"}
     )
@@ -640,20 +706,36 @@ class WebPage(Fetching):
         if pdf and landing:  # an arXiv PDF names no authors; its abstract page does
             with contextlib.suppress(OSError):
                 said = self.metadata(landing, self.fetch(landing)).over(said)
+        said = self.catalogued(said)
         found = None if pdf else self.TITLE.search(data.decode("utf-8", "replace"))
         title = said.title or (html.unescape(" ".join(found.group(1).split())) if found else "")
         site = (urllib.parse.urlparse(url).hostname or url).removeprefix("www.")
         candidate = Candidate(
             id=f"web:{url}",
-            title=title or url,
+            title=Candidate.web_title(title) if title else url,
             authors=said.authors or (site,),
             year=said.year,
             abstract="",
             site=site,
             kind="pdf" if pdf else "html",
             page=url,
+            organisation=said.organisation,
+            venue=said.venue,
         )
         return candidate, data
+
+    def catalogued(self, said: PageMetadata) -> PageMetadata:
+        """What a page or PDF says, with a paper's people, year and venue from the catalogue when it names no
+        people; as it is when the catalogue doesn't have it, or can't be reached."""
+        if said.authors or not said.title or self._catalogue is None:
+            return said
+        try:
+            work = self._catalogue.catalogued(said.title)
+        except (OSError, ValueError):
+            return said
+        if work is None or not work.authors:
+            return said
+        return PageMetadata(authors=work.authors, year=work.year, venue=work.venue).over(said)
 
     @classmethod
     def metadata(cls, url: str, data: bytes) -> PageMetadata:
@@ -661,14 +743,83 @@ class WebPage(Fetching):
         year from that or its address; a PDF's from its own properties and first lines."""
         if data.startswith(b"%PDF"):
             return cls.pdf_described(url, data)
-        metas = cls.metas(data.decode("utf-8", "replace"))
-        title = next((v for key in cls.TITLES for k, v in metas if k == key and v), "")
+        page = data.decode("utf-8", "replace")
+        metas = cls.metas(page)
+        linked = cls.linked(page)
+        title = next((v for key in cls.TITLES for k, v in metas if k == key and v), "") or linked.title
         authors: tuple[str, ...] = ()
         for key in cls.AUTHORS:
-            authors = tuple(cls.forename_first(v) for k, v in metas if k == key and v)
+            authors = tuple(
+                cls.forename_first(v) for k, v in metas if k == key and v and not v.startswith("http")
+            )
             if authors:
                 break
-        return PageMetadata(title=title, authors=authors, year=cls.published(url, data))
+        owner = cls.REPOSITORY.match(url)
+        named = next((v for k, v in metas if k == "og:site_name" and v), "")
+        return PageMetadata(
+            title=title,
+            authors=authors or linked.authors,
+            year=cls.published(url, data) or linked.year,
+            # a repository's owner before the site's name: "deepseek-ai", not "GitHub"
+            organisation=owner.group(1) if owner else linked.organisation or named,
+        )
+
+    @classmethod
+    def linked(cls, page: str) -> PageMetadata:
+        """The article's title, people (or body) and year from the page's schema.org data (JSON-LD), which
+        many blogs carry instead of citation tags (NVIDIA's, Hugging Face's, HoneyHive's: moe-serving)."""
+        for block in cls.LINKED.findall(page):
+            try:
+                data: object = json.loads(block.strip())
+            except ValueError:
+                continue
+            for node in cls.nodes(data):
+                if not set(cls.texts(node.get("@type"))) & cls.ARTICLES or "author" not in node:
+                    continue
+                people, bodies = cls.people(node.get("author"))
+                headline = node.get("headline")
+                dated = re.match(r"\d{4}", str(node.get("datePublished") or ""))
+                return PageMetadata(
+                    title=" ".join(headline.split()) if isinstance(headline, str) else "",
+                    authors=people,
+                    year=int(dated.group(0)) if dated else 0,
+                    organisation=bodies[0] if bodies and not people else "",
+                )
+        return PageMetadata()
+
+    @staticmethod
+    def items(data: object) -> list[object]:
+        """A JSON value as a list: a list's items, or the value alone."""
+        return list(cast(list[object], data)) if isinstance(data, list) else [data]
+
+    @classmethod
+    def texts(cls, data: object) -> list[str]:
+        return [t for t in cls.items(data) if isinstance(t, str)]
+
+    @classmethod
+    def nodes(cls, data: object) -> list[dict[str, object]]:
+        """Every object in a JSON-LD block, those in a list or an @graph included, in order."""
+        if isinstance(data, dict):
+            node = cast(dict[str, object], data)
+            return [node, *cls.nodes(node.get("@graph", []))]
+        items = cls.items(data)
+        return [] if items == [data] else [n for item in items for n in cls.nodes(item)]
+
+    @classmethod
+    def people(cls, author: object) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """A schema.org author field's people and bodies (Organization), by name."""
+        people: list[str] = []
+        bodies: list[str] = []
+        for item in cls.items(author):
+            if isinstance(item, str) and item.strip():
+                people.append(" ".join(item.split()))
+            elif isinstance(item, dict):
+                node = cast(dict[str, object], item)
+                name = node.get("name")
+                if isinstance(name, str) and name.strip():
+                    body = "Organization" in cls.texts(node.get("@type"))
+                    (bodies if body else people).append(" ".join(name.split()))
+        return tuple(people), tuple(bodies)
 
     @classmethod
     def metas(cls, page: str) -> list[tuple[str, str]]:
@@ -698,6 +849,7 @@ class WebPage(Fetching):
     ARXIV: ClassVar[re.Pattern[str]] = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{2})(\d{2})\.\d{4,5}")
     ARXIV_ID: ClassVar[re.Pattern[str]] = re.compile(r"arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})")
     YEAR: ClassVar[re.Pattern[str]] = re.compile(r"\b(?:19|20)\d{2}\b")
+    URL_DATE: ClassVar[re.Pattern[str]] = re.compile(r"/((?:19|20)\d{2})[/-](?:0[1-9]|1[0-2])(?:[/-]|$)")
 
     @classmethod
     def landing(cls, url: str) -> str | None:
@@ -717,12 +869,15 @@ class WebPage(Fetching):
             return 2000 + int(arxiv.group(1))
         text = page.decode("utf-8", "replace")
         metas = cls.metas(text)
-        for key in cls.DATED:
-            year = next((re.match(r"\d{4}", v) for k, v in metas if k == key and re.match(r"\d{4}", v)), None)
+        for key in cls.DATED:  # "2026-09-15T17:00", or "May 5, 2025" (lmsys.org)
+            year = next((cls.YEAR.search(v) for k, v in metas if k == key and cls.YEAR.search(v)), None)
             if year:
                 return int(year.group(0))
         found = cls.JSON_DATE.search(text)
-        return int(found.group(1)) if found else 0
+        if found:
+            return int(found.group(1))
+        dated = cls.URL_DATE.search(url)  # a blog's address: /blog/2025-05-05-large-scale-ep, /2024/03/
+        return int(dated.group(1)) if dated else 0
 
     @classmethod
     def pdf_described(cls, url: str, data: bytes) -> PageMetadata:
@@ -790,7 +945,7 @@ class PaperSource(StrEnum):
             case PaperSource.WIKIPEDIA:
                 return WikipediaSearch()
             case PaperSource.WEB:
-                return TavilySearch()
+                return TavilySearch(OpenAlexSearch())
 
 
 class QueryRequest(Frozen):

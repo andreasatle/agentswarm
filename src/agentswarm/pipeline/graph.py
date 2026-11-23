@@ -24,6 +24,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from agentswarm.evaluation.documents import DocumentImport
+from agentswarm.evaluation.redteam import ReferenceCheck
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, Choice, DocumentRun, Question, RunRequest, RunView, Stage, Working
 from agentswarm.pipeline.stages import Stages
@@ -269,11 +270,18 @@ class DocumentPipeline:
     def approve_publishing(self, run: DocumentRun) -> Update:
         audit = run.audits[-1].render() if run.audits else "not audited"
         spent = self._stages.spending.spent(run)
+        issues = (
+            ReferenceCheck.issues(run.document.read_text())
+            if run.document is not None and run.document.is_file()
+            else ()
+        )
+        flagged = "".join(f"\n- {i}" for i in issues)
+        references = f"References to check ({len(issues)}):{flagged}\n" if issues else ""
         answer = self.ask(
             Question(
                 title="Approve publishing",
                 details=f"The document: {run.document}\nCitations: {audit}; fact reviews: {run.reviews}.\n"
-                f"Cost: ${spent:.2f} of ${run.request.budget:.2f}.\n"
+                f"{references}Cost: ${spent:.2f} of ${run.request.budget:.2f}.\n"
                 "yes writes the page beside the run.",
                 choices=(Choice.YES, Choice.STOP),
             )

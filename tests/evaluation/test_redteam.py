@@ -1,6 +1,13 @@
 from pydantic import BaseModel
 
-from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, Finding, Findings, FlawKind
+from agentswarm.evaluation.redteam import (
+    DocumentAttack,
+    DocumentRedTeam,
+    Finding,
+    Findings,
+    FlawKind,
+    ReferenceCheck,
+)
 from agentswarm.llm.workers import Toolbox
 from tests.support.fakes import ScriptedWorker
 
@@ -47,3 +54,19 @@ class TestDocumentRedTeam:
         assert DocumentRedTeam.quoted("Section 5 asked what ... how memory is kept", DOCUMENT)
         assert not DocumentRedTeam.quoted("Section 5 asked what ... how dreams are kept", DOCUMENT)
         assert not DocumentRedTeam.quoted("Sleep", DOCUMENT)  # too short to show anything
+
+
+class TestReferenceCheck:
+    def test_a_site_as_author_no_date_and_a_pages_leftovers_are_flagged(self) -> None:
+        references = (
+            "[^1]: Zach, R. (2003). [*Hilbert's Program*](https://plato.stanford.edu/x). SEP.\n"
+            "[^2]: lmsys.org (n.d.). [*Deploying DeepSeek*](https://lmsys.org/x). lmsys.org.\n"
+            "[^3]: github.com (n.d.). [*GitHub - lm-sys/RouteLLM: A framework*](https://github.com/x).\n"
+            "[^4]: The SGLang Team (2025). [*Deploying DeepSeek*](https://lmsys.org/x). lmsys.org.\n"
+        )
+        issues = ReferenceCheck.issues(references)
+        assert issues == (
+            "[^2] Deploying DeepSeek: its author is the site lmsys.org; no date",
+            "[^3] GitHub - lm-sys/RouteLLM: A framework: its author is the site github.com; no date; "
+            "its title has a page's leftovers or is cut short",
+        )

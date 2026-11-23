@@ -9,6 +9,7 @@ with flaws found by hand, how many it finds and how many it invents.
 
 import re
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -113,3 +114,28 @@ real flaws, not preferences of style; when you find none, say so with an empty l
         parts = [cls.flat(p) for p in re.split(r"\s*(?:\.\.\.|…)\s*", evidence)]
         parts = [p.strip("\"' ") for p in parts if len(p.strip("\"' ")) >= 12]
         return bool(parts) and all(p in flat for p in parts)
+
+
+class ReferenceCheck:
+    """The reference list's mechanical flaws, found by plain code rather than a model: an author that is a
+    site's address, no date, a title with a page's leftovers or cut short. The red team's first measurement
+    (2026-11-23) missed most of these; code finds every one, for nothing."""
+
+    ENTRY: ClassVar[re.Pattern[str]] = re.compile(r"^\[\^(\d+)\]: (.+?) \(([^)]*)\)\. \[\*(.+?)\*\]", re.M)
+    ADDRESS: ClassVar[re.Pattern[str]] = re.compile(r"^[\w-]+(?:\.[\w-]+)+$")  # plato.stanford.edu
+    LEFTOVER: ClassVar[re.Pattern[str]] = re.compile(r" > | \| |^GitHub - |(?:\.\.\.|…)$")
+
+    @classmethod
+    def issues(cls, document: str) -> tuple[str, ...]:
+        found: list[str] = []
+        for number, authors, year, title in cls.ENTRY.findall(document):
+            wrong: list[str] = []
+            if cls.ADDRESS.match(authors):
+                wrong.append(f"its author is the site {authors}")
+            if year == "n.d.":
+                wrong.append("no date")
+            if cls.LEFTOVER.search(title):
+                wrong.append("its title has a page's leftovers or is cut short")
+            if wrong:
+                found.append(f"[^{number}] {title[:60]}: " + "; ".join(wrong))
+        return tuple(found)

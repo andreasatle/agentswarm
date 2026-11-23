@@ -49,7 +49,7 @@ from agentswarm.evaluation.html5 import Html5Import
 from agentswarm.evaluation.imports import EvalPlusFormat, EvalPlusReader, ImportCheck, SuiteWriter
 from agentswarm.evaluation.jq import JqImport
 from agentswarm.evaluation.jsonpath import JsonPathImport
-from agentswarm.evaluation.papers import Found, PaperFinder, PaperSource, WebPage
+from agentswarm.evaluation.papers import Found, OpenAlexSearch, PaperFinder, PaperSource, WebPage
 from agentswarm.evaluation.probe import ProbeExperiment, ProbeFiles, ProbeReport, ProbeRun
 from agentswarm.evaluation.qasper import GuideImport, QasperSet
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionTrace
@@ -693,7 +693,7 @@ class Cli:
         named: list[Found] = []
         for url in args.url:  # pages the user names: fetched as they are, cited by link
             try:
-                page, data = WebPage().record(url)
+                page, data = WebPage(OpenAlexSearch()).record(url)
             except OSError as error:
                 self._show(f"can't fetch {url}: {error}")
                 continue
