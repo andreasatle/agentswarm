@@ -27,6 +27,10 @@ class FakeSources:
         self._ledger = ledger
         self.calls = 0
 
+    def scope(self, run: DocumentRun, policy: Policy) -> tuple[str, ...]:
+        self._ledger.usd += 0.01
+        return ("How does sleep consolidate memory?", "What does a nap do?", "Who studied it first?")
+
     def find(self, run: DocumentRun, policy: Policy) -> str:
         self.calls += 1
         self._ledger.usd += 0.05
@@ -122,6 +126,12 @@ def pipeline(project: FakeProject, ledger: Ledger, sources: FakeSources | None =
     return DocumentPipeline(stages, Policy.load(), sqlite3.connect(":memory:", check_same_thread=False))
 
 
+def begin(runs: DocumentPipeline, request: RunRequest, folder: Path) -> DocumentRun:
+    """Started, with its questions approved as planned: on to the sources."""
+    runs.start(request, folder)
+    return runs.answer(request.name, Answer(choice=Choice.YES))
+
+
 def request(budget: float = 3.0) -> RunRequest:
     return RunRequest(name="sleep", topic="sleep and memory", reader="a curious adult", budget=budget)
 
@@ -133,7 +143,7 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[12, 17])  # 60% supported, then 85% after one review
         runs = pipeline(project, ledger)
-        run = runs.start(request(), tmp_path)
+        run = begin(runs, request(), tmp_path)
         assert run.stage is Stage.SOURCES and project.writes == 0  # nothing written before the approval
         question = runs.waiting("sleep")
         assert (
@@ -150,13 +160,52 @@ class TestDocumentPipeline:
         assert run.stage is Stage.PUBLISHED and run.page == tmp_path / "page.html"
         assert runs.waiting("sleep") is None and runs.runs() == ["sleep"]
 
+    def test_the_questions_are_approved_before_anything_is_searched_and_bind_the_search(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = Ledger()
+        sources = FakeSources(ledger)
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger, sources)
+        run = runs.start(request(), tmp_path)
+        question = runs.waiting("sleep")
+        assert run.stage is Stage.SCOPE and sources.calls == 0  # nothing searched yet
+        assert question is not None and question.title == "Approve the questions"
+        assert question.items == run.questions and "2. What does a nap do?" in question.details
+        assert "--drop" in runs.report("sleep")
+        run = runs.answer("sleep", Answer(choice=Choice.YES, drop=(2,)))
+        assert run.questions == ("How does sleep consolidate memory?", "Who studied it first?")
+        assert sources.calls == 1 and run.stage is Stage.SOURCES
+
+    def test_leaving_out_a_question_that_isnt_there_or_every_question_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        ledger = Ledger()
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger)
+        runs.start(request(), tmp_path)
+        with pytest.raises(ValueError, match="no question numbered 4"):
+            runs.answer("sleep", Answer(choice=Choice.YES, drop=(4,)))
+        with pytest.raises(ValueError, match="nothing to write"):
+            runs.answer("sleep", Answer(choice=Choice.YES, drop=(1, 2, 3)))
+        run = runs.answer("sleep", Answer(choice=Choice.YES))
+        with pytest.raises(ValueError, match="nothing to leave out"):
+            runs.answer("sleep", Answer(choice=Choice.YES, drop=(1,)))
+        assert run.stage is Stage.SOURCES
+
+    def test_stopping_at_the_questions_spends_nothing_on_the_search(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        sources = FakeSources(ledger)
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger, sources)
+        runs.start(request(), tmp_path)
+        run = runs.answer("sleep", Answer(choice=Choice.STOP))
+        assert run.stage is Stage.STOPPED and sources.calls == 0 and ledger.usd == pytest.approx(0.01)
+
     def test_a_document_whose_citations_hold_up_is_still_reviewed_once_for_its_reader(
         self, tmp_path: Path
     ) -> None:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19])  # 95%: before 2026-11-13 it skipped all review
         runs = pipeline(project, ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         run = runs.answer("sleep", Answer(choice=Choice.YES))
         assert run.stage is Stage.PUBLISHING and project.reviews == 1 and run.reviews == 1
 
@@ -164,7 +213,7 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19], failures=1)
         runs = pipeline(project, ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         runs.answer("sleep", Answer(choice=Choice.YES))
         question = runs.waiting("sleep")
         assert (
@@ -179,7 +228,7 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[12, 17])
         runs = pipeline(project, ledger)
-        runs.start(request(budget=0.6), tmp_path)
+        begin(runs, request(budget=0.6), tmp_path)
         runs.answer("sleep", Answer(choice=Choice.YES))  # writes and audits (0.37), then the review won't fit
         question = runs.waiting("sleep")
         assert (
@@ -195,14 +244,14 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         run = runs.answer("sleep", Answer(choice=Choice.STOP))
         assert run.stage is Stage.STOPPED and project.writes == 0 and runs.waiting("sleep") is None
 
     def test_a_run_name_is_used_once_and_only_a_waiting_run_takes_an_answer(self, tmp_path: Path) -> None:
         ledger = Ledger()
         runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         with pytest.raises(ValueError, match="exists already"):
             runs.start(request(), tmp_path)
         runs.answer("sleep", Answer(choice=Choice.STOP))
@@ -213,15 +262,16 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger, NestedSources(ledger))
-        run = runs.start(request(), tmp_path)
+        run = begin(runs, request(), tmp_path)
         assert run.stage is Stage.SOURCES
 
     def test_a_run_stopped_by_an_error_says_so_and_retries_from_that_step(self, tmp_path: Path) -> None:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger, FlakySources(ledger))
+        runs.start(request(), tmp_path)
         with pytest.raises(RuntimeError):
-            runs.start(request(), tmp_path)
+            runs.answer("sleep", Answer(choice=Choice.YES))
         failure = runs.failed("sleep")
         assert failure is not None and "find" in failure and "503" in failure
         assert "STOPPED BY AN ERROR" in runs.report("sleep") and "--choice retry" in runs.report("sleep")
@@ -234,7 +284,7 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19])
         runs = pipeline(project, ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         (tmp_path / "sources" / "a-paper.txt").unlink()  # nothing downloaded, nothing added
         with pytest.raises(ValueError, match="no documents"):
             runs.answer("sleep", Answer(choice=Choice.YES))
@@ -245,7 +295,7 @@ class TestDocumentPipeline:
     def test_the_sources_question_shows_the_folder_as_it_is_now(self, tmp_path: Path) -> None:
         ledger = Ledger()
         runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger, ListingSources(ledger))
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         assert "**not here yet**" in runs.report("sleep")
         (tmp_path / "sources" / "fetched.txt").write_text("Gone\nA. Author, the text.")
         assert "`fetched.txt`" in runs.report("sleep") and "not here yet" not in runs.report("sleep")
@@ -257,7 +307,7 @@ class TestDocumentPipeline:
         first = DocumentPipeline.open(
             Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(), path
         )
-        first.start(request(), tmp_path)
+        begin(first, request(), tmp_path)
         first.close()
         again = DocumentPipeline.open(
             Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(), path
@@ -275,7 +325,7 @@ class TestDocumentPipeline:
         first = DocumentPipeline.open(
             Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(own), path
         )
-        first.start(request().model_copy(update={"policy": own}), tmp_path / "run")
+        begin(first, request().model_copy(update={"policy": own}), tmp_path / "run")
         first.close()
         again = DocumentPipeline.open(  # `approve` opens the pipeline with the default policy
             Stages(FakeSources(ledger), project, project, FakePage(), ledger), Policy.load(), path
@@ -288,7 +338,7 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19], empty=True)
         runs = pipeline(project, ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         with pytest.raises(RuntimeError, match="no sections"):
             runs.answer("sleep", Answer(choice=Choice.YES))
         failure = runs.failed("sleep")
@@ -300,7 +350,7 @@ class TestDocumentPipeline:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[-1])  # 0 of 0 counted as 0% once, and a $1.35 review followed
         runs = pipeline(project, ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         with pytest.raises(RuntimeError, match="no cited statements"):
             runs.answer("sleep", Answer(choice=Choice.YES))
         assert project.reviews == 0
@@ -311,7 +361,7 @@ class TestCutShort:
         ledger = Ledger()
         project = FakeProject(ledger, shares=[19, 19], held=1)
         runs = pipeline(project, ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         run = runs.answer("sleep", Answer(choice=Choice.YES))
         question = runs.waiting("sleep")
         assert question is not None and question.title == "A spending limit stopped the run"
@@ -325,7 +375,7 @@ class TestRunning:
     def test_a_step_running_elsewhere_reads_as_running_and_takes_no_answer(self, tmp_path: Path) -> None:
         ledger = Ledger()
         runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger)
-        runs.start(request(), tmp_path)
+        begin(runs, request(), tmp_path)
         assert not (tmp_path / Working.NAME).exists()  # the marker goes when the step ends
         with Working(tmp_path):
             assert runs.view("sleep").running and "running" in runs.line("sleep")

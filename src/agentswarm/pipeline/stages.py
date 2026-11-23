@@ -43,6 +43,10 @@ class Written(Frozen):
 
 
 class Sources(Protocol):
+    def scope(self, run: DocumentRun, policy: Policy) -> tuple[str, ...]:
+        """The questions the document should answer, for the user to approve before anything is searched."""
+        ...
+
     def find(self, run: DocumentRun, policy: Policy) -> str:
         """Fills run.sources and returns the reading list for the user to approve."""
         ...
@@ -113,6 +117,23 @@ class MeteredFinder:
 class SourceStage:
     """The finder, or the user's own files: everything the document may draw on, in run.sources."""
 
+    def scope(self, run: DocumentRun, policy: Policy) -> tuple[str, ...]:
+        """The search plan's threads, planned on their own: the same questions the search will cover."""
+        planned = asyncio.run(self.finder(run).plan(run.request.topic, run.request.reader))
+        return tuple(planned.threads)
+
+    @staticmethod
+    def finder(run: DocumentRun) -> PaperFinder:
+        request = run.request
+        return PaperFinder(
+            MeteredFinder(Names.finder(run)).worker(),
+            request.source.search(),
+            request.source.queries,
+            brief=request.goal or "",
+            reader=SourceText(),
+            threads=run.questions,
+        )
+
     def find(self, run: DocumentRun, policy: Policy) -> str:
         request = run.request
         run.sources.mkdir(parents=True, exist_ok=True)
@@ -120,14 +141,7 @@ class SourceStage:
             for path in request.files:
                 shutil.copy2(path.expanduser(), run.sources / path.name)
             return "your own files: " + ", ".join(p.name for p in request.files)
-        finder = PaperFinder(
-            MeteredFinder(Names.finder(run)).worker(),
-            request.source.search(),
-            request.source.queries,
-            brief=request.goal or "",
-            reader=SourceText(),
-        )
-        found = asyncio.run(finder.find(request.topic, request.reader, policy.papers, run.sources))
+        found = asyncio.run(self.finder(run).find(request.topic, request.reader, policy.papers, run.sources))
         named: list[Found] = []
         searched = {f.paper.page.rstrip("/") for f in found.papers}
         for url in request.urls:
@@ -165,7 +179,7 @@ class ProjectStage:
             DocumentImport(
                 DocumentImport.files([run.sources]),
                 run.folder,
-                run.request.goal or policy.brief(run.request.topic, run.request.reader),
+                policy.brief(run.request.topic, run.request.reader, run.request.goal, run.questions),
                 (),
                 run.request.words or policy.words,
                 (),  # reviews come later, by the policy

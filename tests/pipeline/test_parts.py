@@ -87,6 +87,12 @@ class TestPolicy:
         assert policy.review_threshold == 0.9 and "{topic}" in policy.goal
         assert "sleep" in policy.brief("sleep", "an adult") and 0.3 < policy.expected(5000) < 3.0
 
+    def test_the_brief_carries_the_questions_the_user_approved(self) -> None:
+        policy = Policy.load()
+        brief = policy.brief("sleep", "an adult", None, ("Why do we dream?",))
+        assert brief.startswith(policy.brief("sleep", "an adult")) and brief.endswith("- Why do we dream?")
+        assert policy.brief("sleep", "an adult", "My own brief.", ()) == "My own brief."
+
 
 class TestPageStage:
     def test_the_page_goes_beside_the_run(self, tmp_path: Path) -> None:
@@ -138,9 +144,13 @@ class TestDocumentCommands:
         assert (
             cli.dispatch(["write", "sleep and memory", "--reader", "a curious adult", "--budget", "4"]) == 0
         )
+        assert "WAITING: Approve the questions" in shown[-1] and "--drop" in shown[-1]
+        assert cli.dispatch(["approve", "sleep-and-memory", "--drop", "9"]) == 2  # there are three
+        assert cli.dispatch(["approve", "sleep-and-memory", "--drop", "3"]) == 0
         assert (
             "WAITING: Approve the sources" in shown[-1]
             and "uv run agentswarm approve sleep-and-memory" in shown[-1]
+            and "questions left out: 1" in shown[-1]
         )
         assert (
             cli.dispatch(["runs"]) == 0

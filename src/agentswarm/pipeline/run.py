@@ -36,6 +36,7 @@ class RunRequest(Frozen):
 
 class Stage(StrEnum):
     STARTED = "started"
+    SCOPE = "scope"  # the questions planned, waiting for the user's approval
     SOURCES = "sources"  # found, waiting for the user's approval
     WRITING = "writing"
     CHECKING = "checking"
@@ -61,6 +62,7 @@ class Question(Frozen):
     title: str
     details: str
     choices: tuple[Choice, ...]
+    items: tuple[str, ...] = ()  # what the user may untick, numbered from 1 (the scope's questions)
 
 
 class AuditResult(Frozen):
@@ -91,6 +93,7 @@ class Answer(Frozen):
 
     choice: Choice
     budget: float | None = None  # with Choice.BUDGET: the new total
+    drop: tuple[int, ...] = ()  # with Choice.YES at the scope: the questions left out, by number
 
 
 class DocumentRun(BaseModel):
@@ -105,10 +108,15 @@ class DocumentRun(BaseModel):
     audits: tuple[AuditResult, ...] = ()
     reviews: int = 0  # facts rounds done
     page: Path | None = None
+    # what the document must answer, as the planner proposed them and the user approved (docs/design/
+    # outer-loop.md: the moe-systems runs answered a misread topic, which nobody saw until the document)
+    questions: tuple[str, ...] = ()
     listing: str = ""  # the sources found, as the user is shown them
     sections: int = 0
     failed: tuple[str, ...] = ()  # sections that failed their checks, one line each
-    blocked: Literal["find", "write", "audit", "review"] | None = None  # a stage the budget wouldn't fit
+    blocked: Literal["scope", "find", "write", "audit", "review"] | None = (
+        None  # a stage the budget wouldn't fit
+    )
     need: float = 0.0  # what that stage is expected to cost
     held: str | None = None  # why that stage stopped short, when a limit refused it partway
     notes: tuple[str, ...] = ()  # what happened, for the user, in order

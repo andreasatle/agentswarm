@@ -802,6 +802,8 @@ class QueryRequest(Frozen):
     # The user's own brief: what the document must cover. 2026-11-10: planned from the topic line alone, a
     # search for an analysis of LLM scaling found nothing on costs, energy, new architectures or crash risk
     brief: str = ""
+    # The questions the user approved (the run's scope): the threads, as they are. Empty: the plan lists them
+    threads: tuple[str, ...] = ()
 
 
 class SearchQueries(Frozen):
@@ -1045,7 +1047,8 @@ is a thread of its own, except the document's own conclusions (what the cases ha
 to draw), which the writer draws from the sources and no search finds. Then write the number of short keyword
 queries asked for, so that every thread has at least one. Search ranks by matching words, not importance, so
 also list the exact titles of the well-known papers or articles on the topic that you are sure of: each is
-looked up, and kept only if found."""
+looked up, and kept only if found. When threads are given, the user approved them: they are the threads,
+word for word; list them as they are and write the queries for them."""
 
     PICK = """\
 You choose the papers a tutorial on the topic will be written from, for the reader described, from the
@@ -1092,7 +1095,9 @@ than a first search, that would find a source that does."""
         brief: str = "",
         *,
         reader: TextReader,
+        threads: Sequence[str] = (),
     ) -> None:
+        self._given = tuple(threads)  # the questions the user approved; the plan lists its own when none
         self._brief = brief  # the user's own brief: the plan and the picks cover all of it
         self._worker = worker
         self._search = search
@@ -1101,13 +1106,19 @@ than a first search, that would find a source that does."""
         self._found: dict[str, Candidate] = {}  # every candidate as found, PDF links included
         self._threads: tuple[str, ...] = ()  # the threads the query plan listed, for the picker to cover
 
-    async def candidates(self, topic: str, know: str) -> list[Candidate]:
-        planned = await self._worker.run(
+    async def plan(self, topic: str, know: str) -> SearchQueries:
+        """The threads the document must cover, and the queries and known titles that search for them."""
+        return await self._worker.run(
             self.QUERY,
-            QueryRequest(topic=topic, reader_knows=know, queries=self._queries, brief=self._brief),
+            QueryRequest(
+                topic=topic, reader_knows=know, queries=self._queries, brief=self._brief, threads=self._given
+            ),
             SearchQueries,
         )
-        self._threads = tuple(planned.threads)
+
+    async def candidates(self, topic: str, know: str) -> list[Candidate]:
+        planned = await self.plan(topic, know)
+        self._threads = self._given or tuple(planned.threads)
         found = self._found
         for title in planned.known[: self.KNOWN]:
             known = await asyncio.to_thread(self._search.titled, title)

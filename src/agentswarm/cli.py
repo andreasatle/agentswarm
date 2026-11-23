@@ -98,7 +98,7 @@ class Cli:
         write TOPIC --reader TEXT --budget USD     a document from a topic, pausing for your approvals
                                                    (sources, publishing); [--source --words --url --files]
         runs [NAME]                                every document run, or one in full with what it waits for
-        approve NAME [--choice C] [--budget USD]   answer a waiting run (yes, stop, retry, accept, drop...)
+        approve NAME [--choice C] [--budget USD] [--drop N...]   answer a waiting run (yes, stop, retry...)
         studio [--port N]                          all of the above as a web page on localhost
         config CONFIG                              the effective configuration, with the domain preset applied
         run CONFIG --root DIR [--task TEXT]...     add tasks and run the project until idle
@@ -574,7 +574,7 @@ class Cli:
             return 2
         runs = self.documents()
         try:
-            runs.answer(args.name, Answer(choice=choice, budget=args.budget))
+            runs.answer(args.name, Answer(choice=choice, budget=args.budget, drop=tuple(args.drop)))
         except ValueError as error:
             self._show(str(error))
             runs.close()
@@ -1113,6 +1113,9 @@ class Cli:
         approve.add_argument("name")
         approve.add_argument("--choice", choices=[c.value for c in Choice], default=Choice.YES.value)
         approve.add_argument("--budget", type=float, help="with --choice budget: the new total")
+        approve.add_argument(
+            "--drop", type=int, nargs="+", default=[], help="at the questions: the numbers to leave out"
+        )
         bench = commands.add_parser(
             "benchmark", help="run the held-out document cases with the current code, measure and record them"
         )

@@ -2953,7 +2953,7 @@ class ClaimVerdict(Frozen):
 
 `agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
-Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `c8e5c8f3c7fa`.
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `1c2cc22416bd`.
 
 ```text
 You plan a search for the sources of a tutorial or guide on the topic given, for the reader described. First
@@ -2964,7 +2964,8 @@ is a thread of its own, except the document's own conclusions (what the cases ha
 to draw), which the writer draws from the sources and no search finds. Then write the number of short keyword
 queries asked for, so that every thread has at least one. Search ranks by matching words, not importance, so
 also list the exact titles of the well-known papers or articles on the topic that you are sure of: each is
-looked up, and kept only if found.
+looked up, and kept only if found. When threads are given, the user approved them: they are the threads,
+word for word; list them as they are and write the queries for them.
 ```
 
 ### User message (sample)
@@ -2975,7 +2976,8 @@ looked up, and kept only if found.
   "topic": "test-time compute for reasoning",
   "reader_knows": "graduate-level ML",
   "queries": 5,
-  "brief": ""
+  "brief": "",
+  "threads": []
 }
 </data>
 ```
@@ -2992,6 +2994,8 @@ class QueryRequest(Frozen):
     # The user's own brief: what the document must cover. 2026-11-10: planned from the topic line alone, a
     # search for an analysis of LLM scaling found nothing on costs, energy, new architectures or crash risk
     brief: str = ""
+    # The questions the user approved (the run's scope): the threads, as they are. Empty: the plan lists them
+    threads: tuple[str, ...] = ()
 ```
 
 ### Answer

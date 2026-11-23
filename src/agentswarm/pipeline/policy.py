@@ -2,6 +2,7 @@
 by hand during a chat before (the user, 2026-10-19: "I'm a bit uncomfortable that you make all the decisions
 about what to run"). Changing a decision is editing a number; each run records the policy it used."""
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import ClassVar, Self
 
@@ -17,6 +18,7 @@ class Estimates(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    scope: float = 0.03  # the questions, planned on the planner model before the search
     find: float = 0.06  # the picker on the planner model, 40 candidates (0.04-0.05 measured)
     write_per_1000_words: float = 0.05  # 0.19-0.29 for 6,000-9,000 words
     audit: float = 0.15  # 20 statements on the referee (2026-11-10: $0.16)
@@ -52,15 +54,21 @@ class Policy(BaseModel):
     def load(cls, path: Path | None = None) -> Self:
         return cls.model_validate(yaml.safe_load((path or cls.DEFAULT).read_text()))
 
-    def brief(self, topic: str, reader: str) -> str:
-        return self.goal.format(topic=topic, reader=reader)
+    def brief(self, topic: str, reader: str, goal: str | None = None, questions: Sequence[str] = ()) -> str:
+        """The writers' brief: the user's own goal or the template, with the questions the user approved."""
+        brief = goal or self.goal.format(topic=topic, reader=reader)
+        if not questions:
+            return brief
+        listed = "\n".join(f"- {q}" for q in questions)
+        return f"{brief}\n\nThe document must answer these questions, which the user approved:\n{listed}"
 
     def plan(self, words: int, sections: int = 10) -> str:
         """The run's expected costs, step by step, for the user before it starts."""
         e = self.estimates
         review = self.review_rounds * e.review(sections) + e.audit
         return (
-            f"sources ${e.find:.2f}, writing ${e.write(words):.2f}, citation audit ${e.audit:.2f}; "
+            f"questions ${e.scope:.2f}, sources ${e.find:.2f}, writing ${e.write(words):.2f}, "
+            f"citation audit ${e.audit:.2f}; "
             f"a review of {self.review_rounds} rounds ${review:.2f} (for the reader; citations too if fewer "
             f"than {self.review_threshold:.0%} hold up)"
         )
@@ -70,4 +78,4 @@ class Policy(BaseModel):
         after them."""
         e = self.estimates
         review = self.review_rounds * e.review(sections) + e.audit if self.review_rounds else 0.0
-        return e.find + e.write(words) + e.audit + review
+        return e.scope + e.find + e.write(words) + e.audit + review

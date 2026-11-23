@@ -66,9 +66,16 @@ class Fixture:
         studio = Studio(self.pipeline, Policy.load(), self.runs, InlineWorker(), projects)
         self.client = TestClient(studio.app)
 
-    def start(self, **fields: str) -> Any:
+    def start(self, questions: bool = True, **fields: str) -> Any:
+        """Starts a run from the form and, unless told not to, approves its questions as planned."""
         form = {"topic": "sleep and memory", "reader": "a curious adult", "budget": "4"} | fields
-        return self.client.post("/new", data=form, follow_redirects=False)
+        reply = self.client.post("/new", data=form, follow_redirects=False)
+        name = "sleep-and-memory"
+        if questions and reply.status_code == 303 and self.pipeline.exists(name):
+            waiting = self.pipeline.waiting(name)
+            if waiting is not None and waiting.items:
+                self.answer("yes")
+        return reply
 
     def answer(self, choice: str, **fields: str) -> str:
         reply = self.client.post("/runs/sleep-and-memory/answer", data={"choice": choice} | fields)
@@ -91,6 +98,25 @@ class TestStudio:
         page = f.answer("yes")
         assert "The page is written" in page and "homepage" not in page
         assert "page written" in f.client.get("/").text  # a finished run in the list shows its stage
+
+    def test_the_questions_are_ticked_and_the_unticked_ones_left_out(self, tmp_path: Path) -> None:
+        f = Fixture(tmp_path)
+        f.start(questions=False)
+        page = f.client.get("/runs/sleep-and-memory").text
+        assert "Approve the questions" in page and page.count('type="checkbox" name="keep"') == 3
+        assert "What does a nap do?" in page and "Add papers" not in page
+        reply = f.client.post(
+            "/runs/sleep-and-memory/answer", data={"choice": "yes", "ticks": "3", "keep": ["1", "3"]}
+        )
+        assert "Approve the sources" in reply.text
+        run = f.pipeline.run("sleep-and-memory")
+        assert run.questions == ("How does sleep consolidate memory?", "Who studied it first?")
+
+    def test_unticking_every_question_is_refused(self, tmp_path: Path) -> None:
+        f = Fixture(tmp_path)
+        f.start(questions=False)
+        page = f.answer("yes", ticks="3")
+        assert "nothing to write" in page and f.pipeline.run("sleep-and-memory").stage is Stage.SCOPE
 
     def test_the_form_says_what_is_wrong_and_keeps_what_was_typed(self, tmp_path: Path) -> None:
         f = Fixture(tmp_path)

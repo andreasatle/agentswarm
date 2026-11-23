@@ -34,6 +34,7 @@ type Update = dict[str, Any]
 class DocumentPipeline:
     THREADS = "SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id"
     SOURCES_QUESTION = "Approve the sources"
+    SCOPE_QUESTION = "Approve the questions"
     # Our types in a saved run, named for the checkpointer's serializer (it warns about, and will refuse,
     # types it wasn't told about)
     SAVED: ClassVar[list[tuple[str, str]]] = [
@@ -67,6 +68,8 @@ class DocumentPipeline:
     # The graph
 
     NODES: ClassVar[tuple[str, ...]] = (
+        "scope",
+        "approve_scope",
         "find",
         "approve_sources",
         "write",
@@ -83,7 +86,9 @@ class DocumentPipeline:
         graph = StateGraph(DocumentRun)
         for name in self.NODES:
             graph.add_node(name, getattr(self, name))
-        graph.add_edge(START, "find")
+        graph.add_edge(START, "scope")
+        graph.add_conditional_edges("scope", self.after_paid("approve_scope"))
+        graph.add_conditional_edges("approve_scope", self.after_approval("find"))
         graph.add_conditional_edges("find", self.after_paid("approve_sources"))
         graph.add_conditional_edges("approve_sources", self.after_approval("write"))
         graph.add_conditional_edges("write", self.after_write)
@@ -97,6 +102,18 @@ class DocumentPipeline:
         return graph
 
     # Stages (plain work, no pause)
+
+    def scope(self, run: DocumentRun) -> Update:
+        blocked = self.over(run, self.policy(run).estimates.scope, "scope")
+        if blocked is not None:
+            return blocked
+        questions = self.apart(self._stages.sources.scope, run, self.policy(run))
+        return {
+            "stage": Stage.SCOPE,
+            "blocked": None,
+            "questions": questions,
+            "notes": (*run.notes, f"questions planned: {len(questions)}"),
+        }
 
     def find(self, run: DocumentRun) -> Update:
         blocked = self.over(run, self.policy(run).estimates.find, "find")
@@ -196,10 +213,35 @@ class DocumentPipeline:
 
     # Pauses for the user
 
+    def approve_scope(self, run: DocumentRun) -> Update:
+        """The first pause: what the document will answer, in plain questions, before anything is searched. A
+        misread topic is cheapest to catch here (moe-systems, 2026-11-22: noticed only in the document)."""
+        listed = "\n".join(f"{n}. {q}" for n, q in enumerate(run.questions, 1))
+        answer = self.ask(
+            Question(
+                title=self.SCOPE_QUESTION,
+                details=f"The document will answer these questions, for {run.request.reader}:\n\n{listed}\n\n"
+                "Untick any to leave out, then approve; if they miss what you meant, stop and start again in "
+                "other words.",
+                choices=(Choice.YES, Choice.STOP),
+                items=run.questions,
+            )
+        )
+        update = self.answered(run, answer)
+        if answer.choice is Choice.YES and answer.drop:
+            kept = tuple(q for n, q in enumerate(run.questions, 1) if n not in answer.drop)
+            update["questions"] = kept
+            update["notes"] = (*update["notes"], f"questions left out: {len(run.questions) - len(kept)}")
+        return update
+
     def approve_sources(self, run: DocumentRun) -> Update:
         spent = self._stages.spending.spent(run)
         words = run.request.words or self.policy(run).words
-        rest = self.policy(run).expected(words) - self.policy(run).estimates.find
+        rest = (
+            self.policy(run).expected(words)
+            - self.policy(run).estimates.scope
+            - self.policy(run).estimates.find
+        )
         answer = self.ask(
             Question(
                 title=self.SOURCES_QUESTION,
@@ -316,7 +358,7 @@ class DocumentPipeline:
         return max(run.request.budget - self._stages.spending.spent(run), 0.0)
 
     def over(
-        self, run: DocumentRun, need: float, step: Literal["find", "write", "audit", "review"]
+        self, run: DocumentRun, need: float, step: Literal["scope", "find", "write", "audit", "review"]
     ) -> Update | None:
         if self.left(run) >= need:
             return None
@@ -350,6 +392,14 @@ class DocumentPipeline:
             raise ValueError(f"{name} can't take {answer.choice} now: {', '.join(question.choices)}")
         if answer.choice is Choice.BUDGET and answer.budget is None:
             raise ValueError("raising the budget needs the new total")
+        if answer.drop:
+            if not question.items:
+                raise ValueError(f"{name} has nothing to leave out now")
+            wrong = [n for n in answer.drop if not 1 <= n <= len(question.items)]
+            if wrong:
+                raise ValueError(f"no question numbered {wrong[0]}: they run from 1 to {len(question.items)}")
+            if answer.choice is Choice.YES and len(set(answer.drop)) == len(question.items):
+                raise ValueError("leaving out every question leaves nothing to write: stop the run instead")
         run = self.run(name)
         sourcing = question.title == self.SOURCES_QUESTION
         if sourcing and answer.choice is Choice.YES and not DocumentImport.files([run.sources]):
@@ -437,6 +487,8 @@ class DocumentPipeline:
             lines.append(
                 "answer: uv run agentswarm approve " + name + " --choice " + "|".join(question.choices)
             )
+            if question.items:
+                lines.append("  (with --choice yes, --drop N [N ...] leaves those questions out)")
         return "\n".join(lines)
 
     def line(self, name: str) -> str:

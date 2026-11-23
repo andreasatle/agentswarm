@@ -45,6 +45,7 @@ class Studio:
     }
     STAGES: ClassVar[dict[Stage, str]] = {
         Stage.STARTED: "starting",
+        Stage.SCOPE: "questions",
         Stage.SOURCES: "sources",
         Stage.WRITING: "writing",
         Stage.CHECKING: "checking",
@@ -192,9 +193,16 @@ class Studio:
         name: str,
         choice: Annotated[str, Form()],
         budget: Annotated[str, Form()] = "",
+        keep: Annotated[list[int] | None, Form()] = None,
+        ticks: Annotated[int, Form()] = 0,
     ) -> Response:
         try:
-            given = Answer(choice=Choice(choice), budget=float(budget) if self.number(budget) else None)
+            # a form with tick boxes says how many it showed; the unticked ones are left out
+            kept = set(keep or ())
+            drop = tuple(n for n in range(1, ticks + 1) if n not in kept)
+            given = Answer(
+                choice=Choice(choice), budget=float(budget) if self.number(budget) else None, drop=drop
+            )
             self._pipeline.check(name, given)
             label = self.label(self._pipeline.view(name), given)
             self._worker.submit(name, label, lambda: self._pipeline.answer(name, given))
@@ -298,7 +306,12 @@ class Studio:
 
     def steps(self, words: int) -> list[tuple[str, float]]:
         e = self._policy.estimates
-        steps = [("Find sources", e.find), ("Write", e.write(words)), ("Audit the citations", e.audit)]
+        steps = [
+            ("Plan the questions", e.scope),
+            ("Find sources", e.find),
+            ("Write", e.write(words)),
+            ("Audit the citations", e.audit),
+        ]
         if self._policy.review_rounds:
             review = self._policy.review_rounds * e.review(10) + e.audit
             steps.append(
@@ -311,12 +324,15 @@ class Studio:
             return "stopping"
         if answer.choice is Choice.RETRY and view.failure is not None:
             return f"retrying {view.failure.partition(':')[0]}"
+        if view.run.stage is Stage.SCOPE:
+            return "finding sources"
         if view.run.stage is Stage.SOURCES:
             return "writing"
         if view.run.stage is Stage.PUBLISHING:
             return "making the page"
         if answer.choice is Choice.BUDGET and view.run.blocked is not None:
             return {
+                "scope": "planning the questions",
                 "find": "finding sources",
                 "write": "writing",
                 "audit": "auditing",

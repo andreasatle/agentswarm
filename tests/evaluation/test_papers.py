@@ -668,6 +668,28 @@ class TestThreads:
         )
         assert "(A. Author, n.d.)" in undated.render()
 
+    async def test_the_threads_the_user_approved_are_searched_for_as_they_are(self, tmp_path: Path) -> None:
+        planned: list[QueryRequest] = []
+
+        def plan(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            assert isinstance(payload, QueryRequest)
+            planned.append(payload)
+            return SearchQueries(threads=["a reworded question"], queries=["vaporetto"])
+
+        def pick(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            assert isinstance(payload, PickRequest)
+            assert [t.question for t in payload.threads] == ["what it costs"]
+            return ReadingList(papers=[PickedPaper(id="1", why="fares", covers=1)])
+
+        worker = ScriptedWorker(
+            {SearchQueries: plan, ReadingList: pick, Coverage: lambda p, t: Coverage(threads=[])}
+        )
+        finder = PaperFinder(
+            worker, FakeSearch({"vaporetto": [paper("1")]}), reader=FakeReader(), threads=("what it costs",)
+        )
+        folder = await finder.find("Venice", "a visitor", 5, tmp_path)
+        assert planned[0].threads == ("what it costs",) and folder.threads == ("what it costs",)
+
 
 class TestBrief:
     async def test_the_users_brief_reaches_the_plan_and_the_picker(self, tmp_path: Path) -> None:
