@@ -211,8 +211,10 @@ class ProjectStage:
             "model": "haiku55",
             "referee": "referee",
             "finding_referee": "referee-fast",  # reasoning off for findings (docs/design/self-correction.md)
-            "perspectives": ["reader", *(["claims"] if short else [])],
+            # the document's red team every round (docs/design/outer-loop.md: precise, about $0.04 a round)
+            "perspectives": ["reader", "whole", *(["claims"] if short else [])],
             "claims": {"model": "haiku55"},
+            "whole": {"model": RedTeamStage.MODEL},
             "quiet_rounds": 1,
             "max_rounds": policy.review_rounds,
         }

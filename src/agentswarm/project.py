@@ -24,6 +24,7 @@ from agentswarm.core.clock import Clock, SystemClock
 from agentswarm.core.config import ClaimsConfig, ProjectConfig, RetrievalConfig, ReviewConfig, SpendLimits
 from agentswarm.core.domain import Artifact, Level, OverBudget, ProjectId, TeamName, Usage
 from agentswarm.evaluation.questions import HiddenQuestions, QuestionProgress, QuestionScore
+from agentswarm.evaluation.redteam import DocumentRedTeam
 from agentswarm.evaluation.score import Measure, Progress
 from agentswarm.gating.checks import CheckSet, CommandCheck, RatchetCheck
 from agentswarm.gating.gate import Gate
@@ -366,6 +367,11 @@ class Project:
                     progress,
                     cls.claim_checker(reviewing.claims, indexes, workers.worker, metered),
                     cls.finding_referee(reviewing, config, workers.worker, metered),
+                    DocumentRedTeam(
+                        workers.worker(reviewing.whole.model, 1, metered("red-team", reviewing.whole.model))
+                    )
+                    if reviewing.whole is not None
+                    else None,
                 )
             )
         return cls(

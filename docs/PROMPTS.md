@@ -2754,7 +2754,7 @@ class DocumentAttack(Frozen):
     today: str  # the date (YYYY-MM-DD): a model that doesn't know it calls this year's sources "future"
     reader: str  # who it is for and what they know
     brief: str  # what it was asked to do and cover
-    words: int  # its length cap
+    words: int | None  # its length cap; None: as the brief says
     sources: tuple[str, ...]  # the sources it was written from, one line each
     document: str  # the whole document, its references included
 ```

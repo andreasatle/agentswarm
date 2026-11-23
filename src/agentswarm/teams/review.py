@@ -10,6 +10,7 @@ finding becomes a writer's task to revise that section. Whether it was fixed sho
 same reviewer meets the section again, and the referee's rejections are shown so a claim isn't argued twice.
 """
 
+import asyncio
 import re
 from collections.abc import Sequence
 from typing import ClassVar
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agentswarm.board.artifacts import ArtifactFactory
 from agentswarm.board.blackboard import Blackboard, BoardViews
 from agentswarm.control.budget import Budget
+from agentswarm.core.clock import SystemClock
 from agentswarm.core.config import LevelLadder, ReviewConfig
 from agentswarm.core.domain import (
     ArtifactId,
@@ -33,6 +35,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.evaluation.citations import CitationRequest, Support
+from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, FlawKind, RedTeamReport
 from agentswarm.evaluation.score import Measure
 from agentswarm.llm.workers import Worker, WorkerError
 from agentswarm.teams.analyzer import Quotes
@@ -143,6 +146,11 @@ document is finished as far as its writer knows. Find what is wrong with this se
             "less, or something narrower). The statement is quoted from the section and, where one settles "
             "it, the source passage."
         ),
+        Perspective.WHOLE: (
+            "The whole document. A flaw a reader of the whole meets: a reference to a part that doesn't "
+            "exist, something promised and not delivered, a repetition, a contradiction, a wrong derivation "
+            "or number. The passage is quoted from this section."
+        ),
     }
     # Quotes the evidence must hold, at least: (from the document's sections, from the sources)
     NEEDS: ClassVar[dict[Perspective, tuple[int, int]]] = {
@@ -152,6 +160,7 @@ document is finished as far as its writer knows. Find what is wrong with this se
         Perspective.CONSISTENCY: (2, 0),
         Perspective.GENERAL: (1, 0),
         Perspective.CLAIMS: (1, 0),
+        Perspective.WHOLE: (1, 0),
     }
 
     def __init__(
@@ -169,7 +178,11 @@ document is finished as far as its writer knows. Find what is wrong with this se
         claims: ClaimChecker | None = None,  # checks each cited statement, for the `claims` perspective
         finding_referee: Referee
         | None = None,  # rules on findings that aren't cited statements; None: referee
+        red_team: DocumentRedTeam | None = None,  # attacks the whole document, for the `whole` perspective
     ) -> None:
+        self._red_team = red_team
+        # one attack on the whole document a round, shared by its sections: keyed by the commit attacked
+        self._whole: dict[str, asyncio.Task[RedTeamReport]] = {}
         super().__init__(board, repository, ladder, config.quiet_rounds, budget, progress, config.max_rounds)
         self._claims = claims
         self._config = config
@@ -246,9 +259,12 @@ document is finished as far as its writer knows. Find what is wrong with this se
             )
 
         cited: dict[str, CitationRequest] = {}  # for `claims`: each flagged line with the text it cites
+        unplaced: tuple[str, ...] = ()  # for `whole`: findings no section holds, shown, not fixed
         try:
             if focus is Perspective.CLAIMS:
                 report, cited = await self.claim_findings(worktree, part, views)
+            elif focus is Perspective.WHOLE:
+                report, unplaced = await self.whole_findings(worktree, tip, part)
             else:
                 report = await self._worker.run(self.INSTRUCTIONS, request, ReviewFindings)
         except WorkerError as error:
@@ -262,7 +278,9 @@ document is finished as far as its writer knows. Find what is wrong with this se
         tasks: list[ArtifactId] = []
         findings: list[AttackFinding] = []
         rejections: list[RejectedReport] = []
-        dropped: list[str] = []
+        dropped: list[str] = list(
+            unplaced
+        )  # for the user and the issue queue: no section's writer fixes them
         events: list[Event] = []
         backed: list[tuple[int, ReviewFinding, CitationRequest | None]] = []
         reported: list[ReportedFinding] = []
@@ -430,6 +448,64 @@ document is finished as far as its writer knows. Find what is wrong with this se
             found.append(ReviewSource(name=name, text=text))
             size += len(text)
         return tuple(found)
+
+    async def whole_findings(
+        self, worktree: Worktree, tip: str, part: Part
+    ) -> tuple[ReviewFindings, tuple[str, ...]]:
+        """The red team's revise findings that quote this section, as a reviewer's; with the first section,
+        the findings no section holds (framework or note, or quoting the references), to be shown."""
+        if self._red_team is None:
+            raise WorkerError("the `whole` perspective has no red team")
+        if tip not in self._whole:
+            request = DocumentAttack(
+                today=SystemClock().now().date().isoformat(),
+                reader=self._north_star,
+                brief=self.brief(worktree),
+                words=None,
+                sources=tuple(f for f in worktree.files() if f.startswith(f"{self._config.sources}/")),
+                document=self.document(worktree),
+            )
+            self._whole[tip] = asyncio.ensure_future(self._red_team.attack(request))
+        report = await self._whole[tip]
+        parts = self.parts(worktree)
+        placed = [
+            f
+            for f in report.shown
+            if f.kind is FlawKind.REVISE and DocumentRedTeam.quoted(f.evidence, part.text)
+        ]
+        findings = tuple(
+            ReviewFinding(
+                title=f.flaw[:120],
+                problem=f.flaw,
+                fix=f.fix,
+                evidence=(Evidence(file=part.title, quote=self.exact(part.text, f.evidence)),),
+            )
+            for f in placed
+        )
+        unplaced: tuple[str, ...] = ()
+        if parts and part.title == parts[0].title:
+            unplaced = tuple(
+                f"{f.kind}: {f.flaw} ({f.where})"
+                for f in report.shown
+                if f.kind is not FlawKind.REVISE
+                or not any(DocumentRedTeam.quoted(f.evidence, p.text) for p in parts)
+            )
+        return ReviewFindings(summary="the whole document", findings=findings), unplaced
+
+    @staticmethod
+    def exact(text: str, quote: str) -> str:
+        """The quote as the section has it, when the red team dropped or added emphasis or line breaks
+        (the referee's check reads the file word for word): its words in that order, with any emphasis and
+        spacing between them; the longest part of a quote an ellipsis joins. The quote as it is if absent."""
+        for part in sorted(re.split(r"\s*(?:\.\.\.|…)\s*", quote), key=len, reverse=True):
+            words = re.sub(r"[*_`]", "", part).split()
+            if not words:
+                continue
+            pattern = r"[*_`]*\s+[*_`]*".join(re.escape(w) for w in words)
+            found = re.search(pattern, text)
+            if found:
+                return found.group(0)
+        return quote
 
     def document(self, worktree: Worktree) -> str:
         """Every section, in reading order, each under its file name."""

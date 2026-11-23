@@ -348,6 +348,13 @@ class ClaimsConfig(Strict):
     retrieval: RetrievalConfig | None = None  # None: the cited part whole (its named page and neighbours)
 
 
+class WholeConfig(Strict):
+    """The document's red team in a review (the `whole` perspective): a model of a family neither the writers
+    nor the referee are in (docs/design/outer-loop.md)."""
+
+    model: str  # a name in `models`
+
+
 class ReviewConfig(Strict):
     """Reviewers attack a finished document, one section and perspective at a time, until a round confirms
     nothing new (docs/design/documents.md). Each confirmed finding becomes a writer's task."""
@@ -372,11 +379,14 @@ class ReviewConfig(Strict):
     max_rounds: int | None = Field(default=None, ge=1)  # whole rounds at most, quiet or not
     max_model_calls: int = Field(default=30, gt=0)  # per review
     claims: ClaimsConfig | None = None  # how the `claims` perspective checks each cited statement
+    whole: WholeConfig | None = None  # the `whole` perspective's red team
 
     @model_validator(mode="after")
     def _claims_configured(self) -> Self:
         if Perspective.CLAIMS in self.perspectives and self.claims is None:
             raise ValueError("the `claims` perspective needs `claims:` (the model that checks each claim)")
+        if Perspective.WHOLE in self.perspectives and self.whole is None:
+            raise ValueError("the `whole` perspective needs `whole:` (the red team's model)")
         return self
 
 
@@ -601,6 +611,7 @@ class ProjectConfig(Strict):
                 self.review.referee,
                 self.review.finding_referee,
                 *([claims.model] if claims else []),
+                *([self.review.whole.model] if self.review.whole else []),
             )
             for model in (m for m in named if m is not None):
                 if model not in self.models:

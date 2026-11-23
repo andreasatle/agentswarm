@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from agentswarm.board.artifacts import ArtifactFactory
-from agentswarm.core.config import ClaimsConfig, ReviewConfig
+from agentswarm.core.config import ClaimsConfig, ReviewConfig, WholeConfig
 from agentswarm.core.domain import (
     Attacked,
     Escalated,
@@ -19,6 +19,7 @@ from agentswarm.core.domain import (
     TeamName,
 )
 from agentswarm.evaluation.citations import CitationAnswer, CitationRequest, Support
+from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, Finding, Findings, FlawKind
 from agentswarm.llm.workers import FakeWorker, Step, Toolbox
 from agentswarm.teams.claims import ClaimChecker, ClaimVerdict, WholeParts
 from agentswarm.teams.referee import FindingAnswer, FindingRequest, FindingRulings, Referee
@@ -64,6 +65,7 @@ class Review:
         checker: list[Step[BaseModel]] | None = None,  # the claim checker's script, for `claims`
         max_rounds: int | None = None,
         finding_referee: list[Step[BaseModel]] | None = None,  # its own referee for findings, when given
+        red_team: list[Step[BaseModel]] | None = None,  # the red team's script, for `whole`
     ) -> None:
         tmp_path.mkdir(parents=True, exist_ok=True)
         self.h = Harness(tmp_path)
@@ -79,8 +81,15 @@ class Review:
         self.checker = FakeWorker(checker or [])
         self.finding_referee = FakeWorker(finding_referee or [])
         claims = ClaimsConfig(model="cheap") if checker is not None else None
+        self.red_team = FakeWorker(red_team or [])
+        whole = WholeConfig(model="gemini") if red_team is not None else None
         config = ReviewConfig(
-            model="rev", referee="ref", perspectives=perspectives, claims=claims, max_rounds=max_rounds
+            model="rev",
+            referee="ref",
+            perspectives=perspectives,
+            claims=claims,
+            max_rounds=max_rounds,
+            whole=whole,
         )
         self.campaign = ReviewCampaign(
             config,
@@ -95,6 +104,7 @@ class Review:
             finding_referee=Referee(self.finding_referee, "fast", ())
             if finding_referee is not None
             else None,
+            red_team=DocumentRedTeam(self.red_team) if red_team is not None else None,
         )
 
     def events(self) -> list[Event]:
@@ -192,6 +202,53 @@ class TestReviewCampaign:
         parts = [p.title for p in r.campaign.parts(level)]
         level.remove()
         assert parts == ["sections/01-tagging.md", "sections/02-parsing.md"]  # .gitkeep is no section
+
+
+class TestWhole:
+    async def test_the_red_teams_findings_go_to_the_section_they_quote_and_the_rest_are_shown(
+        self, tmp_path: Path
+    ) -> None:
+        def attack(toolbox: Toolbox | None) -> BaseModel:
+            return Findings(
+                findings=[
+                    Finding(
+                        where="Tagging",
+                        evidence="The tagger reaches **99%** accuracy",  # emphasis the file doesn't have
+                        flaw="contradicts the results section",
+                        fix="say 97.1%",
+                        kind=FlawKind.REVISE,
+                    ),
+                    Finding(
+                        where="References",
+                        evidence="It was trained on one million words",
+                        flaw="the reference list cites a site",
+                        fix="name the authors",
+                        kind=FlawKind.FRAMEWORK,
+                    ),
+                ]
+            )
+
+        r = Review(
+            tmp_path,
+            [],
+            [ruling(True), ruling(True)],
+            perspectives=(Perspective.WHOLE,),
+            red_team=[attack],
+            max_rounds=1,
+        )
+        assert await r.campaign.step() == 1
+        attacked = r.attacked()
+        assert (attacked.focus, attacked.confirmed) == ("whole", 1)
+        assert any(d.startswith("framework: the reference list cites a site") for d in attacked.dropped)
+        sent = r.red_team.calls[0][1]
+        assert isinstance(sent, DocumentAttack) and "<sections/01-tagging.md>" in sent.document
+        ruled = r.referee.calls[0][1]
+        assert isinstance(ruled, FindingRequest)
+        assert ruled.findings[0].evidence[0].quote == "The tagger reaches 99% accuracy"  # as the file has it
+
+    def test_the_whole_perspective_needs_a_red_team_model(self) -> None:
+        with pytest.raises(ValueError, match="whole"):
+            ReviewConfig(model="rev", referee="ref", perspectives=(Perspective.WHOLE,))
 
 
 class TestFailures:

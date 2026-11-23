@@ -214,6 +214,9 @@ class Perspective(StrEnum):
     CONSISTENCY = "consistency"  # two passages that disagree
     GENERAL = "general"  # one broad reviewer: the baseline the perspectives must beat
     CLAIMS = "claims"  # each cited statement checked against its source by a cheap model (teams/claims.py)
+    WHOLE = (
+        "whole"  # the document's red team: flaws only the whole shows, each quoted (evaluation/redteam.py)
+    )
 
 
 type Focus = AttackFocus | Perspective  # what a campaign attacks a part for
