@@ -42,7 +42,12 @@ class TestDocumentRedTeam:
             )
 
         request = DocumentAttack(
-            reader="an adult", brief="b", words=3000, sources=("a.txt",), document=DOCUMENT
+            today="2026-11-23",
+            reader="an adult",
+            brief="b",
+            words=3000,
+            sources=("a.txt",),
+            document=DOCUMENT,
         )
         report = await DocumentRedTeam(ScriptedWorker({Findings: attack})).attack(request)
         assert len(report.shown) == 3 and [f.evidence for f in report.unshown] == [

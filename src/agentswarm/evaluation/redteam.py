@@ -29,6 +29,7 @@ class FlawKind(StrEnum):
 class DocumentAttack(Frozen):
     """The payload the red team receives: what the document was asked to be, and the document."""
 
+    today: str  # the date (YYYY-MM-DD): a model that doesn't know it calls this year's sources "future"
     reader: str  # who it is for and what they know
     brief: str  # what it was asked to do and cover
     words: int  # its length cap
@@ -85,7 +86,9 @@ or incomplete; the same point, example or sentence repeated across sections), at
 document leaves out; a length far over the limit), at the references (a malformed entry: an author, date,
 title or venue that is wrong, missing or a leftover of a web page or file; a source listed twice), and at its
 claims (two statements that contradict each other; a number used inconsistently; the document going beyond
-its sources without saying so).
+its sources without saying so). A date up to today's, given in the data, is not in the future. The reference
+list's layout is the framework's on purpose (authors (year). title, link, site and kind, and for a paper the
+pages it is cited at): report a wrong entry in it, not the layout.
 
 Show every flaw: copy its evidence word for word from the document (a sentence, a table row or a reference
 line), so that it can be found by search; a flaw you cannot quote, don't report. Say in one sentence what is

@@ -309,6 +309,7 @@ class SampleData:
     @classmethod
     def attacked(cls) -> DocumentAttack:
         return DocumentAttack(
+            today="2026-11-23",
             reader="engineers with a background in HPC",
             brief="A tutorial on serving one mixture-of-experts model to many users ...",
             words=3000,

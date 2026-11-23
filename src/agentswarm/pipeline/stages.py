@@ -352,6 +352,7 @@ class RedTeamStage:
         if run.document is None or not run.document.is_file():
             raise ValueError(f"{run.request.name} has no document yet")
         request = DocumentAttack(
+            today=SystemClock().now().date().isoformat(),
             reader=run.request.reader,
             brief=policy.brief(run.request.topic, run.request.reader, run.request.goal, run.questions),
             words=run.request.words or policy.words,
