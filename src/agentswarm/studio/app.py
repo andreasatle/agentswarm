@@ -303,7 +303,10 @@ class Studio:
 
     def render(self, request: Request, template: str, status_code: int = 200, **context: Any) -> Response:
         """Every page gets the labels: the runs list shows a stage too, not only a run's own page."""
-        labels = {"stages": self.STAGES, "choices": self.CHOICES}
+        # the stylesheet's address changes with the file, so a browser never keeps an old copy (2026-11-23: a
+        # fixed layout still showed broken after a restart, from the browser's cache)
+        styles = int((self.HERE / "static" / "studio.css").stat().st_mtime)
+        labels = {"stages": self.STAGES, "choices": self.CHOICES, "styles": styles}
         return self._templates.TemplateResponse(request, template, labels | context, status_code=status_code)
 
     def missing(self, request: Request, name: str) -> Response:
