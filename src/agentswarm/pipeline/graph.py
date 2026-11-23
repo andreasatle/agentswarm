@@ -222,17 +222,20 @@ class DocumentPipeline:
             Question(
                 title=self.SCOPE_QUESTION,
                 details=f"The document will answer these questions, for {run.request.reader}:\n\n{listed}\n\n"
-                "Untick any to leave out, then approve; if they miss what you meant, stop and start again in "
-                "other words.",
+                "Untick any to leave out, add your own, then approve; if they miss what you meant, stop and "
+                "start again in other words.",
                 choices=(Choice.YES, Choice.STOP),
                 items=run.questions,
             )
         )
         update = self.answered(run, answer)
-        if answer.choice is Choice.YES and answer.drop:
+        if answer.choice is Choice.YES and (answer.drop or answer.add):
             kept = tuple(q for n, q in enumerate(run.questions, 1) if n not in answer.drop)
-            update["questions"] = kept
-            update["notes"] = (*update["notes"], f"questions left out: {len(run.questions) - len(kept)}")
+            added = tuple(" ".join(q.split()) for q in answer.add if q.strip())
+            update["questions"] = (*kept, *added)
+            notes = [f"questions left out: {len(run.questions) - len(kept)}"] if answer.drop else []
+            notes += [f"your questions added: {len(added)}"] if added else []
+            update["notes"] = (*update["notes"], *notes)
         return update
 
     def approve_sources(self, run: DocumentRun) -> Update:
@@ -400,13 +403,19 @@ class DocumentPipeline:
             raise ValueError(f"{name} can't take {answer.choice} now: {', '.join(question.choices)}")
         if answer.choice is Choice.BUDGET and answer.budget is None:
             raise ValueError("raising the budget needs the new total")
+        if answer.add and not question.items:
+            raise ValueError(f"{name} isn't asking for questions now")
         if answer.drop:
             if not question.items:
                 raise ValueError(f"{name} has nothing to leave out now")
             wrong = [n for n in answer.drop if not 1 <= n <= len(question.items)]
             if wrong:
                 raise ValueError(f"no question numbered {wrong[0]}: they run from 1 to {len(question.items)}")
-            if answer.choice is Choice.YES and len(set(answer.drop)) == len(question.items):
+            if (
+                answer.choice is Choice.YES
+                and len(set(answer.drop)) == len(question.items)
+                and not answer.add
+            ):
                 raise ValueError("leaving out every question leaves nothing to write: stop the run instead")
         run = self.run(name)
         sourcing = question.title == self.SOURCES_QUESTION
@@ -496,7 +505,9 @@ class DocumentPipeline:
                 "answer: uv run agentswarm approve " + name + " --choice " + "|".join(question.choices)
             )
             if question.items:
-                lines.append("  (with --choice yes, --drop N [N ...] leaves those questions out)")
+                lines.append(
+                    '  (with --choice yes: --drop N [N ...] leaves those out, --add "..." adds your own)'
+                )
         return "\n".join(lines)
 
     def line(self, name: str) -> str:

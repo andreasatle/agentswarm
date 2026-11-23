@@ -105,12 +105,18 @@ class TestStudio:
         page = f.client.get("/runs/sleep-and-memory").text
         assert "Approve the questions" in page and page.count('type="checkbox" name="keep"') == 3
         assert "What does a nap do?" in page and "Add papers" not in page
+        assert 'name="own"' in page
         reply = f.client.post(
-            "/runs/sleep-and-memory/answer", data={"choice": "yes", "ticks": "3", "keep": ["1", "3"]}
+            "/runs/sleep-and-memory/answer",
+            data={"choice": "yes", "ticks": "3", "keep": ["1", "3"], "own": "Why do we dream?\n\n"},
         )
         assert "Approve the sources" in reply.text
         run = f.pipeline.run("sleep-and-memory")
-        assert run.questions == ("How does sleep consolidate memory?", "Who studied it first?")
+        assert run.questions == (
+            "How does sleep consolidate memory?",
+            "Who studied it first?",
+            "Why do we dream?",
+        )
 
     def test_unticking_every_question_is_refused(self, tmp_path: Path) -> None:
         f = Fixture(tmp_path)

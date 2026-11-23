@@ -106,6 +106,8 @@ summary { cursor: pointer; font-weight: 600; color: var(--muted); margin-bottom:
 .questions { display: flex; flex-direction: column; gap: 8px; }
 .tick { display: flex; gap: 10px; align-items: flex-start; line-height: 1.45; cursor: pointer; }
 .tick input { margin-top: 4px; flex: none; }
+.own { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.own textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
 .drop { margin-top: 16px; }
 .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .drop label { display: flex; flex-direction: column; gap: 2px; padding: 16px 18px; border: 1.5px dashed var(--line); border-radius: 10px; cursor: pointer; background: var(--soft); transition: border-color .12s, background .12s; }

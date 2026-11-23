@@ -191,6 +191,15 @@ class TestDocumentPipeline:
             runs.answer("sleep", Answer(choice=Choice.YES, drop=(1,)))
         assert run.stage is Stage.SOURCES
 
+    def test_the_users_own_questions_are_added_to_those_kept(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger)
+        runs.start(request(), tmp_path)
+        run = runs.answer("sleep", Answer(choice=Choice.YES, drop=(1, 2, 3), add=("  Why do  we dream? ",)))
+        assert run.questions == ("Why do we dream?",) and "your questions added: 1" in run.notes
+        with pytest.raises(ValueError, match="isn't asking for questions"):
+            runs.answer("sleep", Answer(choice=Choice.YES, add=("Another?",)))
+
     def test_stopping_at_the_questions_spends_nothing_on_the_search(self, tmp_path: Path) -> None:
         ledger = Ledger()
         sources = FakeSources(ledger)

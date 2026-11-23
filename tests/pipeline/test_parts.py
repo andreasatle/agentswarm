@@ -146,7 +146,7 @@ class TestDocumentCommands:
         )
         assert "WAITING: Approve the questions" in shown[-1] and "--drop" in shown[-1]
         assert cli.dispatch(["approve", "sleep-and-memory", "--drop", "9"]) == 2  # there are three
-        assert cli.dispatch(["approve", "sleep-and-memory", "--drop", "3"]) == 0
+        assert cli.dispatch(["approve", "sleep-and-memory", "--drop", "3", "--add", "Why do we dream?"]) == 0
         assert (
             "WAITING: Approve the sources" in shown[-1]
             and "uv run agentswarm approve sleep-and-memory" in shown[-1]

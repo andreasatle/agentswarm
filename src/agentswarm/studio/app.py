@@ -195,13 +195,17 @@ class Studio:
         budget: Annotated[str, Form()] = "",
         keep: Annotated[list[int] | None, Form()] = None,
         ticks: Annotated[int, Form()] = 0,
+        own: Annotated[str, Form()] = "",
     ) -> Response:
         try:
             # a form with tick boxes says how many it showed; the unticked ones are left out
             kept = set(keep or ())
             drop = tuple(n for n in range(1, ticks + 1) if n not in kept)
             given = Answer(
-                choice=Choice(choice), budget=float(budget) if self.number(budget) else None, drop=drop
+                choice=Choice(choice),
+                budget=float(budget) if self.number(budget) else None,
+                drop=drop,
+                add=tuple(line.strip() for line in own.splitlines() if line.strip()),
             )
             self._pipeline.check(name, given)
             label = self.label(self._pipeline.view(name), given)

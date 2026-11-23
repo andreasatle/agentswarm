@@ -593,7 +593,10 @@ class Cli:
             return 2
         runs = self.documents()
         try:
-            runs.answer(args.name, Answer(choice=choice, budget=args.budget, drop=tuple(args.drop)))
+            runs.answer(
+                args.name,
+                Answer(choice=choice, budget=args.budget, drop=tuple(args.drop), add=tuple(args.add)),
+            )
         except ValueError as error:
             self._show(str(error))
             runs.close()
@@ -1134,6 +1137,9 @@ class Cli:
         approve.add_argument("--budget", type=float, help="with --choice budget: the new total")
         approve.add_argument(
             "--drop", type=int, nargs="+", default=[], help="at the questions: the numbers to leave out"
+        )
+        approve.add_argument(
+            "--add", action="append", default=[], help="at the questions: one of your own (repeatable)"
         )
         red = commands.add_parser("red-team", help="attack a finished run's document and show its flaws")
         red.add_argument("name")

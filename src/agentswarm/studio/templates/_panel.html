@@ -40,11 +40,13 @@
       <h2>{{ view.question.title }}</h2>
       {% if view.question.items %}
       <form id="scope" method="post" action="/runs/{{ name }}/answer" class="questions">
-        <p>The document will answer these questions. Untick any to leave out; if they miss what you meant, stop and start again in other words.</p>
+        <p>The document will answer these questions. Untick any to leave out, add your own; if they miss what you meant, stop and start again in other words.</p>
         <input type="hidden" name="ticks" value="{{ view.question.items|length }}">
         {% for item in view.question.items %}
         <label class="tick"><input type="checkbox" name="keep" value="{{ loop.index }}" checked> {{ item }}</label>
         {% endfor %}
+        <label class="own"><span>Your own questions, one per line (optional)</span>
+          <textarea name="own" rows="3" placeholder="How does this change with FP8 weights?"></textarea></label>
       </form>
       {% else %}
       <div class="prose">{{ view.question.details|prose }}</div>

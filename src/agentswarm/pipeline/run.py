@@ -94,6 +94,7 @@ class Answer(Frozen):
     choice: Choice
     budget: float | None = None  # with Choice.BUDGET: the new total
     drop: tuple[int, ...] = ()  # with Choice.YES at the scope: the questions left out, by number
+    add: tuple[str, ...] = ()  # with Choice.YES at the scope: the user's own questions, one each
 
 
 class DocumentRun(BaseModel):
