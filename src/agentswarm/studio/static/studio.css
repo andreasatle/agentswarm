@@ -105,7 +105,7 @@ summary { cursor: pointer; font-weight: 600; color: var(--muted); margin-bottom:
 /* the drop zone */
 .questions { display: flex; flex-direction: column; gap: 8px; }
 .tick { display: flex; gap: 10px; align-items: flex-start; line-height: 1.45; cursor: pointer; }
-.tick input { margin-top: 4px; flex: none; }
+.tick input { margin-top: 4px; flex: none; width: auto; padding: 0; }
 .own { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .own textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
 .drop { margin-top: 16px; }
