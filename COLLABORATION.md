@@ -29,6 +29,7 @@ Kept current: a goal is added when the user states one, changed when they change
 13. **Run without Claude in the loop (the user, 2026-10-19):** "I'm a bit uncomfortable that you make all the decisions about what to run." The decisions about what runs belong in the framework, automated, with a few approvals for the user along the way (topic, reader and budget; the sources; publishing), not in Claude's judgement during a chat (BACKLOG.md).
 14. **Research from the open web (the user, 2026-10-19):** documents from heterogeneous web sources, not only papers and Wikipedia (the Venice guide); "a big project, but important" (BACKLOG.md).
 15. **Lean code (the user, 2026-11-12):** no code that is implemented but unused. Every new piece names the decision it is for and when that is due; if it hasn't served by then, it is removed (the record in git history and the design doc is enough).
+16. **Work set off by change, not pipelines (the user, 2026-11-23):** "this is the way I want it to work, otherwise we are just making pipelines again." A change (a new source, the user's instruction, a finding) is an event on the board; the work that depends on it is redone and nothing else, like `make` rebuilding only what a changed input touches. The user's pauses stay, as events rather than steps. Today's document pipeline is the baseline the reactive version must match at equal cost or beat; each event has a budget, and work stops when nothing changes (BACKLOG.md).
 
 ## Claude pushes back, by asking
 
