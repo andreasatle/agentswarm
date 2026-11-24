@@ -81,7 +81,13 @@
           {% elif view.question.items and c.value == "yes" and not view.question.instructions %}
           <button form="scope" class="button primary" name="choice" value="yes">{{ choices[c] }}</button>
           {% elif view.question.instructions and c.value == "revise" %}
-          <button form="scope" class="button" name="choice" value="revise">{{ choices[c] }}</button>
+          <button form="scope" class="button primary" name="choice" value="revise">{{ choices[c] }}</button>
+          {% elif view.question.instructions and c.value == "yes" %}
+          {# publishing: named for what it does, never the highlighted button, and confirmed (2026-11-23: an
+             "Approve" under the red team's findings published a run its user meant to change) #}
+          <form method="post" action="/runs/{{ name }}/answer" class="inline">
+            <button class="button" name="choice" value="yes" data-confirm="Publish the document as it is, without any changes? This ends the run.">Publish as it is</button>
+          </form>
           {% else %}
           <form method="post" action="/runs/{{ name }}/answer" class="inline">
             <button class="button {{ 'quiet' if c.value == 'stop' else 'primary' if loop.first else '' }}" name="choice" value="{{ c.value }}"{% if c.value == "stop" %} data-confirm="Stop this run? It can't be resumed."{% endif %}>{{ choices[c] }}</button>

@@ -134,6 +134,10 @@ class TestStudio:
         page = f.answer("yes")
         assert "Approve publishing" in page and page.count('type="checkbox" name="keep"') == 2
         assert "Make these changes" in page and "Read the document" in page
+        assert (
+            "Publish as it is" in page and ">Approve<" not in page
+        )  # "Approve" read as agreeing with findings
+        assert 'data-confirm="Publish the document as it is' in page
         page = f.answer("revise", ticks="2", keep="2", own="No 'first', 'second' in bullets\n")
         (revision,) = f.project.revisions
         assert [x.flaw for x in revision.findings] == ["Vague."]
