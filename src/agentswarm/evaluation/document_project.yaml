@@ -1,4 +1,4 @@
-# A document from your own files: {goal}
+# A document from your own files: {heading}
 # Made by `agentswarm import-docs`. Run it (the brief comes first; the project pauses for you to read it):
 #   uv run agentswarm run {config} --root {root}
 #   ... read and edit levels/reviewed/docs/brief.md under the root, then:
@@ -7,8 +7,7 @@
 # The finished document is in levels/reviewed/sections/ under the root.
 project: {project}
 domain: document
-north_star: >-
-  {north_star}
+north_star: {north_star}  # quoted: a goal of several lines stays one string
 seed: seed
 levels: [draft, reviewed]
 sandbox: {{kind: docker, image: "agentswarm/sandbox-python:3.13"}}
@@ -39,8 +38,7 @@ teams:
 gates:
   - {{from: draft, to: reviewed, hard_checks: [check_doc]}}
 brief:
-  goal: >-
-    {goal}
+  goal: {goal}
   model: planner
   words: {words}
   approve: {approve}

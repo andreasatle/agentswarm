@@ -61,6 +61,15 @@ class TestDocumentImport:
         summary = DocumentImport([tmp_path / "a.txt"], tmp_path / "out", "A summary.").write()
         assert [p.parent.name for p in summary.projects] == ["document"]
 
+    def test_a_goal_of_several_lines_with_quotes_and_bullets_loads_back_as_written(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "a.txt").write_text("text\n")
+        goal = 'A tutorial on "memory": no fluff.\n\nIt must answer:\n- Where does memory go?\n- # of bits: 4'
+        (project,) = DocumentImport([tmp_path / "a.txt"], tmp_path / "out", goal).write().projects
+        config = ProjectConfig.load(project)  # the approved questions broke the file's YAML (2026-11-23)
+        assert config.brief is not None and config.brief.goal == goal and config.north_star == goal
+
     def test_a_paper_the_user_added_from_arxiv_joins_the_list_with_its_record(self, tmp_path: Path) -> None:
         class Arxiv:
             def __init__(self) -> None:

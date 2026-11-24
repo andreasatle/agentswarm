@@ -287,8 +287,9 @@ review:
             config = folder / "project.yaml"
             config.write_text(
                 self.PROJECT.read_text().format(
-                    goal=goal,
-                    north_star=goal,
+                    heading=goal.splitlines()[0],
+                    goal=json.dumps(goal),  # a JSON string is a YAML string: any text, its lines included
+                    north_star=json.dumps(goal),
                     config=config,
                     root=Path("~/agentswarm-runs") / f"docs-{folder.name}",
                     project=self._project or f"docs-{folder.name}",
