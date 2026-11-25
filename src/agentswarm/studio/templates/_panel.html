@@ -70,7 +70,7 @@
         <p><b>The files the writers will read ({{ sources|length }})</b></p>
         <ul class="files">
           {% for f in sources %}
-          <li><code>{{ f }}</code>
+          <li><span>{% if titles.get(f) %}<b>{{ titles[f] }}</b><br>{% endif %}<code>{{ f }}</code></span>
             <form method="post" action="/runs/{{ name }}/sources/remove" class="inline"><input type="hidden" name="file" value="{{ f }}"><button class="button small quiet">Remove</button></form></li>
           {% endfor %}
         </ul>
@@ -78,7 +78,7 @@
         <p><b>Removed by you ({{ removed|length }})</b></p>
         <ul class="files">
           {% for f in removed %}
-          <li><code>{{ f }}</code>
+          <li><span>{% if titles.get(f) %}<b>{{ titles[f] }}</b><br>{% endif %}<code>{{ f }}</code></span>
             <form method="post" action="/runs/{{ name }}/sources/restore" class="inline"><input type="hidden" name="file" value="{{ f }}"><button class="button small">Put back</button></form></li>
           {% endfor %}
         </ul>

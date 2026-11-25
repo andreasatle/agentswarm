@@ -201,6 +201,7 @@ class TestStudio:
         (sources / "b-paper.txt").write_text("Another paper.")
         page = f.client.get("/runs/sleep-and-memory").text
         assert "The files the writers will read (2)" in page and "a-paper.txt" in page
+        assert "Add or remove sources below" in page and "swap files in" not in page
         page = f.client.post("/runs/sleep-and-memory/sources/remove", data={"file": "a-paper.txt"}).text
         assert "removed a-paper.txt" in page and "Removed by you (1)" in page and "Put back" in page
         assert not (sources / "a-paper.txt").exists()

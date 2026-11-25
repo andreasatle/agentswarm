@@ -334,6 +334,7 @@ class Studio:
             if sourcing and view
             else [],
             "removed": self._pipeline.removed_sources(name) if sourcing else [],
+            "titles": self._pipeline.source_titles(name) if sourcing else {},
             "share": self.share(view),
             "timeline": self._pipeline.timeline(name) if view is not None and not busy else None,
         }

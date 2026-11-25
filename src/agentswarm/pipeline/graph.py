@@ -329,7 +329,7 @@ class DocumentPipeline:
         answer = self.ask(
             Question(
                 title=self.SOURCES_QUESTION,
-                details=f"{run.listing}\nAdd, remove or swap files in {run.sources}, then approve. "
+                details=f"{run.listing}\nAdd or remove sources below, then approve. "
                 f"Spent so far ${spent:.2f} of ${run.request.budget:.2f}; the rest is expected to cost "
                 f"about ${rest:.2f}.",
                 choices=(Choice.YES, Choice.STOP),
@@ -622,6 +622,13 @@ class DocumentPipeline:
         listed = ReadingFolder.load(run.sources)
         if listed is not None:
             listed.marked(file, removed=False).save(run.sources)
+
+    def source_titles(self, name: str) -> dict[str, str]:
+        """Each file's title from the reading list, shown beside its name: an arXiv number says nothing."""
+        listed = ReadingFolder.load(self.run(name).sources)
+        if listed is None:
+            return {}
+        return {f.file or f.removed or "": f.paper.title for f in listed.papers if f.file or f.removed}
 
     def removed_sources(self, name: str) -> list[str]:
         aside = self.run(name).folder / self.REMOVED
