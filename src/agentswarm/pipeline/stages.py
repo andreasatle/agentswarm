@@ -20,7 +20,7 @@ from agentswarm.core.domain import ArtifactId, Resolution, Usage
 from agentswarm.evaluation.citations import CitationAudit, Support
 from agentswarm.evaluation.documents import DocumentAssembly, DocumentImport, SourceText
 from agentswarm.evaluation.papers import Found, OpenAlexSearch, PaperFinder, WebPage
-from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, RedTeamReport
+from agentswarm.evaluation.redteam import DocumentAttack, DocumentRedTeam, RedTeamReport, SourceCheck
 from agentswarm.llm.models import ChatModels
 from agentswarm.llm.workers import LangChainWorkers, Worker
 from agentswarm.pipeline.page import PageRenderer
@@ -236,7 +236,19 @@ class ProjectStage:
         return path
 
     def attack(self, run: DocumentRun, policy: Policy) -> RedTeamReport:
-        return RedTeamStage().attack(run, policy)
+        """The red team's look, its findings that a statement is false checked against the statement's source
+        by the audit's referee (SourceCheck): only those the source doesn't support are shown."""
+        report = RedTeamStage().attack(run, policy)
+        if not any(f.fact for f in report.shown):
+            return report
+        config = ProjectConfig.load(run.project / "project.yaml")
+        project = Project.open(config, run.board, ProjectServices(teams=self._catalog))
+        try:
+            referee = config.review.referee if config.review is not None else "referee"
+            audit = CitationAudit(self.level(run, config), project.worker(referee, self.AUDIT))
+            return asyncio.run(SourceCheck(audit).check(report))
+        finally:
+            project.close()
 
     def revise(self, run: DocumentRun, policy: Policy, budget_left: float, revision: Revision) -> Written:
         """The user's changes as revision tasks, one a section, made by the writers on the same board; the

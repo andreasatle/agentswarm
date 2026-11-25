@@ -2705,7 +2705,7 @@ Flaws whose quote isn't in the document are dropped. It judges form and clarity 
 
 ### DocumentRedTeam
 
-`agentswarm.evaluation.redteam.DocumentRedTeam` Version `137dd585acc6`.
+`agentswarm.evaluation.redteam.DocumentRedTeam` Version `db89335a2733`.
 
 ```text
 You are the red team for a document that other models wrote from the sources listed, for the reader
@@ -2782,6 +2782,11 @@ class Finding(Frozen):
         description="revise (the writers can fix it in the text), framework (it comes from how the document "
         "was assembled, such as the reference list or the layout, and would recur in every document), or note"
     )
+    fact: bool = Field(
+        default=False,
+        description="true when the flaw is that the quoted statement is false or isn't what its source says; "
+        "such a finding is checked against the source the statement cites before anyone sees it",
+    )
 ```
 
 <details><summary>JSON schema</summary>
@@ -2816,6 +2821,12 @@ class Finding(Frozen):
         "kind": {
           "$ref": "#/$defs/FlawKind",
           "description": "revise (the writers can fix it in the text), framework (it comes from how the document was assembled, such as the reference list or the layout, and would recur in every document), or note"
+        },
+        "fact": {
+          "default": false,
+          "description": "true when the flaw is that the quoted statement is false or isn't what its source says; such a finding is checked against the source the statement cites before anyone sees it",
+          "title": "Fact",
+          "type": "boolean"
         }
       },
       "required": [

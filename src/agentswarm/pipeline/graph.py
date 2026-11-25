@@ -277,7 +277,8 @@ class DocumentPipeline:
             "flaws": report.shown,
             "notes": (
                 *run.notes,
-                f"red team: {len(report.shown)} flaws shown, {len(report.unshown)} dropped",
+                f"red team: {len(report.shown)} flaws shown, {len(report.unshown)} dropped"
+                + (f", {len(report.refuted)} refuted by the cited source" if report.refuted else ""),
             ),
         }
 

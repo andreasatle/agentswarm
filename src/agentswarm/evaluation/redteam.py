@@ -13,6 +13,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agentswarm.evaluation.citations import CitationAudit, Support
 from agentswarm.llm.workers import Worker
 
 
@@ -51,6 +52,11 @@ class Finding(Frozen):
         description="revise (the writers can fix it in the text), framework (it comes from how the document "
         "was assembled, such as the reference list or the layout, and would recur in every document), or note"
     )
+    fact: bool = Field(
+        default=False,
+        description="true when the flaw is that the quoted statement is false or isn't what its source says; "
+        "such a finding is checked against the source the statement cites before anyone sees it",
+    )
 
 
 class Findings(Frozen):
@@ -59,13 +65,22 @@ class Findings(Frozen):
     findings: list[Finding]
 
 
+class Refuted(Frozen):
+    """A finding that a statement is false, which the statement's own source contradicts."""
+
+    finding: Finding
+    reason: str  # the referee's reading of the source, quoting it
+
+
 class RedTeamReport(Frozen):
     shown: tuple[Finding, ...]  # quoted from the document
     unshown: tuple[Finding, ...]  # their quote isn't in the document: dropped, kept here to be counted
+    refuted: tuple[Refuted, ...] = ()  # the cited source supports the statement: dropped, kept to be counted
 
     def render(self) -> str:
         lines = [
             f"{len(self.shown)} flaws shown, {len(self.unshown)} dropped (their quote isn't in the document)"
+            + (f", {len(self.refuted)} refuted by the cited source" if self.refuted else "")
         ]
         for n, f in enumerate(self.shown, 1):
             lines += [
@@ -117,6 +132,49 @@ real flaws, not preferences of style; when you find none, say so with an empty l
         parts = [cls.flat(p) for p in re.split(r"\s*(?:\.\.\.|…)\s*", evidence)]
         parts = [p.strip("\"' ") for p in parts if len(p.strip("\"' ")) >= 12]
         return bool(parts) and all(p in flat for p in parts)
+
+
+class SourceCheck:
+    """A finding that a statement is false is checked against the source the statement cites, by the citation
+    audit's referee, and dropped when the source supports the statement. The red team sees the document, not
+    its sources, and every such finding checked by hand in two runs was wrong: the source said what the
+    document said (2026-11-25: an agreement of 85%, a monotonicity measured in training, a model's name)."""
+
+    MARKERS: ClassVar[re.Pattern[str]] = re.compile(r" ?\[\^\d+\]| ?\[@[^\]]*\]")
+    SHORTEST: ClassVar[int] = 30  # characters of a quote needed to find its statement
+
+    def __init__(self, audit: CitationAudit) -> None:
+        self._audit = audit
+
+    @classmethod
+    def plain(cls, text: str) -> str:
+        return DocumentRedTeam.flat(cls.MARKERS.sub("", text))
+
+    def statement(self, evidence: str) -> tuple[str, str] | None:
+        """The cited statement (its section's file, its line) a quote of the document comes from."""
+        parts = [self.plain(p) for p in re.split(r"\s*(?:\.\.\.|…)\s*", evidence)]
+        part = max(parts, key=len, default="").strip(".\"' ")
+        if len(part) < self.SHORTEST:
+            return None
+        for file, line in self._audit.statements():
+            if part in self.plain(line):
+                return file, line
+        return None
+
+    async def check(self, report: RedTeamReport) -> RedTeamReport:
+        shown: list[Finding] = []
+        refuted: list[Refuted] = []
+        for finding in report.shown:
+            found = self.statement(finding.evidence) if finding.fact else None
+            if found is None:  # not a fact, or no cited statement to check it by: shown as it is
+                shown.append(finding)
+                continue
+            (ruling,) = await self._audit.audit([found])
+            if ruling.support is Support.SUPPORTED:
+                refuted.append(Refuted(finding=finding, reason=ruling.reason))
+            else:
+                shown.append(finding)
+        return report.model_copy(update={"shown": tuple(shown), "refuted": (*report.refuted, *refuted)})
 
 
 class ReferenceCheck:

@@ -1,12 +1,17 @@
+from pathlib import Path
+
 from pydantic import BaseModel
 
+from agentswarm.evaluation.citations import CitationAnswer, CitationAudit, CitationRequest, Support
 from agentswarm.evaluation.redteam import (
     DocumentAttack,
     DocumentRedTeam,
     Finding,
     Findings,
     FlawKind,
+    RedTeamReport,
     ReferenceCheck,
+    SourceCheck,
 )
 from agentswarm.llm.workers import Toolbox
 from tests.support.fakes import ScriptedWorker
@@ -75,3 +80,54 @@ class TestReferenceCheck:
             "[^3] GitHub - lm-sys/RouteLLM: A framework: its author is the site github.com; no date; "
             "its title has a page's leftovers or is cut short",
         )
+
+
+class TestSourceCheck:
+    @staticmethod
+    def level(tmp_path: Path) -> Path:
+        (tmp_path / "sections").mkdir()
+        (tmp_path / "sources").mkdir()
+        (tmp_path / "sections" / "01-agreement.md").write_text(
+            "## Agreement\n\nGPT-4 with single-answer grading reached 85% agreement with humans in S2 "
+            "[@zheng-p002, page 7].\nThe judge disagrees in 8% of cases [@zheng-p002, page 8].\n"
+        )
+        (tmp_path / "sources" / "zheng-p002.md").write_text("[page 7]\nG4-Single 85% in S2.\n[page 8]\nNo.\n")
+        return tmp_path
+
+    async def test_a_fact_finding_the_cited_source_contradicts_is_dropped_and_counted(
+        self, tmp_path: Path
+    ) -> None:
+        def rule(payload: BaseModel, toolbox: Toolbox | None) -> BaseModel:
+            assert isinstance(payload, CitationRequest)
+            supported = "85%" in payload.statement
+            return CitationAnswer(
+                reason='"G4-Single 85% in S2"' if supported else "the page says no such thing",
+                support=Support.SUPPORTED if supported else Support.UNSUPPORTED,
+            )
+
+        audit = CitationAudit(self.level(tmp_path), ScriptedWorker({CitationAnswer: rule}))
+        wrong = finding("GPT-4 with single-answer grading reached 85% agreement with humans in S2[^5].")
+        right = finding("The judge disagrees in 8% of cases[^5].")
+        style = finding("this section asks how memory is kept")  # not a fact: shown without a check
+        report = RedTeamReport(
+            shown=(
+                wrong.model_copy(update={"fact": True}),
+                right.model_copy(update={"fact": True}),
+                style,
+            ),
+            unshown=(),
+        )
+        checked = await SourceCheck(audit).check(report)
+        assert [f.evidence for f in checked.shown] == [right.evidence, style.evidence]
+        (refuted,) = checked.refuted
+        assert refuted.finding.evidence == wrong.evidence and "85%" in refuted.reason
+        assert "1 refuted by the cited source" in checked.render()
+
+    def test_a_quote_finds_its_statement_without_the_markers_and_a_short_one_finds_none(
+        self, tmp_path: Path
+    ) -> None:
+        audit = CitationAudit(self.level(tmp_path), ScriptedWorker({}))
+        check = SourceCheck(audit)
+        found = check.statement("single-answer grading reached 85% agreement with humans in S2[^5].")
+        assert found is not None and found[0] == "01-agreement.md"
+        assert check.statement("85% agreement") is None  # too short to tell statements apart

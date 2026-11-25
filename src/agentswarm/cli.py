@@ -78,7 +78,7 @@ from agentswarm.monitor.report import HardeningSummary, Report, RunVerdict
 from agentswarm.pipeline.graph import DocumentPipeline
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, Choice, RunRequest
-from agentswarm.pipeline.stages import MeteredFinder, RedTeamStage, Stages
+from agentswarm.pipeline.stages import MeteredFinder, Stages
 from agentswarm.project import Project, ProjectServices
 from agentswarm.prompts import PromptCatalogue
 from agentswarm.retrieval.passages import Chunker, PassageIndex
@@ -575,7 +575,7 @@ class Cli:
         runs = self.documents()
         try:
             run = runs.run(args.name)
-            report = RedTeamStage().attack(run, runs.policy(run))
+            report = Stages.real().checking.attack(run, runs.policy(run))  # its fact findings source-checked
         except ValueError as error:
             self._show(str(error))
             return 2
