@@ -3353,7 +3353,7 @@ class Candidate(Frozen):
             return Reference(
                 document=document,
                 authors=self.listed()
-                if self.authors and self.authors != (self.site,)
+                if self.people() and self.people() != [self.site]
                 else self.organisation or self.site,
                 title=self.title,
                 year=str(self.year) if self.year else "n.d.",  # a page with no date says so
@@ -3361,7 +3361,7 @@ class Candidate(Frozen):
                 short=self.web_short(self.site, self.title),
                 url=self.page,
             )
-        surnames = [self.surname(a) for a in self.authors] or ["Anonymous"]
+        surnames = [self.surname(a) for a in self.people()] or ["Anonymous"]
         authors = self.listed()
         if len(surnames) == 1:
             short = f"{surnames[0]}, {self.year}"
@@ -3381,8 +3381,20 @@ class Candidate(Frozen):
 
     def listed(self) -> str:
         """The authors as a bibliography lists them: "Assran, M., Duval, Q., ..., et al." after ten."""
-        listed = ", ".join(self.initialled(a) for a in self.authors[: self.LISTED])
-        return listed + (", et al." if len(self.authors) > self.LISTED else "")
+        people = self.people()
+        listed = ", ".join(self.initialled(a) for a in people[: self.LISTED])
+        return listed + (", et al." if len(people) > self.LISTED else "")
+
+    def people(self) -> list[str]:
+        """The authors one name each: a web page may give them all as one ("Ryan Bogan, Martin Gaievski,
+        Minal Shah, Fanit Kolchina", cited as "Kolchina, R. B. M. G. M. S. F.", retrieval-done-well,
+        2026-11-25). Split only where every part is a whole name, so "Bogan, Ryan" stays one."""
+        people: list[str] = []
+        for author in self.authors:
+            parts = [p.strip() for p in re.split(r",|\s+and\s+|\s*&\s*", author) if p.strip()]
+            whole = len(parts) > 1 and all(len(p.split()) >= 2 for p in parts)
+            people.extend(parts if whole else [author])
+        return people
 
     SHORT_WORDS: ClassVar[int] = 4  # words of a web page's title in its in-text citation
     LABEL_WORDS: ClassVar[int] = 4  # words of a site's label after a title: " - Informatics Homepages Server"
@@ -3446,12 +3458,17 @@ class Candidate(Frozen):
     def surname(cls, author: str) -> str:
         return cls.split(author)[1]
 
+    # the last word of a body's name, not a person's: "SurfSense Team" isn't "Team, S." (2026-11-25)
+    BODIES: ClassVar[frozenset[str]] = frozenset(
+        {"team", "group", "lab", "labs", "staff", "editors", "contributors", "inc.", "inc", "ltd"}
+    )
+
     @classmethod
     def initialled(cls, author: str) -> str:
         """ "Daya Guo" as "Guo, D."; a single name (an organisation, "DeepSeek-AI") or a group ("The SGLang
         Team") as it is."""
         names = cls.names(author)
-        if len(names) < 2 or names[0].lower() == "the":
+        if len(names) < 2 or names[0].lower() == "the" or names[-1].lower() in cls.BODIES:
             return author
         given, surname = cls.split(author)
         return f"{surname}, " + " ".join(f"{n[0]}." for n in given)
