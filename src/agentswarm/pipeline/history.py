@@ -72,7 +72,14 @@ class RunFiles:
     """The files a run's steps make, saved at each moment and put back when the user continues from one.
     Everything else in the run's folder (the user's own notes, uploads) is left alone."""
 
-    KEPT: ClassVar[tuple[str, ...]] = ("sources", "project", "board", "page.html", "document.md")
+    KEPT: ClassVar[tuple[str, ...]] = (
+        "sources",
+        "removed-sources",
+        "project",
+        "board",
+        "page.html",
+        "document.md",
+    )
     FOLDER: ClassVar[str] = "history"
 
     def __init__(self, folder: Path) -> None:

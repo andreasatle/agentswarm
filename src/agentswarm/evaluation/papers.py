@@ -1045,6 +1045,7 @@ class Found(Frozen):
     why: str
     covers: str = ""  # the thread of the request it was picked for
     file: str | None  # its file in the folder; None: not there yet (the download failed)
+    removed: str | None = None  # the file the user removed it as, at the sources pause (put back by name)
 
 
 class SourceExcerpt(Frozen):
@@ -1178,6 +1179,18 @@ class ReadingFolder(Frozen):
         papers = tuple(f.model_copy(update={"file": held.get(f.paper.id)}) for f in self.papers)
         return self.model_copy(update={"papers": papers})
 
+    def marked(self, file: str, removed: bool) -> "ReadingFolder":
+        """The paper held by the file marked removed by the user, or put back: listed as removed, not as one
+        to download by hand."""
+        papers: list[Found] = []
+        for f in self.papers:
+            if removed and f.file == file:
+                f = f.model_copy(update={"file": None, "removed": file})
+            elif not removed and f.removed == file:
+                f = f.model_copy(update={"file": file, "removed": None})
+            papers.append(f)
+        return self.model_copy(update={"papers": tuple(papers)})
+
     @staticmethod
     def letters(text: str) -> str:
         """Lower-case letters and digits only: a title broken over lines or hyphenated still matches."""
@@ -1189,6 +1202,8 @@ class ReadingFolder(Frozen):
             authors = ", ".join(f.paper.authors[:3]) + (" et al." if len(f.paper.authors) > 3 else "")
             where = f.paper.venue or f.paper.id
             state = f"`{f.file}`" if f.file is not None else "**not here yet**"
+            if f.removed is not None:
+                state = "**removed by you**"
             standing = f" ({f.paper.standing})" if f.paper.standing else ""
             year = f.paper.year or "n.d."  # a page with no date
             lines.append(f"{n}. **{f.paper.title}** ({authors}, {year}), {where}{standing}: {state}.")
@@ -1205,7 +1220,7 @@ class ReadingFolder(Frozen):
             uncovered = [t for t in self.threads if all(f.covers != t for f in self.papers)]
         if uncovered:
             lines += ["", "**Threads no source covers:** " + "; ".join(uncovered)]
-        missing = [f for f in self.papers if f.file is None]
+        missing = [f for f in self.papers if f.file is None and f.removed is None]
         if missing:
             lines += [
                 "",

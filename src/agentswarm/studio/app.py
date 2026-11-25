@@ -17,6 +17,7 @@ from markupsafe import Markup
 from pydantic import ValidationError
 
 from agentswarm.core.config import ProjectConfig
+from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.evaluation.papers import PaperSource
 from agentswarm.monitor.boards import Boards, Watched
 from agentswarm.monitor.state import Summary
@@ -101,6 +102,8 @@ class Studio:
         app.add_api_route("/runs/{name}/panel", self.panel, methods=["GET"], **page)
         app.add_api_route("/runs/{name}/answer", self.answer, methods=["POST"], **page)
         app.add_api_route("/runs/{name}/files", self.files, methods=["POST"], **page)
+        app.add_api_route("/runs/{name}/sources/remove", self.remove, methods=["POST"], **page)
+        app.add_api_route("/runs/{name}/sources/restore", self.restore, methods=["POST"], **page)
         app.add_api_route("/runs/{name}/document", self.document, methods=["GET"], **page)
         app.add_api_route("/runs/{name}/moments/{moment}/document", self.earlier, methods=["GET"], **page)
         app.add_api_route("/runs/{name}/moments/{moment}/continue", self.resume, methods=["POST"], **page)
@@ -228,6 +231,23 @@ class Studio:
             self._notices[name] = f"added {', '.join(kept)}" if kept else "no file was chosen"
         return RedirectResponse(f"/runs/{name}", status_code=303)
 
+    def remove(self, name: str, file: Annotated[str, Form()]) -> Response:
+        """A source taken out of the run at its sources pause, kept aside to be put back."""
+        try:
+            self._pipeline.remove_source(name, file)
+            self._notices[name] = f"removed {file}: the writers won't read it (put it back below)"
+        except ValueError as error:
+            self._notices[name] = self.problem(error)
+        return RedirectResponse(f"/runs/{name}", status_code=303)
+
+    def restore(self, name: str, file: Annotated[str, Form()]) -> Response:
+        try:
+            self._pipeline.restore_source(name, file)
+            self._notices[name] = f"put back {file}"
+        except ValueError as error:
+            self._notices[name] = self.problem(error)
+        return RedirectResponse(f"/runs/{name}", status_code=303)
+
     def document(self, request: Request, name: str) -> Response:
         run = self._pipeline.run(name)
         if run.document is None or not run.document.is_file():
@@ -297,6 +317,7 @@ class Studio:
         error = self._worker.error(name)
         if view is not None and view.failure is not None:
             error = view.failure
+        sourcing = view is not None and view.run.stage is Stage.SOURCES and view.question is not None
         board = None
         if view is not None:
             board = self.boards.read(Names.project(view.run), lambda m: m.summary())
@@ -308,7 +329,11 @@ class Studio:
             "board": board,
             "status": self.status(view, busy, error),
             "notice": self._notices.pop(name, None),
-            "sourcing": view is not None and view.run.stage is Stage.SOURCES and view.question is not None,
+            "sourcing": sourcing,
+            "sources": [p.name for p in DocumentImport.files([view.run.sources])]
+            if sourcing and view
+            else [],
+            "removed": self._pipeline.removed_sources(name) if sourcing else [],
             "share": self.share(view),
             "timeline": self._pipeline.timeline(name) if view is not None and not busy else None,
         }

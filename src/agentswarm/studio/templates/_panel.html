@@ -66,6 +66,24 @@
       <div class="prose">{{ view.question.details|prose }}</div>
       {% endif %}
       {% if sourcing %}
+      <div class="sources">
+        <p><b>The files the writers will read ({{ sources|length }})</b></p>
+        <ul class="files">
+          {% for f in sources %}
+          <li><code>{{ f }}</code>
+            <form method="post" action="/runs/{{ name }}/sources/remove" class="inline"><input type="hidden" name="file" value="{{ f }}"><button class="button small quiet">Remove</button></form></li>
+          {% endfor %}
+        </ul>
+        {% if removed %}
+        <p><b>Removed by you ({{ removed|length }})</b></p>
+        <ul class="files">
+          {% for f in removed %}
+          <li><code>{{ f }}</code>
+            <form method="post" action="/runs/{{ name }}/sources/restore" class="inline"><input type="hidden" name="file" value="{{ f }}"><button class="button small">Put back</button></form></li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
       <form class="drop" method="post" action="/runs/{{ name }}/files" enctype="multipart/form-data">
         <input id="drop-input" type="file" name="files" multiple accept=".pdf,.docx,.html,.htm,.txt,.md">
         <label for="drop-input"><b>Add papers you fetched by hand</b><span>Drop files here or choose them. They keep their names and are matched to the list by their title or DOI.</span></label>

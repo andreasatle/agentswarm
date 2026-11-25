@@ -266,6 +266,13 @@ class TestPaperFinder:
 
 
 class TestReadingFolder:
+    def test_a_paper_removed_by_the_user_is_listed_as_removed_not_as_one_to_download(self) -> None:
+        paper = Candidate(id="W1", title="A paper", authors=("A. Author",), year=2024, abstract="")
+        folder = ReadingFolder(topic="t", papers=(Found(paper=paper, why="", file="a.pdf"),))
+        removed = folder.marked("a.pdf", removed=True)
+        assert "**removed by you**" in removed.render() and "Download these by hand" not in removed.render()
+        assert removed.marked("a.pdf", removed=False) == folder
+
     def test_a_paper_fetched_by_hand_is_known_by_its_doi_or_most_of_its_title(self) -> None:
         rem = paper("W1", "REM Sleep, Prefrontal Theta, and the Consolidation of Human Emotional Memory")
         rem = rem.model_copy(update={"page": "https://doi.org/10.1093/cercor/bhn155"})

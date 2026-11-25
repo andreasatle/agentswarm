@@ -26,6 +26,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from agentswarm.evaluation.documents import DocumentImport
+from agentswarm.evaluation.papers import ReadingFolder
 from agentswarm.evaluation.redteam import Finding, FlawKind, ReferenceCheck
 from agentswarm.llm.workers import WorkerError
 from agentswarm.pipeline.history import Checkpoint, History, Moment, RunFiles, Timeline
@@ -584,6 +585,47 @@ class DocumentPipeline:
         finally:
             self.keep(name)
         return self.run(name)
+
+    # The sources at their pause: removed and put back in the studio, never by hand in the folder (the user,
+    # 2026-11-25: "All interactions should be on the studio. I don't want any side-effects by magic")
+
+    REMOVED: ClassVar[str] = "removed-sources"  # beside sources/, where a removed file waits to be put back
+
+    def sourcing(self, name: str, file: str, folder: Path) -> Path:
+        """The file, when the run waits at its sources and the name is one of the folder's documents."""
+        if self.running(name):
+            raise ValueError(f"{name} is running a step now")
+        question = self.waiting(name)
+        if question is None or question.title != self.SOURCES_QUESTION:
+            raise ValueError("sources can be removed or put back only while the run waits for its sources")
+        path = folder / file
+        if file != Path(file).name or file.startswith(".") or not path.is_file():
+            raise ValueError(f"no file {file!r} there")
+        if file in (ReadingFolder.LISTING, ReadingFolder.RECORDS):
+            raise ValueError(f"{file} is the reading list, not a source")
+        return path
+
+    def remove_source(self, name: str, file: str) -> None:
+        run = self.run(name)
+        path = self.sourcing(name, file, run.sources)
+        aside = run.folder / self.REMOVED
+        aside.mkdir(exist_ok=True)
+        path.replace(aside / file)
+        listed = ReadingFolder.load(run.sources)
+        if listed is not None:
+            listed.marked(file, removed=True).save(run.sources)
+
+    def restore_source(self, name: str, file: str) -> None:
+        run = self.run(name)
+        path = self.sourcing(name, file, run.folder / self.REMOVED)
+        path.replace(run.sources / file)
+        listed = ReadingFolder.load(run.sources)
+        if listed is not None:
+            listed.marked(file, removed=False).save(run.sources)
+
+    def removed_sources(self, name: str) -> list[str]:
+        aside = self.run(name).folder / self.REMOVED
+        return sorted(p.name for p in aside.iterdir() if p.is_file()) if aside.is_dir() else []
 
     # The history: every pause reached, read and continued from (history.py)
 

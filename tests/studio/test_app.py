@@ -192,6 +192,27 @@ class TestStudio:
         assert "added bhn155.pdf" in page
         assert (f.runs / "sleep-and-memory" / "sources" / "bhn155.pdf").read_bytes() == b"%PDF-1.4"
 
+    def test_a_source_is_removed_and_put_back_in_the_studio_and_the_list_says_so(
+        self, tmp_path: Path
+    ) -> None:
+        f = Fixture(tmp_path, HostileSources(Ledger()))
+        f.start()
+        sources = f.runs / "sleep-and-memory" / "sources"
+        (sources / "b-paper.txt").write_text("Another paper.")
+        page = f.client.get("/runs/sleep-and-memory").text
+        assert "The files the writers will read (2)" in page and "a-paper.txt" in page
+        page = f.client.post("/runs/sleep-and-memory/sources/remove", data={"file": "a-paper.txt"}).text
+        assert "removed a-paper.txt" in page and "Removed by you (1)" in page and "Put back" in page
+        assert not (sources / "a-paper.txt").exists()
+        assert "can be removed" not in page
+        page = f.client.post("/runs/sleep-and-memory/sources/remove", data={"file": "../project.yaml"}).text
+        assert "no file" in page
+        page = f.client.post("/runs/sleep-and-memory/sources/restore", data={"file": "a-paper.txt"}).text
+        assert "put back a-paper.txt" in page and (sources / "a-paper.txt").is_file()
+        f.answer("yes")
+        page = f.client.post("/runs/sleep-and-memory/sources/remove", data={"file": "a-paper.txt"}).text
+        assert "only while the run waits for its sources" in page
+
     def test_an_answer_the_run_cant_take_is_explained_and_nothing_runs(self, tmp_path: Path) -> None:
         f = Fixture(tmp_path)
         f.start()
