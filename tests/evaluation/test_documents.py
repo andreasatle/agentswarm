@@ -208,6 +208,11 @@ class TestDocumentAssembly:
         assert DocumentAssembly.owner("bricken-2023-towards-monoseman-01", [reference]) == reference
         assert DocumentAssembly.owner("bricken-2024-other-01", [reference]) is None
 
+    def test_the_reference_naming_the_part_as_it_is_wins_over_one_that_matches_only_tidied(self) -> None:
+        record = Reference(document="splunk-com-chunking-t", authors="B", title="T", year="2026", short="B")
+        drafted = record.model_copy(update={"document": "splunk-com-chunking_t", "year": ""})
+        assert DocumentAssembly.owner("splunk-com-chunking-t", [drafted, record]) == record
+
     def test_sections_in_order_under_the_briefs_title_with_the_sources_cited(self, tmp_path: Path) -> None:
         level = tmp_path / "level"
         (level / "sections").mkdir(parents=True)

@@ -406,13 +406,18 @@ without its extension. The sources are the only source of facts.
         """References that came with the sources (an arXiv record, from `find-papers`)."""
         return tuple(Reference.model_validate(r) for r in json.loads(text)) if text.strip() else ()
 
-    @staticmethod
-    def merged(drafted: Sequence[Reference], given: Sequence[Reference]) -> tuple[Reference, ...]:
+    @classmethod
+    def merged(cls, drafted: Sequence[Reference], given: Sequence[Reference]) -> tuple[Reference, ...]:
         """A given reference replaces the drafted one for its document: a record beats a model's reading of
         a title page (the PDF of DeepSeek-R1's second version is dated 2026, the paper 2025)."""
-        known = {r.document: r for r in given}
-        kept = [known.pop(r.document, r) for r in drafted]
+        # matched by the name tidied: a model may write "chunking_t" for "chunking-t" (2026-11-25)
+        known = {cls.tidied(r.document): r for r in given}
+        kept = [known.pop(cls.tidied(r.document), r) for r in drafted]
         return tuple(kept + list(known.values()))
+
+    @staticmethod
+    def tidied(document: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", document.lower()).strip("-")
 
     @classmethod
     def summary(cls, name: str, text: str) -> SourceSummary:

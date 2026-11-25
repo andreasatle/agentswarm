@@ -177,6 +177,9 @@ class TestBriefer:
         )
         assert [(r.document, r.year) for r in merged] == [("r1", "2025"), ("q3", "2024"), ("new", "2020")]
         assert Briefer.given("") == ()
+        # a model's slip in the name ("_" for "-") still gives way to the record
+        typo = Briefer.merged([ref("splunk-com-chunking_t", "")], [ref("splunk-com-chunking-t", "2026")])
+        assert [(r.document, r.year) for r in typo] == [("splunk-com-chunking-t", "2026")]
 
     def test_a_documents_first_part_shows_its_title_page(self) -> None:
         text = "# Paper, pages 1-12\n\n" + " ".join(f"w{n}" for n in range(400))

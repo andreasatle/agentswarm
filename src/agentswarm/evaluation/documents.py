@@ -402,9 +402,13 @@ class DocumentAssembly:
         name the document by its whole file name, where the parts carry it cut to SourceText.NAME characters
         (2026-10-19: 32 citations of bricken-2023-towards-monosemanticity were left unrendered)."""
         owners = [
-            r
+            (len(name), name == r.document, r)
             for r in references
             for name in {r.document, SourceText.slug(r.document, SourceText.NAME)}
             if part == name or part.startswith(f"{name}-")
         ]
-        return max(owners, key=lambda r: len(r.document), default=None)
+        # the longest name; at equal length, the reference that names the document as it is over one that
+        # matches only once tidied (the briefer's "splunk-com-advanced-chunking_t" took the record's place,
+        # and cited the page with no year or link, 2026-11-25)
+        best = max(owners, key=lambda o: (o[0], o[1]), default=None)
+        return best[2] if best is not None else None

@@ -489,6 +489,20 @@ class TestWebPage:
         assert Candidate.initialled("The SGLang Team") == "The SGLang Team"  # a group, not "Team, T. S."
         assert Candidate.initialled("Leonardo de Moura") == "de Moura, L."  # not "Moura, L. d."
         assert Candidate.surname("Leonardo de Moura") == "de Moura"
+        assert Candidate.initialled("SurfSense Team") == "SurfSense Team"  # a body, not "Team, S."
+
+    def test_authors_given_as_one_string_are_listed_one_each(self) -> None:
+        page = Candidate(
+            id="web:x",
+            title="Introducing reciprocal rank fusion",
+            authors=("Ryan Bogan, Martin Gaievski, Minal Shah, Fanit Kolchina",),
+            year=2025,
+            abstract="",
+            site="opensearch.org",
+        )
+        assert page.reference("x").authors == "Bogan, R., Gaievski, M., Shah, M., Kolchina, F."
+        surname_first = page.model_copy(update={"authors": ("Bogan, Ryan",), "site": ""})
+        assert surname_first.people() == ["Bogan, Ryan"]  # one name, surname first: not split
         assert (
             Candidate.web_title(
                 "MoE-Inference-Bench: Performance Evaluation | Proceedings of the SC '25 Workshops of SC"
