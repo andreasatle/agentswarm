@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 import unicodedata
 import urllib.parse
@@ -1113,8 +1114,17 @@ class ReadingFolder(Frozen):
         return cls.model_validate_json(path.read_text()) if path.is_file() else None
 
     def save(self, folder: Path) -> None:
-        (folder / self.RECORDS).write_text(self.model_dump_json(indent=1) + "\n")
-        (folder / self.LISTING).write_text(self.render())
+        self.whole(folder / self.RECORDS, self.model_dump_json(indent=1) + "\n")
+        self.whole(folder / self.LISTING, self.render())
+
+    @staticmethod
+    def whole(path: Path, text: str) -> None:
+        """Written beside and swapped in, so a reader sees the old file or the new one, never an empty one:
+        the studio refreshes the list on every page, and one request read it while another rewrote it
+        (2026-11-25: "Invalid JSON: EOF while parsing")."""
+        partial = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.partial")
+        partial.write_text(text)
+        os.replace(partial, path)
 
     def match(self, name: str, text: str) -> Found | None:
         """The paper a file holds: by its name; else by its DOI or its title on the first page; else by most
