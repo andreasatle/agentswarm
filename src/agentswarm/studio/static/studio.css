@@ -181,3 +181,5 @@ summary { cursor: pointer; font-weight: 600; color: var(--muted); margin-bottom:
 .moment .when { font-size: 12.5px; margin-left: 6px; }
 .moment-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .button.small { padding: 4px 10px; font-size: 12.5px; }
+.drop.sending label { cursor: progress; border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+.drop.sending label b { display: inline-flex; align-items: center; gap: 8px; }

@@ -60,12 +60,24 @@ function slug(input) {
 
 function drop(form) {
   const input = form.querySelector("input[type=file]");
-  input.addEventListener("change", () => input.files.length && form.submit());
-  ["dragenter", "dragover"].forEach((type) => form.addEventListener(type, (event) => { event.preventDefault(); form.classList.add("over"); }));
+  // sending: the files go up and each arXiv paper's record is looked up, which takes a while; the box says
+  // so and takes no more files (2026-11-25: with nothing shown, the papers were dropped two or three times)
+  const send = () => {
+    if (form.classList.contains("sending")) return;
+    const count = input.files.length;
+    form.classList.add("sending");
+    form.querySelector("label").innerHTML =
+      `<b><span class="spinner" aria-hidden="true"></span> Adding ${count} file${count === 1 ? "" : "s"}…</b>` +
+      "<span>Uploading, then looking up each arXiv paper's record. This can take a minute; the page reloads when it is done.</span>";
+    form.submit();
+  };
+  input.addEventListener("change", () => input.files.length && send());
+  ["dragenter", "dragover"].forEach((type) => form.addEventListener(type, (event) => { event.preventDefault(); if (!form.classList.contains("sending")) form.classList.add("over"); }));
   ["dragleave", "drop"].forEach((type) => form.addEventListener(type, () => form.classList.remove("over")));
   form.addEventListener("drop", (event) => {
     event.preventDefault();
-    if (event.dataTransfer.files.length) { input.files = event.dataTransfer.files; form.submit(); }
+    if (form.classList.contains("sending")) return;
+    if (event.dataTransfer.files.length) { input.files = event.dataTransfer.files; send(); }
   });
 }
 

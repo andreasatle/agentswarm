@@ -336,7 +336,8 @@ class Studio:
         # the stylesheet's address changes with the file, so a browser never keeps an old copy (2026-11-23: a
         # fixed layout still showed broken after a restart, from the browser's cache)
         styles = int((self.HERE / "static" / "studio.css").stat().st_mtime)
-        labels = {"stages": self.STAGES, "choices": self.CHOICES, "styles": styles}
+        scripts = int((self.HERE / "static" / "studio.js").stat().st_mtime)  # the same for the script
+        labels = {"stages": self.STAGES, "choices": self.CHOICES, "styles": styles, "scripts": scripts}
         return self._templates.TemplateResponse(request, template, labels | context, status_code=status_code)
 
     def missing(self, request: Request, name: str) -> Response:
