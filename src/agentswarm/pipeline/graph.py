@@ -49,7 +49,9 @@ type Update = dict[str, Any]
 
 
 class DocumentPipeline:
-    THREADS = "SELECT DISTINCT thread_id FROM checkpoints ORDER BY thread_id"
+    # oldest first by the run's latest step (checkpoint ids grow with time); the studio lists the newest first
+    # (by name, a run started today sat far down the list, 2026-11-25)
+    THREADS = "SELECT thread_id FROM checkpoints GROUP BY thread_id ORDER BY MAX(checkpoint_id)"
     SOURCES_QUESTION = "Approve the sources"
     SCOPE_QUESTION = "Approve the questions"
     PUBLISHING_QUESTION = "Approve publishing"

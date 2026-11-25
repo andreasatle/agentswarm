@@ -47,6 +47,18 @@
         "cd /Users/andreasatle/Projects/AgenticFramework && exec bash scripts/web-app.sh"
       ],
       "port": 8000
+    },
+    {
+      "name": "studio-check",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "agentswarm",
+        "studio",
+        "--port",
+        "8771"
+      ],
+      "port": 8771
     }
   ]
 }

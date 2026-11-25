@@ -46,15 +46,20 @@ class Boards:
 
     def read[T](self, project: str, view: Callable[[MonitorState], T]) -> T | None:
         watched = self._projects().get(project)
-        if watched is None or not watched.board.is_file():
+        return self.opened(watched, view) if watched is not None else None
+
+    @staticmethod
+    def opened[T](watched: Watched, view: Callable[[MonitorState], T]) -> T | None:
+        if not watched.board.is_file():
             return None
         with SqliteEventLog(watched.board, ProjectId(watched.config.project), SystemClock()) as log:
             return view(MonitorState(watched.config, log))
 
     def summaries(self) -> Summaries:
+        """The projects asked for once, not once more for each (2026-11-25: the list was slow)."""
         rows: list[Summary] = []
         for name, watched in self._projects().items():
-            summary = self.read(name, lambda m: m.summary())
+            summary = self.opened(watched, lambda m: m.summary())
             rows.append(summary or Summary(project=name, north_star=watched.config.north_star, started=False))
         return Summaries(tuple(rows))
 

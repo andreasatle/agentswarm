@@ -30,6 +30,25 @@ from agentswarm.pipeline.stages import Names, PageStage
 from agentswarm.studio.worker import Worker
 
 
+class ConfigFiles:
+    """Project configurations read once and again only when their file changes (by its modification time)."""
+
+    def __init__(self) -> None:
+        self._read: dict[Path, tuple[float, ProjectConfig]] = {}
+
+    def load(self, path: Path) -> ProjectConfig | None:
+        """The configuration, or None when there is no such file (yet)."""
+        try:
+            changed = path.stat().st_mtime
+        except FileNotFoundError:
+            return None
+        kept = self._read.get(path)
+        if kept is None or kept[0] != changed:
+            kept = (changed, ProjectConfig.load(path))
+            self._read[path] = kept
+        return kept[1]
+
+
 class Studio:
     HOST: ClassVar[str] = "127.0.0.1"  # this Mac only: there is no login (the user, 2026-11-01)
     PORT: ClassVar[int] = 8770
@@ -75,6 +94,8 @@ class Studio:
         self._projects = dict(projects or {})
         self._renderer = renderer or PageRenderer()
         self._notices: dict[str, str] = {}  # a run's message for the next time its page is shown
+        self._folders: dict[str, Path] = {}  # a run's folder, which never changes
+        self._configs = ConfigFiles()
         self.boards = Boards(self.watched)
         self._templates = Jinja2Templates(directory=self.HERE / "templates")
         self._templates.env.filters["prose"] = self.prose
@@ -295,31 +316,39 @@ class Studio:
         return self.json(self.boards.detail(project, artifact))
 
     def watched(self) -> dict[str, Watched]:
-        """The boards shown: the projects given, and every document run's once it has a configuration."""
+        """The boards shown: the projects given, and every document run's once it has a configuration. Each
+        run's folder is looked up once and its configuration read again only when the file changes: every row
+        of the runs list asks for this, and reading every run's configuration for every row took 17 of the
+        list's 18 seconds with 41 runs (2026-11-25)."""
         boards = dict(self._projects)
         for name in self._pipeline.runs():
-            run = self._pipeline.run(name)
-            config = run.project / "project.yaml"
-            if config.is_file():
-                loaded = ProjectConfig.load(config)
-                boards[loaded.project] = Watched(config=loaded, board=run.board / "blackboard.sqlite")
+            if name not in self._folders:
+                self._folders[name] = self._pipeline.run(name).folder
+            folder = self._folders[name]
+            loaded = self._configs.load(folder / "project" / "project.yaml")
+            if loaded is not None:
+                boards[loaded.project] = Watched(config=loaded, board=folder / "board" / "blackboard.sqlite")
         return boards
 
     # Helpers
 
     def rows(self) -> list[dict[str, Any]]:
         names = self._pipeline.runs()
-        return [self.context(n) for n in reversed(names)]  # the newest first
+        return [self.context(n, row=True) for n in reversed(names)]  # the newest first
 
-    def context(self, name: str) -> dict[str, Any]:
+    def context(self, name: str, row: bool = False) -> dict[str, Any]:
+        """What a run's page shows; for a row of the runs list (`row`), only what a row shows: its board, its
+        history and its sources cost time on every row, and a row mustn't take the run page's notice."""
         busy = self._worker.busy(name)
         view = self._pipeline.view(name) if self._pipeline.exists(name) else None
         error = self._worker.error(name)
         if view is not None and view.failure is not None:
             error = view.failure
-        sourcing = view is not None and view.run.stage is Stage.SOURCES and view.question is not None
+        sourcing = (
+            not row and view is not None and view.run.stage is Stage.SOURCES and view.question is not None
+        )
         board = None
-        if view is not None:
+        if view is not None and not row:
             board = self.boards.read(Names.project(view.run), lambda m: m.summary())
         return {
             "name": name,
@@ -328,7 +357,7 @@ class Studio:
             "error": None if busy else error,
             "board": board,
             "status": self.status(view, busy, error),
-            "notice": self._notices.pop(name, None),
+            "notice": None if row else self._notices.pop(name, None),
             "sourcing": sourcing,
             "sources": [p.name for p in DocumentImport.files([view.run.sources])]
             if sourcing and view
@@ -336,7 +365,7 @@ class Studio:
             "removed": self._pipeline.removed_sources(name) if sourcing else [],
             "titles": self._pipeline.source_titles(name) if sourcing else {},
             "share": self.share(view),
-            "timeline": self._pipeline.timeline(name) if view is not None and not busy else None,
+            "timeline": self._pipeline.timeline(name) if view is not None and not busy and not row else None,
         }
 
     def form(self, request: Request, values: dict[str, str], error: str | None) -> Response:
@@ -388,7 +417,7 @@ class Studio:
         if answer.choice is Choice.STOP:
             return "stopping"
         if answer.choice is Choice.RETRY and view.failure is not None:
-            return f"retrying {view.failure.partition(':')[0]}"
+            return f"continuing from {view.failure.partition(':')[0]}"
         if view.run.stage is Stage.SCOPE:
             return "finding sources"
         if view.run.stage is Stage.SOURCES:

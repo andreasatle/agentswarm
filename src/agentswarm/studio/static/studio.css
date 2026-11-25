@@ -189,3 +189,9 @@ summary { cursor: pointer; font-weight: 600; color: var(--muted); margin-bottom:
 .files li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px 0; border-top: 1px solid var(--line); }
 .files li:first-child { border-top: none; }
 .files code { overflow-wrap: anywhere; font-size: 12.5px; }
+
+/* Waiting, always shown: a moving bar along the top and a note in the corner (studio.js, `waiting`) */
+body.loading { cursor: progress; }
+body.loading::before { content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 40%; background: var(--accent); z-index: 100; animation: loading-bar 1.1s ease-in-out infinite; }
+body.loading::after { content: "Loading…"; position: fixed; right: 16px; bottom: 16px; z-index: 100; padding: 8px 14px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); font-weight: 600; }
+@keyframes loading-bar { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }

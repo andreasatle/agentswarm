@@ -11,6 +11,7 @@ and reviews. There are no hidden questions here: the user is the judge.
 import json
 import re
 import subprocess
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 from typing import ClassVar
@@ -35,8 +36,27 @@ class SourceText:
     NAME: ClassVar[int] = 30  # characters of a file's name kept in its sources' names
     TIMEOUT_S = 120
 
+    # each file's text by its path, size and change time: the studio's sources page re-read every PDF on every
+    # view, about 2 seconds for 8 of them (2026-11-25: "it takes a long time from clicking")
+    _converted: ClassVar[dict[tuple[Path, int, int], str]] = {}
+    _converting: ClassVar[threading.Lock] = threading.Lock()
+
     @classmethod
     def read(cls, path: Path) -> str:
+        """The text, converted once per version of the file."""
+        stat = path.stat()
+        key = (path.resolve(), stat.st_size, stat.st_mtime_ns)
+        with cls._converting:
+            known = cls._converted.get(key)
+        if known is not None:
+            return known
+        text = cls.convert(path)
+        with cls._converting:
+            cls._converted[key] = text
+        return text
+
+    @classmethod
+    def convert(cls, path: Path) -> str:
         suffix = path.suffix.lower()
         if suffix in cls.PLAIN:
             return path.read_text(errors="replace")

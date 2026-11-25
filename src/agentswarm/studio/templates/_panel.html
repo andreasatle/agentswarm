@@ -29,9 +29,9 @@
     <section class="card now error">
       <h2>Stopped by an error</h2>
       <pre class="error-text">{{ error[:1200] }}</pre>
-      <p>Nothing is lost: the run is kept, and trying again starts from the step that failed.</p>
+      <p>Nothing is lost. Continue picks up where the run stopped: everything the teams finished stays on the board, and only the step that was cut off{% if view and view.failure %} ({{ view.failure.partition(":")[0] }}){% endif %} is done again.</p>
       <form method="post" action="/runs/{{ name }}/answer" class="actions">
-        <button class="button primary" name="choice" value="retry">Try again</button>
+        <button class="button primary" name="choice" value="retry">Continue</button>
       </form>
     </section>
     {% elif view and view.question %}

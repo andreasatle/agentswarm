@@ -189,6 +189,9 @@ class TestDocumentPipeline:
         run = runs.answer("sleep", Answer(choice=Choice.YES))
         assert run.stage is Stage.PUBLISHED and run.page == tmp_path / "page.html"
         assert runs.waiting("sleep") is None and runs.runs() == ["sleep"]
+        later = RunRequest(name="awake", topic="awake", reader="r", budget=3.0)
+        runs.start(later, tmp_path / "awake")  # by its latest step, not by name: "awake" is newer
+        assert runs.runs() == ["sleep", "awake"]
 
     def test_the_questions_are_approved_before_anything_is_searched_and_bind_the_search(
         self, tmp_path: Path

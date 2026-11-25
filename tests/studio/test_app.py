@@ -206,8 +206,11 @@ class TestStudio:
         assert "removed a-paper.txt" in page and "Removed by you (1)" in page and "Put back" in page
         assert not (sources / "a-paper.txt").exists()
         assert "can be removed" not in page
-        page = f.client.post("/runs/sleep-and-memory/sources/remove", data={"file": "../project.yaml"}).text
-        assert "no file" in page
+        reply = f.client.post(
+            "/runs/sleep-and-memory/sources/remove", data={"file": "../project.yaml"}, follow_redirects=False
+        )
+        f.client.get("/")  # the runs list doesn't take the run page's notice
+        assert "no file" in f.client.get(reply.headers["location"]).text
         page = f.client.post("/runs/sleep-and-memory/sources/restore", data={"file": "a-paper.txt"}).text
         assert "put back a-paper.txt" in page and (sources / "a-paper.txt").is_file()
         f.answer("yes")
@@ -226,7 +229,8 @@ class TestStudio:
         f = Fixture(tmp_path, FlakySources(Ledger()))
         f.start()
         page = f.client.get("/runs/sleep-and-memory").text
-        assert "Stopped by an error" in page and "503" in page and 'value="retry"' in page
+        assert "Stopped by an error" in page and "503" in page and 'value="retry">Continue<' in page
+        assert "only the step that was cut off (find) is done again" in page
         assert "Approve the sources" in f.answer("retry")
 
     def test_html_in_a_found_title_is_shown_as_text(self, tmp_path: Path) -> None:
