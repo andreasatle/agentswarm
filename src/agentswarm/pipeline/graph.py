@@ -760,10 +760,15 @@ class DocumentPipeline:
         return bool(self._graph.get_state(self.config(name)).values)
 
     def runs(self) -> list[str]:
+        """Under the checkpointer's own lock: the studio's requests share one connection, and this query run
+        beside one of LangGraph's read a row as None (2026-11-25: the studio's index failed with "no run
+        named None" while a run's panel refreshed)."""
         try:
-            return [row[0] for row in self._db.execute(self.THREADS).fetchall()]
+            with self._saver.lock:
+                rows = self._db.execute(self.THREADS).fetchall()
         except sqlite3.OperationalError:  # no run yet: the table doesn't exist
             return []
+        return [str(row[0]) for row in rows if row[0] is not None]
 
     def close(self) -> None:
         self._db.close()
