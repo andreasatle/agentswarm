@@ -26,3 +26,13 @@ Written 2026-11-01. The user wants to run document runs without Claude and witho
 - **`monitor/server.py` became `monitor/boards.py`:** the same reads, without Python's own HTTP server; the board page links the studio's stylesheet and its runs. Port 8770 for both commands now (the board was on 8765).
 - **One step at a time per run** (`ThreadWorker`); a run answered from the command line while the studio shows it is seen on the next refresh, but the studio can't tell it is busy.
 - **Checked in a browser** (2026-11-01): the runs list, a run waiting for publishing (the real sleep run, read only), the document, the board, the new-run form with its live plan, light and dark, phone width, and a stand-in run whose page followed its 6-second step and switched to the question by itself.
+
+## The run's history (2026-11-25)
+
+The user (2026-11-24): "go back and forth ... add a reference and rerun from there ... easy to navigate"; folders were one possible look, not a requirement, and branching chats are hard to follow.
+
+- **A History card on the run's page:** every pause on the way to where the run is now, in one straight line, each with what was decided there (the questions, the sources, the citations' share) and what the user answered; **Read** shows the document as it was then, **Continue from here** goes back to that pause. The other versions are one line each below it, by where they ended, never drawn as a tree.
+- **Continuing starts a new version and keeps the old:** LangGraph forks the run's checkpoints (the pause is asked again as a new checkpoint after the old one), and the run's files (`sources/`, `project/`, `board/`, the page) are put back as that pause left them. Every version's moments stay readable, and any pause of any version can be continued from.
+- **Files are copied at every pause** into `history/<checkpoint>/` in the run's folder (`pipeline/history.py`, `RunFiles`): about 17 MB a moment for the memory run, mostly its sources; plain copies, since SQLite files and reading lists are rewritten in place and a hard link would change with them. Before the run leaves a version, its current files are saved too. The user's own files in the run's folder (notes, uploads) are never touched.
+- **Everything after the pause is redone**, at its cost: the first step toward goal 16, not yet redoing only what the change touches. The spend shown stays the run's total over every version.
+- **Runs from before this have no files for their earlier moments:** shown, without buttons, and said so.

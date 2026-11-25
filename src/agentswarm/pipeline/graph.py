@@ -16,6 +16,7 @@ stage that wouldn't fit pauses the run for the user to raise the budget or stop.
 import sqlite3
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -27,6 +28,7 @@ from langgraph.types import Command, interrupt
 from agentswarm.evaluation.documents import DocumentImport
 from agentswarm.evaluation.redteam import Finding, FlawKind, ReferenceCheck
 from agentswarm.llm.workers import WorkerError
+from agentswarm.pipeline.history import Checkpoint, History, Moment, RunFiles, Timeline
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import (
     Answer,
@@ -503,8 +505,11 @@ class DocumentPipeline:
     def start(self, request: RunRequest, folder: Path) -> DocumentRun:
         if self.exists(request.name):
             raise ValueError(f"a run named {request.name!r} exists already: `agentswarm runs`")
-        with Working(folder):
-            self._graph.invoke(DocumentRun(request=request, folder=folder), self.config(request.name))
+        try:
+            with Working(folder):
+                self._graph.invoke(DocumentRun(request=request, folder=folder), self.config(request.name))
+        finally:
+            self.keep(request.name)
         return self.run(request.name)
 
     def check(self, name: str, answer: Answer) -> None:
@@ -570,11 +575,88 @@ class DocumentPipeline:
 
     def answer(self, name: str, answer: Answer) -> DocumentRun:
         self.check(name, answer)
-        with Working(self.run(name).folder):
-            if self.waiting(name) is None:  # a retry of the step that failed
-                self._graph.invoke(None, self.config(name))
-            else:
-                self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
+        try:
+            with Working(self.run(name).folder):
+                if self.waiting(name) is None:  # a retry of the step that failed
+                    self._graph.invoke(None, self.config(name))
+                else:
+                    self._graph.invoke(Command(resume=answer.model_dump(mode="json")), self.config(name))
+        finally:
+            self.keep(name)
+        return self.run(name)
+
+    # The history: every pause reached, read and continued from (history.py)
+
+    def keep(self, name: str) -> None:
+        """The run's files saved under the moment it stopped at: a pause, or its end."""
+        if not self.exists(name):
+            return
+        snapshot = self._graph.get_state(self.config(name))
+        if self.waiting(name) is not None or not snapshot.next:
+            RunFiles(self.run(name).folder).save(self.checkpoint(snapshot.config))
+
+    @staticmethod
+    def checkpoint(config: Any) -> str:
+        """A checkpoint's id, from the configuration LangGraph names it by."""
+        return str(config["configurable"]["checkpoint_id"])
+
+    def history(self, name: str) -> tuple[Moment, ...]:
+        """Every moment of every version, oldest first."""
+        return self.chronicle(name).moments()
+
+    def timeline(self, name: str) -> Timeline:
+        """The history as the user is shown it: the way here, and the other versions."""
+        return self.chronicle(name).timeline()
+
+    def chronicle(self, name: str) -> History:
+        run = self.run(name)
+        head = self.checkpoint(self._graph.get_state(self.config(name)).config)
+        checkpoints = [
+            Checkpoint(
+                id=self.checkpoint(s.config),
+                parent=self.checkpoint(s.parent_config) if s.parent_config else None,
+                when=datetime.fromisoformat(s.created_at or "1970-01-01T00:00:00+00:00"),
+                run=DocumentRun.model_validate(s.values) if s.values else None,
+                question=next(
+                    (Question.model_validate(i.value) for t in s.tasks for i in t.interrupts), None
+                ),
+                end=not s.next,
+            )
+            for s in self._graph.get_state_history(self.config(name))
+        ]
+        return History(checkpoints, head, RunFiles(run.folder))
+
+    def moment(self, name: str, moment: str) -> Moment:
+        for m in self.history(name):
+            if m.id == moment:
+                return m
+        raise ValueError(f"{name} has no moment {moment}")
+
+    def check_continue(self, name: str, moment: str) -> Moment:
+        """Raises ValueError, saying why, when the run can't continue from that moment now."""
+        if self.running(name):
+            raise ValueError(f"{name} is running a step now: continue from another moment once it ends")
+        chosen = self.moment(name, moment)
+        if not chosen.pause:
+            raise ValueError("the run ended there: continue from one of its pauses")
+        if not chosen.kept:
+            raise ValueError("that moment came before the history was kept: its files are gone, so it can't")
+        if chosen.current:
+            raise ValueError("the run is at that moment now")
+        return chosen
+
+    def continue_from(self, name: str, moment: str) -> DocumentRun:
+        """The run back at an earlier (or another version's) pause, its files as they were there: a new
+        version starts, and the one it leaves is kept, its files saved first."""
+        self.check_continue(name, moment)
+        folder = self.run(name).folder
+        files = RunFiles(folder)
+        files.save(self.checkpoint(self._graph.get_state(self.config(name)).config))
+        with Working(folder):
+            files.restore(moment)
+            config: Any = {"configurable": {"thread_id": name, "checkpoint_id": moment}}
+            self._graph.invoke(None, config)  # the pause asks again, as a new checkpoint after it
+        self.keep(name)
         return self.run(name)
 
     @staticmethod

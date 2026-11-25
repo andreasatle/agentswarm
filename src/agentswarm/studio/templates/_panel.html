@@ -111,6 +111,55 @@
     </section>
     {% endif %}
 
+    {% if timeline and timeline.path %}
+    {% macro actions(m) %}
+      {% if m.kept and m.run.document %}<a class="button small" href="/runs/{{ name }}/moments/{{ m.id }}/document" target="_blank" rel="noopener">Read</a>{% endif %}
+      {% if m.pause and m.kept and not m.current %}
+      <form method="post" action="/runs/{{ name }}/moments/{{ m.id }}/continue" class="inline">
+        <button class="button small" data-confirm="Continue from “{{ m.title }}”? The run goes back to that pause, its files as they were there. A new version starts; the one you are on now is kept, and you can come back to it.">Continue from here</button>
+      </form>
+      {% endif %}
+    {% endmacro %}
+    <section class="card history">
+      <h2>History{% if timeline.version > 1 %} <span class="muted">version {{ timeline.version }}</span>{% endif %}</h2>
+      <p class="hint">Every pause on the way here. Continue from one to change something there (add a paper at the sources, say): the steps after it are done again, and this version is kept.</p>
+      <ol class="moments">
+        {% for m in timeline.path %}
+        <li{% if m.current %} class="now"{% endif %}>
+          <div class="moment">
+            <div>
+              <b>{{ m.title }}</b>{% if m.current %} <span class="pill waiting">now</span>{% endif %}
+              <span class="muted when">{{ m.when.astimezone().strftime("%-d %b, %H:%M") }}</span>
+              <div class="muted">{{ m.facts }}{% if m.answered %}{{ " · " if m.facts }}you {{ m.answered }}{% endif %}</div>
+            </div>
+            <div class="moment-actions">{{ actions(m) }}</div>
+          </div>
+        </li>
+        {% endfor %}
+      </ol>
+      {% if timeline.path|rejectattr("kept")|list %}
+      <p class="hint">Moments without buttons came before the history kept each moment's files: they can't be read or continued from.</p>
+      {% endif %}
+      {% if timeline.others %}
+      <h3>Other versions</h3>
+      <ul class="moments others">
+        {% for m in timeline.others %}
+        <li>
+          <div class="moment">
+            <div>
+              <b>Version {{ m.version }}</b>: {{ m.title }}
+              <span class="muted when">{{ m.when.astimezone().strftime("%-d %b, %H:%M") }}</span>
+              <div class="muted">{{ m.facts }}</div>
+            </div>
+            <div class="moment-actions">{{ actions(m) }}</div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+    {% endif %}
+
     {% if view and view.run.notes %}
     <section class="card">
       <h2>What happened</h2>

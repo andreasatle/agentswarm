@@ -21,6 +21,7 @@ from agentswarm.evaluation.papers import PaperSource
 from agentswarm.monitor.boards import Boards, Watched
 from agentswarm.monitor.state import Summary
 from agentswarm.pipeline.graph import DocumentPipeline
+from agentswarm.pipeline.history import RunFiles
 from agentswarm.pipeline.page import PageRenderer
 from agentswarm.pipeline.policy import Policy
 from agentswarm.pipeline.run import Answer, Choice, RunRequest, RunView, Stage
@@ -101,6 +102,8 @@ class Studio:
         app.add_api_route("/runs/{name}/answer", self.answer, methods=["POST"], **page)
         app.add_api_route("/runs/{name}/files", self.files, methods=["POST"], **page)
         app.add_api_route("/runs/{name}/document", self.document, methods=["GET"], **page)
+        app.add_api_route("/runs/{name}/moments/{moment}/document", self.earlier, methods=["GET"], **page)
+        app.add_api_route("/runs/{name}/moments/{moment}/continue", self.resume, methods=["POST"], **page)
         app.add_api_route("/board", self.board, methods=["GET"], **page)
         app.add_api_route("/api/projects", self.projects, methods=["GET"], response_model=None)
         app.add_api_route("/api/projects/{project}/state", self.state, methods=["GET"], response_model=None)
@@ -231,6 +234,32 @@ class Studio:
             return self.missing(request, name)
         return HTMLResponse(self._renderer.render(run.document.read_text(), PageStage.note(run)))
 
+    def earlier(self, request: Request, name: str, moment: str) -> Response:
+        """The document as it was at a moment of the run's history, from the files kept there."""
+        try:
+            chosen = self._pipeline.moment(name, moment)
+        except ValueError:
+            return self.missing(request, name)
+        document = chosen.run.document
+        if document is None or not chosen.kept:
+            return self.missing(request, name)
+        path = RunFiles(chosen.run.folder).locate(moment, document)
+        if not path.is_file():
+            return self.missing(request, name)
+        return HTMLResponse(self._renderer.render(path.read_text(), PageStage.note(chosen.run)))
+
+    def resume(self, name: str, moment: str) -> Response:
+        """The run continued from a moment of its history: a new version starts there, the old one is kept."""
+        try:
+            if self._worker.busy(name) is not None:
+                raise ValueError(f"{name} is working now: continue from another moment once it is done")
+            chosen = self._pipeline.check_continue(name, moment)
+            self._worker.submit(name, "going back", lambda: self._pipeline.continue_from(name, moment))
+            self._notices[name] = f"continued from “{chosen.title}”: a new version starts here"
+        except ValueError as error:
+            self._notices[name] = self.problem(error)
+        return RedirectResponse(f"/runs/{name}", status_code=303)
+
     def board(self) -> Response:
         return HTMLResponse(self.boards.page())
 
@@ -281,6 +310,7 @@ class Studio:
             "notice": self._notices.pop(name, None),
             "sourcing": view is not None and view.run.stage is Stage.SOURCES and view.question is not None,
             "share": self.share(view),
+            "timeline": self._pipeline.timeline(name) if view is not None and not busy else None,
         }
 
     def form(self, request: Request, values: dict[str, str], error: str | None) -> Response:

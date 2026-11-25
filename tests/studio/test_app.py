@@ -144,6 +144,27 @@ class TestStudio:
         assert revision.instructions == ("No 'first', 'second' in bullets",)
         assert "Approve publishing" in page and "your rounds of changes: 1" in page
 
+    def test_the_history_reads_and_continues_from_an_earlier_pause(self, tmp_path: Path) -> None:
+        f = Fixture(tmp_path)
+        f.start(budget="9")
+        folder = f.runs / "sleep-and-memory"
+        (folder / "document.md").write_text("# Sleep\n\nThe first version.\n")
+        f.answer("yes")
+        page = f.answer("yes")
+        assert "History" in page and "Published" in page and "you approved" in page
+        sources = f.pipeline.history("sleep-and-memory")[1]
+        publishing = f.pipeline.history("sleep-and-memory")[2]
+        assert sources.title == "Approve the sources" and f"/moments/{sources.id}/continue" in page
+        reply = f.client.get(f"/runs/sleep-and-memory/moments/{publishing.id}/document")
+        assert "The first version." in reply.text
+        page = f.client.post(f"/runs/sleep-and-memory/moments/{sources.id}/continue").text
+        assert "a new version starts here" in page and "Approve the sources" in page
+        assert "Add papers" in page and "version 2" in page and "Other versions" in page
+        assert not (folder / "document.md").exists()  # the files as the sources pause left them
+        now = f.pipeline.history("sleep-and-memory")[-1]
+        assert now.current
+        assert "at that moment now" in f.client.post(f"/runs/sleep-and-memory/moments/{now.id}/continue").text
+
     def test_unticking_every_question_is_refused(self, tmp_path: Path) -> None:
         f = Fixture(tmp_path)
         f.start(questions=False)
