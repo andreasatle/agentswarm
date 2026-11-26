@@ -65,6 +65,12 @@ class TestDocumentRedTeam:
         assert not DocumentRedTeam.quoted("Section 5 asked what ... how dreams are kept", DOCUMENT)
         assert not DocumentRedTeam.quoted("Sleep", DOCUMENT)  # too short to show anything
 
+    def test_a_quote_of_the_finished_document_is_found_in_its_section_whatever_its_citations(self) -> None:
+        section = "Draft overhead matters: a larger drafter does not necessarily help [@2402-01528v4-p001]."
+        quote = "Draft overhead matters: a larger drafter does not necessarily help[^9]."
+        assert DocumentRedTeam.quoted(quote, section)
+        assert not DocumentRedTeam.quoted("a larger drafter always helps[^9].", section)
+
 
 class TestReferenceCheck:
     def test_a_site_as_author_no_date_and_a_pages_leftovers_are_flagged(self) -> None:

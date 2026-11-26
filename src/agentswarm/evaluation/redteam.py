@@ -125,11 +125,17 @@ real flaws, not preferences of style; when you find none, say so with an empty l
         """Whitespace collapsed and Markdown emphasis dropped: a quote needn't keep line breaks or stars."""
         return " ".join(re.sub(r"[*_`]", "", text).split())
 
+    # a citation as the finished document shows it ([^9]) or as a section holds it ([@2402-01528v4-p001])
+    MARKERS: ClassVar[re.Pattern[str]] = re.compile(r" ?\[\^\d+\]| ?\[@[^\]]*\]")
+
     @classmethod
     def quoted(cls, evidence: str, document: str) -> bool:
-        """Whether the evidence is in the document: whole, or each part an ellipsis in the quote joins."""
-        flat = cls.flat(document)
-        parts = [cls.flat(p) for p in re.split(r"\s*(?:\.\.\.|…)\s*", evidence)]
+        """Whether the evidence is in the document: whole, or each part an ellipsis in the quote joins. Its
+        citations are left out on both sides: the red team quotes the finished document, a revision looks the
+        quote up in the sections, and every quote with a citation in it went unplaced (speculative-decoding,
+        2026-11-26: "not made, no section holds it" for both findings the user kept)."""
+        flat = cls.flat(cls.MARKERS.sub("", document))
+        parts = [cls.flat(p) for p in re.split(r"\s*(?:\.\.\.|…)\s*", cls.MARKERS.sub("", evidence))]
         parts = [p.strip("\"' ") for p in parts if len(p.strip("\"' ")) >= 12]
         return bool(parts) and all(p in flat for p in parts)
 
@@ -140,7 +146,7 @@ class SourceCheck:
     its sources, and every such finding checked by hand in two runs was wrong: the source said what the
     document said (2026-11-25: an agreement of 85%, a monotonicity measured in training, a model's name)."""
 
-    MARKERS: ClassVar[re.Pattern[str]] = re.compile(r" ?\[\^\d+\]| ?\[@[^\]]*\]")
+    MARKERS: ClassVar[re.Pattern[str]] = DocumentRedTeam.MARKERS
     SHORTEST: ClassVar[int] = 30  # characters of a quote needed to find its statement
 
     def __init__(self, audit: CitationAudit) -> None:
