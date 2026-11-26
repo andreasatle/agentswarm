@@ -3605,7 +3605,7 @@ Then, when the plan listed threads, the search goes on until they are covered (2
 
 `agentswarm.evaluation.papers.PaperFinder`: The queries are run on the search service and each known title is looked up there (kept only if found); the picked ids are checked against the candidates (an id not among them is dropped) and their PDFs downloaded.
 
-Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `f54e9ba0c71b`.
+Then, when the plan listed threads, the search goes on until they are covered (2026-11-14, docs/design/web-research.md): a check reads the downloaded sources and names, for each thread, the source and the passage that answer it, a passage plain code finds in that source; for the threads none answers it writes narrower queries, whose new results are picked from for those threads only. It stops when every thread is covered, after ROUNDS rounds, or when a round covers no new thread. Version `e1a7966b0832`.
 
 ```text
 You check which of the threads a document must cover are answered by the sources found so far, for the reader
@@ -3614,7 +3614,9 @@ sentence or two). A passage answers a thread only if the document could be writt
 question asks for (the facts, figures, steps or evidence), and for a broad thread its substance, not one
 general sentence about it. A source that only mentions the subject, or touches the thread in passing, doesn't
 answer it: then say no source answers it. When none does, write one or two short search queries, narrower
-than a first search, that would find a source that does.
+than a first search, that would find a source that does, and the exact titles of well-known papers or
+articles that answer it, if you are sure of them: search ranks by matching words, so a thread's canonical
+work is often found only by its title.
 ```
 
 ### User message (sample)
@@ -3687,6 +3689,11 @@ class ThreadAnswer(Frozen):
         default_factory=list,
         description="when no source answers it: one or two short, narrower queries that would find one",
     )
+    known: list[str] = Field(
+        default_factory=list,
+        description="when no source answers it: the exact titles of up to two well-known papers or articles "
+        "that answer it and that you are sure exist (each is looked up)",
+    )
 ```
 
 <details><summary>JSON schema</summary>
@@ -3727,6 +3734,14 @@ class ThreadAnswer(Frozen):
             "type": "string"
           },
           "title": "Queries",
+          "type": "array"
+        },
+        "known": {
+          "description": "when no source answers it: the exact titles of up to two well-known papers or articles that answer it and that you are sure exist (each is looked up)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Known",
           "type": "array"
         }
       },

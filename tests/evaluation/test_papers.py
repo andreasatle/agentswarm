@@ -856,8 +856,13 @@ class TestBrief:
 class TextSearch(FakeSearch):
     """Downloads each page as its text."""
 
-    def __init__(self, results: dict[str, list[Candidate]], texts: dict[str, str]) -> None:
-        super().__init__(results)
+    def __init__(
+        self,
+        results: dict[str, list[Candidate]],
+        texts: dict[str, str],
+        titles: dict[str, Candidate] | None = None,
+    ) -> None:
+        super().__init__(results, titles)
         self._texts = texts
 
     def download(self, paper: Candidate, path: Path) -> None:
@@ -945,3 +950,75 @@ class TestFollowUp:
         assert len(asked) == 2 and folder.progress == (0, 0)  # stalled: no third check, no third search
         assert folder.answered == ()
         assert "**Threads no source covers:** what it costs; what to see" in folder.render()
+
+
+class TestKnownTitles:
+    """The web has no catalogue of titles, so the planner's well-known papers are looked up in the scholarly
+    indexes (2026-11-26: two runs where 11 such papers were added by hand)."""
+
+    class Down(FakeSearch):
+        def titled(self, title: str) -> Candidate | None:
+            raise OSError("index down")
+
+    def test_a_title_is_looked_up_in_the_first_index_that_has_it(self) -> None:
+        ragas = paper("2309.15217", "Ragas")
+        later = FakeSearch({}, {"Ragas": paper("W1", "Ragas"), "ARES": paper("W2", "ARES")})
+        web = TavilySearch(papers=(self.Down({}), FakeSearch({}, {"Ragas": ragas}), later))
+        assert web.titled("Ragas") == ragas  # an index that is down is passed over
+        assert web.titled("ARES") == paper("W2", "ARES") and web.titled("Unknown") is None
+        assert TavilySearch().titled("Ragas") is None
+
+    def test_an_index_paper_downloads_as_its_pdf_and_keeps_its_record(self, tmp_path: Path) -> None:
+        class Fetched(TavilySearch):
+            def fetch(self, url: str) -> bytes:
+                return b"%PDF-1.5" if url == "https://arxiv.org/pdf/2309.15217" else b""
+
+        ragas = paper("2309.15217", "Ragas").model_copy(
+            update={"pdfs": ("https://arxiv.org/pdf/2309.15217",)}
+        )
+        web = Fetched()
+        web.download(ragas, tmp_path / "ragas.pdf")
+        assert (tmp_path / "ragas.pdf").read_bytes() == b"%PDF-1.5" and web.described(ragas) == ragas
+        with pytest.raises(OSError):  # a closed paper: listed for the user, never extracted as a page
+            web.download(paper("W9", "Closed"), tmp_path / "closed.pdf")
+
+    async def test_a_paper_found_by_title_and_by_its_web_page_is_one_candidate(self, tmp_path: Path) -> None:
+        pdf = ("https://arxiv.org/pdf/2305.20050",)
+        verify = paper("2305.20050", "Let's Verify Step by Step").model_copy(update={"pdfs": pdf})
+        page = paper("web:https://arxiv.org/abs/2305.20050", "Let's Verify").model_copy(update={"pdfs": pdf})
+        search = FakeSearch({"verifiers": [page, paper("1")]}, {"Let's Verify Step by Step": verify})
+        found, asked = finder(["2305.20050"], search)
+        await found.find("topic", "ML", 5, tmp_path)
+        assert [c.id for c in asked[0].candidates] == ["2305.20050", "1"]
+
+    async def test_a_follow_up_round_looks_up_the_titles_named_for_a_gap(self, tmp_path: Path) -> None:
+        asked: list[BaseModel] = []
+        texts = {
+            **TestFollowUp.TEXTS,
+            "2410.21819": "Self-preference bias makes a judge favour its own text.",
+        }
+        quote = "costs 9.50 euros and lasts"
+        coverage = [
+            Coverage(
+                threads=[
+                    ThreadAnswer(thread=1, file="author-2024-fares.pdf", quote=quote),
+                    ThreadAnswer(thread=2, queries=["judge bias"], known=["Self-Preference Bias"]),
+                ]
+            ),
+            Coverage(
+                threads=[
+                    ThreadAnswer(thread=1, file="author-2024-fares.pdf", quote=quote),
+                    ThreadAnswer(
+                        thread=2,
+                        file="author-2024-self-preference-bias.pdf",
+                        quote="makes a judge favour its own",
+                    ),
+                ]
+            ),
+        ]
+        worker, picks = TestFollowUp().worker(coverage, asked)
+        bias = paper("2410.21819", "Self-Preference Bias")
+        search = TextSearch({"vaporetto": [paper("fares", "Fares")]}, texts, {"Self-Preference Bias": bias})
+        folder = await PaperFinder(worker, search, reader=FakeReader()).find("judges", "ML", 5, tmp_path)
+        assert [c.id for c in picks[1].candidates] == ["2410.21819"]  # found by its title, not the query
+        assert folder.progress == (1, 2)

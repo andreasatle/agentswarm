@@ -583,9 +583,18 @@ class TavilySearch(Fetching):
     KEY = "TAVILY_API_KEY"
     PAUSE_S = 0.2
 
-    def __init__(self, catalogue: Catalogue | None = None, key: str | None = None) -> None:
+    def __init__(
+        self,
+        catalogue: Catalogue | None = None,
+        key: str | None = None,
+        papers: Sequence[PaperSearch] = (),
+    ) -> None:
         self._catalogue = catalogue  # where a found paper's authors are looked up by its title
         self._key = key
+        # where a known title is looked up, in order: the web has no catalogue of titles, and its keyword
+        # searches find pages about a thread's words, not the canonical papers the planner names (2026-11-26:
+        # 11 well-known arXiv papers added by hand in two runs; mathlib, AlphaEvolve, SWE-bench before)
+        self._papers = tuple(papers)
 
     def post(self, path: str, body: BaseModel) -> bytes:
         key = self._key or os.environ.get(self.KEY)
@@ -609,7 +618,20 @@ class TavilySearch(Fetching):
         return [self.candidate(r) for r in found.results]
 
     def titled(self, title: str) -> Candidate | None:
-        return None  # the web has no catalogue of titles: the queries find its pages
+        """The paper with this title in the first scholarly index that has it (arXiv before OpenAlex: its
+        PDFs always let a program download them)."""
+        for index in self._papers:
+            try:
+                found = index.titled(title)
+            except OSError:  # an index that is down: the next may have it
+                continue
+            if found is not None:
+                return found
+        return None
+
+    @staticmethod
+    def web(paper: Candidate) -> bool:
+        return paper.id.startswith("web:")
 
     def candidate(self, result: TavilyResult) -> Candidate:
         site = (urllib.parse.urlparse(result.url).hostname or result.url).removeprefix("www.")
@@ -632,7 +654,7 @@ class TavilySearch(Fetching):
         )
 
     def download(self, paper: Candidate, path: Path) -> None:
-        if paper.pdfs:
+        if paper.pdfs or not self.web(paper):  # an index's paper: its PDF, or the user fetches it
             Fetching.download(self, paper, path)
             return
         extracted = TavilyExtracted.model_validate_json(
@@ -648,6 +670,8 @@ class TavilySearch(Fetching):
         record where the page says nothing or can't be fetched. Searched sources were cited by their site,
         undated, under the search's title (principia-to-lean, 2026-11-22: seven Stanford Encyclopedia
         entries, each naming its author and date)."""
+        if not self.web(paper):  # an index's record is the paper's own
+            return paper
         url = WebPage.landing(paper.page) or paper.page  # an arXiv PDF: its abstract page
         try:
             said = WebPage.metadata(url, self.fetch(url))
@@ -974,7 +998,7 @@ class PaperSource(StrEnum):
             case PaperSource.WIKIPEDIA:
                 return WikipediaSearch()
             case PaperSource.WEB:
-                return TavilySearch(OpenAlexSearch())
+                return TavilySearch(OpenAlexSearch(), papers=(ArxivSearch(), OpenAlexSearch()))
 
 
 class QueryRequest(Frozen):
@@ -1074,12 +1098,24 @@ class ThreadAnswer(Frozen):
         default_factory=list,
         description="when no source answers it: one or two short, narrower queries that would find one",
     )
+    known: list[str] = Field(
+        default_factory=list,
+        description="when no source answers it: the exact titles of up to two well-known papers or articles "
+        "that answer it and that you are sure exist (each is looked up)",
+    )
 
 
 class Coverage(Frozen):
     """For every thread: the source and passage that answer it, or the queries that might find one."""
 
     threads: list[ThreadAnswer]
+
+
+class FollowUp(Frozen):
+    """What a follow-up round searches for the threads no source answers yet."""
+
+    queries: tuple[str, ...] = ()
+    known: tuple[str, ...] = ()  # titles looked up before the queries are searched
 
 
 class CoveredThread(Frozen):
@@ -1276,7 +1312,9 @@ sentence or two). A passage answers a thread only if the document could be writt
 question asks for (the facts, figures, steps or evidence), and for a broad thread its substance, not one
 general sentence about it. A source that only mentions the subject, or touches the thread in passing, doesn't
 answer it: then say no source answers it. When none does, write one or two short search queries, narrower
-than a first search, that would find a source that does."""
+than a first search, that would find a source that does, and the exact titles of well-known papers or
+articles that answer it, if you are sure of them: search ranks by matching words, so a thread's canonical
+work is often found only by its title."""
 
     QUERIES = 5
     PER_QUERY = 8
@@ -1331,21 +1369,34 @@ than a first search, that would find a source that does."""
         for title in planned.known[: self.KNOWN]:
             known = await asyncio.to_thread(self._search.titled, title)
             if known is not None:
-                found.setdefault(known.id, known)
+                self.add(found, known)
         for query in planned.queries[: self._queries]:
             for candidate in await asyncio.to_thread(self._search.search, query, self.PER_QUERY):
-                found.setdefault(candidate.id, candidate)
+                self.add(found, candidate)
         return list(found.values())[: self.CANDIDATES]
 
-    async def searched(self, queries: Sequence[str]) -> list[Candidate]:
-        """The candidates the follow-up queries find that no earlier search found."""
+    async def searched(self, follow: FollowUp) -> list[Candidate]:
+        """The candidates the follow-up titles and queries find that no earlier search found."""
         new: dict[str, Candidate] = {}
-        for query in list(dict.fromkeys(queries))[: self.FOLLOW_UPS]:
+        for title in list(dict.fromkeys(follow.known))[: self.KNOWN]:
+            known = await asyncio.to_thread(self._search.titled, title)
+            if known is not None:
+                self.add(new, known)
+        for query in list(dict.fromkeys(follow.queries))[: self.FOLLOW_UPS]:
             for candidate in await asyncio.to_thread(self._search.search, query, self.PER_QUERY):
-                if candidate.id not in self._found:
-                    new.setdefault(candidate.id, candidate)
+                self.add(new, candidate)
         self._found.update(new)
         return list(new.values())[: self.CANDIDATES]
+
+    def add(self, found: dict[str, Candidate], candidate: Candidate) -> None:
+        """A candidate kept unless found before, by its id or a PDF link: a paper looked up by its title on
+        arXiv is the same paper as a web result for its arXiv page, under another id."""
+        if candidate.id in found or candidate.id in self._found:
+            return
+        links = set(candidate.pdfs)
+        if any(links & set(c.pdfs) for c in (*self._found.values(), *found.values())):
+            return
+        found[candidate.id] = candidate
 
     def shown(self, candidates: Sequence[Candidate]) -> tuple[Candidate, ...]:
         """As the picker sees them: abstracts cut, no links. Picked whether or not they download (2026-10-18:
@@ -1405,9 +1456,9 @@ than a first search, that would find a source that does."""
 
     async def check(
         self, topic: str, know: str, picked: Sequence[Found], out: Path
-    ) -> tuple[tuple[CoveredThread, ...], list[str]]:
+    ) -> tuple[tuple[CoveredThread, ...], FollowUp]:
         """The threads the downloaded sources answer, each with a passage found in its source, and the
-        follow-up queries for the rest."""
+        follow-up titles and queries for the rest."""
         texts: dict[str, str] = {}
         for found in picked:
             if found.file is not None:
@@ -1429,6 +1480,7 @@ than a first search, that would find a source that does."""
         answered = await self._worker.run(self.COVER, request, Coverage)
         covered: list[CoveredThread] = []
         queries: list[str] = []
+        known: list[str] = []
         for answer in answered.threads:
             question = self.thread(answer.thread)
             if not question or any(c.thread == question for c in covered):
@@ -1442,7 +1494,9 @@ than a first search, that would find a source that does."""
                 covered.append(CoveredThread(thread=question, file=answer.file, quote=quote))
             else:
                 queries += answer.queries[: self.PER_GAP]
-        return tuple(sorted(covered, key=lambda c: self._threads.index(c.thread))), queries
+                known += answer.known[: self.PER_GAP]
+        ranked = tuple(sorted(covered, key=lambda c: self._threads.index(c.thread)))
+        return ranked, FollowUp(queries=tuple(queries), known=tuple(known))
 
     async def download(self, picked: Sequence[Found], out: Path) -> list[Found]:
         out.mkdir(parents=True, exist_ok=True)
@@ -1466,14 +1520,14 @@ than a first search, that would find a source that does."""
         covered: tuple[CoveredThread, ...] = ()
         progress: list[int] = []
         for round in range(self.ROUNDS + 1) if self._threads else ():
-            covered, queries = await self.check(topic, know, picked, out)
+            covered, follow = await self.check(topic, know, picked, out)
             progress.append(len(covered))
             stalled = len(progress) > 1 and progress[-1] <= progress[-2]
             if len(covered) == len(self._threads) or stalled or round == self.ROUNDS:
                 break
             held = {c.thread for c in covered}
             gaps = tuple(t for t in self.numbered() if t.question not in held)
-            more = await self.searched(queries)
+            more = await self.searched(follow)
             extra = await self.pick(topic, know, min(len(gaps), self.MORE), more, gaps) if more else []
             if not extra:
                 break
