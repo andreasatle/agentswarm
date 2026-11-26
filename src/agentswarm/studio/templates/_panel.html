@@ -103,8 +103,9 @@
           {% elif view.question.instructions and c.value == "yes" %}
           {# publishing: named for what it does, never the highlighted button, and confirmed (2026-11-23: an
              "Approve" under the red team's findings published a run its user meant to change) #}
-          <form method="post" action="/runs/{{ name }}/answer" class="inline">
-            <button class="button" name="choice" value="yes" data-confirm="Publish the document as it is, without any changes? This ends the run.">Publish as it is</button>
+          <form method="post" action="/runs/{{ name }}/answer" class="inline titled">
+            <label class="title"><span>Title</span><input name="title" required value="{{ view.run.heading }}" aria-label="The document's title"></label>
+            <button class="button" name="choice" value="yes" data-confirm="Publish the document with this title and no other changes? This ends the run.">Publish as it is</button>
           </form>
           {% else %}
           <form method="post" action="/runs/{{ name }}/answer" class="inline">

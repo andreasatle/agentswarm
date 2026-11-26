@@ -100,6 +100,9 @@ class Answer(Frozen):
     add: tuple[
         str, ...
     ] = ()  # the user's own questions (at the scope) or instructions (with revise), one each
+    # with Choice.YES at the publishing: the document's title as the user set it (the user, 2026-11-26: the
+    # writers' title ran twice as long as wanted, and nothing before publishing could change it)
+    title: str | None = None
 
 
 class Revision(Frozen):
@@ -142,6 +145,17 @@ class DocumentRun(BaseModel):
     ] = ()  # the red team's findings on the finished document, shown at the publishing
     revision: Revision | None = None  # the changes the user asked for, until they are made
     revisions: int = 0  # rounds of the user's changes made
+    title: str | None = (
+        None  # the title the user gave at the publishing, put on the page in place of the writers'
+    )
+
+    @property
+    def heading(self) -> str:
+        """The document's title as it stands: its first line, without the heading's mark."""
+        if self.document is None or not self.document.is_file():
+            return ""
+        first = self.document.read_text().split("\n", 1)[0]
+        return first.lstrip("# ").strip() if first.startswith("#") else ""
 
     @property
     def sources(self) -> Path:

@@ -283,8 +283,13 @@ class DocumentPipeline:
         }
 
     def publish(self, run: DocumentRun) -> Update:
+        titled = (f"title set by you: {run.title}",) if run.title is not None else ()
         page = self.apart(self._stages.publishing.publish, run, self.policy(run))
-        return {"stage": Stage.PUBLISHED, "page": page, "notes": (*run.notes, f"page written: {page}")}
+        return {
+            "stage": Stage.PUBLISHED,
+            "page": page,
+            "notes": (*run.notes, *titled, f"page written: {page}"),
+        }
 
     @staticmethod
     def apart[**P, T](work: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
@@ -392,6 +397,8 @@ class DocumentPipeline:
             )
         )
         update = self.answered(run, answer)
+        if answer.choice is Choice.YES and answer.title is not None and answer.title != run.heading:
+            update["title"] = answer.title
         if answer.choice is Choice.REVISE:
             update["revision"] = Revision(
                 findings=tuple(f for n, f in enumerate(fixable, 1) if n not in answer.drop),
@@ -532,6 +539,11 @@ class DocumentPipeline:
             raise ValueError(f"{name} can't take {answer.choice} now: {', '.join(question.choices)}")
         if answer.choice is Choice.BUDGET and answer.budget is None:
             raise ValueError("raising the budget needs the new total")
+        if answer.title is not None:
+            if not (question.instructions and answer.choice is Choice.YES):
+                raise ValueError("a title is given only when publishing")
+            if not answer.title.strip() or "\n" in answer.title:
+                raise ValueError("the title is one line of text")
         if question.instructions:
             self.instructed(name, question, answer)
         elif answer.add and not question.items:

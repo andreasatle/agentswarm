@@ -100,6 +100,14 @@ class TestPageStage:
         assert page == tmp_path / "page.html"
         assert "80% of cited statements fully supported" in page.read_text()
 
+    def test_the_users_title_replaces_the_writers_and_nothing_else(self, tmp_path: Path) -> None:
+        titled = run(tmp_path).model_copy(update={"title": "Sleep:  a short  title"})
+        assert titled.heading == "Sleep and Memory"
+        page = PageStage().publish(titled, Policy.load())
+        assert titled.heading == "Sleep: a short title"
+        assert (tmp_path / "document.md").read_text().startswith("# Sleep: a short title\n\n## Replay\n")
+        assert "<title>Sleep: a short title" in page.read_text()
+
 
 class TestProjectStage:
     def test_the_writing_and_the_review_name_only_teams_the_stage_can_build(self, tmp_path: Path) -> None:

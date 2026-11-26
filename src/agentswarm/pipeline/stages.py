@@ -374,7 +374,16 @@ class PageStage:
 
     def publish(self, run: DocumentRun, policy: Policy) -> Path:
         assert run.document is not None
+        if run.title is not None:
+            self.retitle(run.document, run.title)
         return self._renderer.write(run.document, run.folder / "page.html", self.note(run))
+
+    @staticmethod
+    def retitle(document: Path, title: str) -> None:
+        """The document's first heading replaced by the user's title; the writers' text is left as it is."""
+        first, _, rest = document.read_text().partition("\n")
+        body = rest if first.startswith("# ") else f"{first}\n{rest}"
+        document.write_text(f"# {' '.join(title.split())}\n{body}")
 
     @staticmethod
     def note(run: DocumentRun) -> str:

@@ -137,7 +137,10 @@ class TestStudio:
         assert (
             "Publish as it is" in page and ">Approve<" not in page
         )  # "Approve" read as agreeing with findings
-        assert 'data-confirm="Publish the document as it is' in page
+        assert 'data-confirm="Publish the document with this title' in page
+        assert (
+            'name="title" required value="Sleep"' in page
+        )  # the writers' title, to change before publishing
         page = f.answer("revise", ticks="2", keep="2", own="No 'first', 'second' in bullets\n")
         (revision,) = f.project.revisions
         assert [x.flaw for x in revision.findings] == ["Vague."]

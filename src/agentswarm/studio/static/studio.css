@@ -87,6 +87,9 @@ h1, h2 { letter-spacing: -.01em; }
 button:disabled { opacity: .55; cursor: progress; }
 .actions, .choices { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 18px; }
 form.inline { display: inline-flex; gap: 8px; align-items: center; margin: 0; }
+form.titled { flex-wrap: wrap; flex-basis: 100%; }
+form.titled label.title { display: inline-flex; gap: 8px; align-items: center; flex: 1 1 40ch; }
+form.titled label.title input { flex: 1; min-width: 20ch; font: inherit; padding: 6px 8px; }
 .money { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 9px; padding-left: 10px; background: var(--panel); }
 .money span { color: var(--muted); }
 .money input { border: 0; width: 86px; padding: 8px 8px 8px 4px; background: transparent; }

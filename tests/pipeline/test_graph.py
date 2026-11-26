@@ -193,6 +193,21 @@ class TestDocumentPipeline:
         runs.start(later, tmp_path / "awake")  # by its latest step, not by name: "awake" is newer
         assert runs.runs() == ["sleep", "awake"]
 
+    def test_a_title_is_given_only_when_publishing_and_noted(self, tmp_path: Path) -> None:
+        ledger = Ledger()
+        runs = pipeline(FakeProject(ledger, shares=[19, 19]), ledger)
+        begin(runs, request(), tmp_path)
+        with pytest.raises(ValueError, match="only when publishing"):
+            runs.answer("sleep", Answer(choice=Choice.YES, title="Sleep"))
+        runs.answer("sleep", Answer(choice=Choice.YES))
+        (tmp_path / "document.md").write_text("# Sleep and memory: a long title\n\nText.\n")
+        with pytest.raises(ValueError, match="one line"):
+            runs.answer("sleep", Answer(choice=Choice.YES, title="Two\nlines"))
+        with pytest.raises(ValueError, match="only when publishing"):
+            runs.answer("sleep", Answer(choice=Choice.REVISE, title="Sleep"))
+        run = runs.answer("sleep", Answer(choice=Choice.YES, title="Sleep and memory"))
+        assert run.title == "Sleep and memory" and "title set by you: Sleep and memory" in run.notes
+
     def test_the_questions_are_approved_before_anything_is_searched_and_bind_the_search(
         self, tmp_path: Path
     ) -> None:

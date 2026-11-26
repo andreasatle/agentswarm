@@ -224,6 +224,7 @@ class Studio:
         keep: Annotated[list[int] | None, Form()] = None,
         ticks: Annotated[int, Form()] = 0,
         own: Annotated[str, Form()] = "",
+        title: Annotated[str | None, Form()] = None,
     ) -> Response:
         try:
             # a form with tick boxes says how many it showed; the unticked ones are left out
@@ -234,6 +235,7 @@ class Studio:
                 budget=float(budget) if self.number(budget) else None,
                 drop=drop,
                 add=tuple(line.strip() for line in own.splitlines() if line.strip()),
+                title=" ".join(title.split()) if title is not None else None,
             )
             self._pipeline.check(name, given)
             label = self.label(self._pipeline.view(name), given)

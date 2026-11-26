@@ -36,3 +36,7 @@ The user (2026-11-24): "go back and forth ... add a reference and rerun from the
 - **Files are copied at every pause** into `history/<checkpoint>/` in the run's folder (`pipeline/history.py`, `RunFiles`): about 17 MB a moment for the memory run, mostly its sources; plain copies, since SQLite files and reading lists are rewritten in place and a hard link would change with them. Before the run leaves a version, its current files are saved too. The user's own files in the run's folder (notes, uploads) are never touched.
 - **Everything after the pause is redone**, at its cost: the first step toward goal 16, not yet redoing only what the change touches. The spend shown stays the run's total over every version.
 - **Runs from before this have no files for their earlier moments:** shown, without buttons, and said so.
+
+## The title, set at the publishing pause (2026-11-26)
+
+The user: "Shouldn't we be able to change the title before we publish?" The writers' title comes from the brief, and a revision round reaches only the sections, so nothing before publishing could change it. The publishing pause now shows the document's title in a field beside "Publish as it is"; a changed title is the user's answer (`Answer.title`, kept as `DocumentRun.title`), put on the document's first line and the page when it is published, and the run's notes say "title set by you". The writers' text is not touched, and no model is called.
