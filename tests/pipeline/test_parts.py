@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from agentswarm.cli import Cli
 from agentswarm.control.limits import SharedSpend
 from agentswarm.core.clock import SystemClock
@@ -124,6 +126,22 @@ class TestProjectStage:
         # findings are ruled without reasoning, cited statements with it (docs/design/self-correction.md)
         config = ProjectConfig.load(reviewing)
         assert review.finding_referee == "referee-fast" and config.models["referee-fast"].thinking is False
+
+    def test_the_audit_is_capped_by_the_budget_left_now_not_the_writings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        limits = tmp_path / "limits.yaml"
+        limits.write_text(f"ledger: {tmp_path / 'spend.sqlite'}\n")  # an empty ledger: nothing spent today
+        monkeypatch.setenv(SpendLimits.VARIABLE, str(limits))
+        folder = run(tmp_path)
+        folder.sources.mkdir(parents=True)
+        (folder.sources / "paper.txt").write_text("Sleep and memory\nA. Author, the text.")
+        ledger = Ledger()
+        stage = ProjectStage(ledger)
+        stage.capped(stage.config(folder, Policy.load(), 0.5), folder, 0.5)  # the writing's cap
+        ledger.usd = 1.9
+        raised = folder.model_copy(update={"request": folder.request.model_copy(update={"budget": 3.0})})
+        assert stage.checking(raised).budgets.usd_per_day == pytest.approx(1.1)
 
 
 class TestSpentBy:

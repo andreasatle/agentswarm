@@ -241,7 +241,7 @@ class ProjectStage:
         report = RedTeamStage().attack(run, policy)
         if not any(f.fact for f in report.shown):
             return report
-        config = ProjectConfig.load(run.project / "project.yaml")
+        config = self.checking(run)
         project = Project.open(config, run.board, ProjectServices(teams=self._catalog))
         try:
             referee = config.review.referee if config.review is not None else "referee"
@@ -278,6 +278,14 @@ class ProjectStage:
         config["budgets"] = {**config.get("budgets", {}), "usd_per_day": round(today + budget_left, 4)}
         path.write_text(yaml.safe_dump(config, sort_keys=False))
         return path
+
+    def checking(self, run: DocumentRun) -> ProjectConfig:
+        """The project's configuration for the audit and the red team's source check, capped to what the run
+        has left now: they read the cap the writing set, so a budget raised later stopped the audit after the
+        revision it paid for (local-coding-models, 2026-11-27: "won't fit ($5.59 of $5.62 ...)" at $5.98 of
+        $7.00)."""
+        left = max(run.request.budget - self._spending.spent(run), 0.0)
+        return ProjectConfig.load(self.capped(run.project / "project.yaml", run, left))
 
     def today(self, run: DocumentRun) -> float:
         limits = SpendLimits.load()
@@ -333,7 +341,7 @@ class ProjectStage:
     AUDIT = "citation-audit"  # as the audit's spend is recorded
 
     def audit(self, run: DocumentRun, policy: Policy) -> AuditResult:
-        config = ProjectConfig.load(run.project / "project.yaml")
+        config = self.checking(run)
         project = Project.open(config, run.board, ProjectServices(teams=self._catalog))
         try:
             referee = config.review.referee if config.review is not None else "referee"
