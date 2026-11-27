@@ -151,6 +151,40 @@ class SandboxUnavailable(RuntimeError):
     """The configured sandbox can't run anything: without it every check would look failed, so a run stops."""
 
 
+class Docker:
+    """Whether Docker can run sandboxes here, and if not, why, for the message a stopped run shows (a retry
+    continues from the step that stopped, so no check runs ahead of the steps). Only the `docker` command
+    and its daemon are asked, so any runtime that provides them will do (Docker Desktop, colima, OrbStack,
+    Rancher Desktop, Podman's docker-compatible CLI); none is assumed, and nothing is started (the user,
+    2026-11-25: no side effects by magic)."""
+
+    CONTROL_TIMEOUT_S = 30.0
+
+    def __init__(self, docker: str = "docker") -> None:
+        self._docker = docker
+
+    def problem(self) -> str | None:
+        """None when ready, else what is missing and what to do about it, in plain words."""
+        if shutil.which(self._docker) is None:
+            return (
+                f"Docker isn't installed (no `{self._docker}` command): writing runs the checks in Docker "
+                "containers. Install a Docker runtime (Docker Desktop, colima, OrbStack or another), start "
+                "it, then retry"
+            )
+        try:
+            info = subprocess.run(
+                [self._docker, "info"], capture_output=True, check=False, timeout=self.CONTROL_TIMEOUT_S
+            )
+        except subprocess.TimeoutExpired:
+            info = None
+        if info is None or info.returncode != 0:
+            return (
+                f"Docker is installed but not running (`{self._docker} info` gets no answer): start your "
+                "Docker runtime (open Docker Desktop, or `colima start`, for example), then retry"
+            )
+        return None
+
+
 class DockerSandbox:
     """Runs each command in a fresh, throwaway container with a copy of the worktree mounted at /work."""
 
@@ -164,24 +198,15 @@ class DockerSandbox:
     @classmethod
     def available(cls, docker: str = "docker") -> bool:
         """Whether a Docker daemon answers."""
-        if shutil.which(docker) is None:
-            return False
-        try:
-            info = subprocess.run(
-                [docker, "info"], capture_output=True, check=False, timeout=cls.CONTROL_TIMEOUT_S
-            )
-        except subprocess.TimeoutExpired:
-            return False
-        return info.returncode == 0
+        return Docker(docker).problem() is None
 
     CONTROL_TIMEOUT_S = 30.0  # for docker's own commands (info, kill)
 
     def run(self, command: Sequence[str], cwd: Path, timeout_s: float) -> SandboxResult:
         if not self._answered:
-            if not self.available(self._docker):
-                raise SandboxUnavailable(
-                    f"no Docker daemon answers `{self._docker} info`: start Docker first"
-                )
+            problem = Docker(self._docker).problem()
+            if problem is not None:
+                raise SandboxUnavailable(problem)
             self._answered = True
         name = f"agentswarm-{uuid.uuid4().hex[:12]}"
         with RunCopy(cwd) as copy:

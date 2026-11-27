@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 
 from agentswarm.core.config import SandboxConfig, SandboxKind
-from agentswarm.workspace.sandbox import DockerSandbox, LocalSandbox, Process, Sandboxes, SandboxUnavailable
+from agentswarm.workspace.sandbox import (
+    Docker,
+    DockerSandbox,
+    LocalSandbox,
+    Process,
+    Sandboxes,
+    SandboxUnavailable,
+)
 
 
 class TestLocalSandbox:
@@ -86,8 +93,21 @@ class TestDockerSandbox:
 
     def test_stops_when_no_daemon_answers(self, tmp_path: Path) -> None:
         sandbox = DockerSandbox(SandboxConfig(), docker="no-such-docker")
-        with pytest.raises(SandboxUnavailable, match="start Docker"):
+        with pytest.raises(SandboxUnavailable, match="Docker isn't installed"):
             sandbox.run(["pytest"], tmp_path, 10)
+
+
+class TestDocker:
+    def test_says_when_docker_isnt_installed(self) -> None:
+        problem = Docker("no-such-docker").problem()
+        assert problem is not None and "isn't installed" in problem
+
+    def test_says_when_the_daemon_doesnt_answer(self) -> None:
+        problem = Docker("false").problem()  # a command that exists and fails, as `docker info` does then
+        assert problem is not None and "not running" in problem
+
+    def test_any_runtime_that_answers_will_do(self) -> None:
+        assert Docker("true").problem() is None
 
     @pytest.mark.docker
     def test_runs_in_a_container_without_network(self, docker_workdir: Path) -> None:
