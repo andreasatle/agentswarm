@@ -327,14 +327,24 @@ class ArxivSearch(Fetching):
                     pdfs=(cls.PDF.format(id=match.group(1)),),
                     title=" ".join(entry.findtext("a:title", "", cls.ATOM).split()),
                     authors=tuple(
-                        " ".join(a.findtext("a:name", "", cls.ATOM).split())
+                        name
                         for a in entry.findall("a:author", cls.ATOM)
+                        if (name := cls.author(a.findtext("a:name", "", cls.ATOM)))
                     ),
                     year=int(entry.findtext("a:published", "0000", cls.ATOM)[:4]),
                     abstract=" ".join(entry.findtext("a:summary", "", cls.ATOM).split()),
                 )
             )
         return found
+
+    @staticmethod
+    def author(name: str) -> str:
+        """An author's name as arXiv should have given it: its record of GLM-4.5 (2508.06471) lists "GLM-4. 5
+        Team" and ":" as authors, and the reference read "GLM-4. 5 Team, :, Zeng, A., ..."
+        (local-coding-models, 2026-11-27). A version's split number is closed up; an entry without a letter
+        is no name (empty, so it is left out)."""
+        name = re.sub(r"(\d)\.\s+(\d)", r"\1.\2", " ".join(name.split()))
+        return name if re.search(r"[^\W\d_]", name) else ""
 
 
 class OpenAlexSearch(Fetching):

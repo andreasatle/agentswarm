@@ -106,6 +106,11 @@ def finder(picked: list[str], search: FakeSearch) -> tuple[PaperFinder, list[Pic
 
 
 class TestArxivSearch:
+    def test_a_garbled_author_list_is_cleaned(self) -> None:
+        # arXiv's own record of GLM-4.5 (2508.06471)
+        names = ("GLM-4. 5 Team", " :", "Aohan Zeng")
+        assert [ArxivSearch.author(n) for n in names] == ["GLM-4.5 Team", "", "Aohan Zeng"]
+
     def test_an_atom_entry_becomes_a_candidate_without_its_version(self) -> None:
         [found] = ArxivSearch.parse(FEED)
         assert found.id == "2305.20050" and found.year == 2023
